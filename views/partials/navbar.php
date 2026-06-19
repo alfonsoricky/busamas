@@ -1,6 +1,9 @@
 <?php
     $links = [
         '/' => 'Dashboard',
+        '/master-barang' => 'Master Barang',
+        '/sheet' => 'Sheet',
+        '/drive' => 'Drive',
         '/about' => 'Tentang',
         '/contact' => 'Kontak',
     ];

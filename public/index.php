@@ -26,6 +26,27 @@ $routes = [
         'view' => 'pages/contact',
         'title' => 'Kontak',
     ],
+    '/sheet' => [
+        'view' => 'pages/sheet',
+        'title' => 'Google Sheet',
+        'data' => fn (): array => [
+            'sheet' => fetch_google_sheet_rows(),
+        ],
+    ],
+    '/drive' => [
+        'view' => 'pages/drive',
+        'title' => 'Google Drive',
+        'data' => fn (): array => [
+            'drive' => fetch_google_drive_files(),
+        ],
+    ],
+    '/master-barang' => [
+        'view' => 'pages/master-barang',
+        'title' => 'Master Barang',
+        'data' => fn (): array => [
+            'masterBarang' => fetch_master_barang(),
+        ],
+    ],
 ];
 
 if (! array_key_exists($path, $routes)) {
@@ -38,6 +59,10 @@ if (! array_key_exists($path, $routes)) {
     exit;
 }
 
-view($routes[$path]['view'], [
-    'title' => $routes[$path]['title'],
+$route = $routes[$path];
+$routeData = isset($route['data']) ? $route['data']() : [];
+
+view($route['view'], [
+    'title' => $route['title'],
+    ...$routeData,
 ]);

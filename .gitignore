@@ -1,4 +1,7 @@
 .DS_Store
 /vendor/
 /.env
+/storage/*.json
+/storage/generated/
+/storage/drive/
 *.log

@@ -1,33 +1,64 @@
 <?php
 
-require dirname(__DIR__) . '/app/helpers.php';
-
-$drive = fetch_google_drive_files();
-
-if (! $drive['ok']) {
-    fwrite(STDERR, 'Gagal membaca Google Drive: ' . $drive['error'] . PHP_EOL);
-    exit(1);
-}
-
 $nameContains = getenv('INVOICE_NAME_CONTAINS') ?: '';
 $nameRegex = getenv('INVOICE_NAME_REGEX') ?: '';
-$xlsxFiles = array_values(array_filter($drive['files'], static function (array $file) use ($nameContains, $nameRegex): bool {
-    if ($nameContains !== '' && ! str_contains(strtoupper($file['name'] ?? ''), strtoupper($nameContains))) {
-        return false;
-    }
+$localDriveDir = getenv('LOCAL_DRIVE_DIR') ?: '';
+$mergeCacheFiles = getenv('MERGE_CACHE_FILES') ?: '';
+$outputSuffix = getenv('OUTPUT_SUFFIX') ?: '';
 
-    if ($nameRegex !== '' && preg_match('/' . $nameRegex . '/i', $file['name'] ?? '') !== 1) {
-        return false;
-    }
-
-    return ($file['mimeType'] ?? '') === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-}));
+require dirname(__DIR__) . '/app/helpers.php';
 
 $outputDir = dirname(__DIR__) . '/storage/generated';
 
 if (! is_dir($outputDir)) {
     mkdir($outputDir, 0775, true);
 }
+
+if ($mergeCacheFiles !== '') {
+    $cacheFiles = array_filter(array_map('trim', explode(',', $mergeCacheFiles)));
+    $items = [];
+    $customers = [];
+    $failedFiles = [];
+
+    foreach ($cacheFiles as $cacheFile) {
+        $cachePath = str_starts_with($cacheFile, '/')
+            ? $cacheFile
+            : $outputDir . '/' . $cacheFile;
+        $cache = read_extract_cache($cachePath);
+        $items = array_merge($items, $cache['items']);
+        $customers = array_merge($customers, $cache['customers']);
+        $failedFiles = array_merge($failedFiles, $cache['failed']);
+    }
+
+    write_outputs($outputDir, $outputSuffix, $items, $customers, $failedFiles, 0);
+
+    exit;
+}
+
+if ($localDriveDir !== '') {
+    $xlsxFiles = local_xlsx_files($localDriveDir);
+} else {
+    $drive = fetch_google_drive_files();
+
+    if (! $drive['ok']) {
+        fwrite(STDERR, 'Gagal membaca Google Drive: ' . $drive['error'] . PHP_EOL);
+        exit(1);
+    }
+
+    $xlsxFiles = $drive['files'];
+}
+
+$xlsxFiles = array_values(array_filter($xlsxFiles, static function (array $file) use ($nameContains, $nameRegex): bool {
+    if ($nameContains !== '' && ! str_contains(strtoupper($file['name'] ?? ''), strtoupper($nameContains))) {
+        return false;
+    }
+
+    if ($nameRegex !== '' && preg_match('~' . str_replace('~', '\~', $nameRegex) . '~i', $file['name'] ?? '') !== 1) {
+        return false;
+    }
+
+    return ($file['mimeType'] ?? '') === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+}));
 
 $cacheLabel = $nameRegex !== '' ? $nameRegex : $nameContains;
 $cacheSuffix = $cacheLabel !== '' ? '-' . preg_replace('/[^A-Za-z0-9]+/', '-', trim($cacheLabel, '/')) : '';
@@ -43,7 +74,9 @@ $cache = getenv('RESET_CACHE') === '1'
 $items = $cache['items'];
 $customers = $cache['customers'];
 $failedFiles = [];
-$token = google_service_account_access_token();
+$token = $localDriveDir !== ''
+    ? ['ok' => true, 'access_token' => null]
+    : google_service_account_access_token();
 
 if (! $token['ok']) {
     fwrite(STDERR, 'Gagal membuat access token: ' . $token['error'] . PHP_EOL);
@@ -61,10 +94,18 @@ foreach ($xlsxFiles as $index => $file) {
 
     echo '[' . ($index + 1) . '/' . count($xlsxFiles) . '] READ ' . $fileName . PHP_EOL;
 
-    $downloadUrl = 'https://www.googleapis.com/drive/v3/files/' . rawurlencode($file['id']) . '?alt=media';
-    $response = http_get($downloadUrl, [
-        'Authorization: Bearer ' . $token['access_token'],
-    ]);
+    if (($file['local_path'] ?? '') !== '') {
+        $response = [
+            'ok' => true,
+            'body' => file_get_contents($file['local_path']),
+            'error' => null,
+        ];
+    } else {
+        $downloadUrl = 'https://www.googleapis.com/drive/v3/files/' . rawurlencode($file['id']) . '?alt=media';
+        $response = http_get($downloadUrl, [
+            'Authorization: Bearer ' . $token['access_token'],
+        ]);
+    }
 
     if (! $response['ok']) {
         $failedFiles[] = [
@@ -104,32 +145,7 @@ foreach ($xlsxFiles as $index => $file) {
     }
 }
 
-$groups = group_similar_items($items);
-$customerGroups = group_similar_customers($customers);
-
-usort($groups, static function (array $a, array $b): int {
-    return strcasecmp($a['canonical_name'], $b['canonical_name']);
-});
-usort($customerGroups, static function (array $a, array $b): int {
-    return strcasecmp($a['canonical_name'], $b['canonical_name']);
-});
-
-write_master_barang_csv($outputDir . '/master-barang.csv', $groups);
-write_alias_csv($outputDir . '/master-barang-alias.csv', $groups);
-write_master_customer_csv($outputDir . '/master-customer.csv', $customerGroups);
-write_customer_alias_csv($outputDir . '/master-customer-alias.csv', $customerGroups);
-write_failed_csv($outputDir . '/master-barang-gagal.csv', array_merge($cache['failed'], $failedFiles));
-
-echo PHP_EOL;
-echo 'File invoice XLSX: ' . count($xlsxFiles) . PHP_EOL;
-echo 'Baris item terbaca: ' . count($items) . PHP_EOL;
-echo 'Master barang unik: ' . count($groups) . PHP_EOL;
-echo 'Customer invoice terbaca: ' . count($customers) . PHP_EOL;
-echo 'Master customer unik: ' . count($customerGroups) . PHP_EOL;
-echo 'File gagal: ' . count($failedFiles) . PHP_EOL;
-echo 'Output: storage/generated/master-barang.csv' . PHP_EOL;
-echo 'Alias: storage/generated/master-barang-alias.csv' . PHP_EOL;
-echo 'Customer: storage/generated/master-customer.csv' . PHP_EOL;
+write_outputs($outputDir, $outputSuffix, $items, $customers, array_merge($cache['failed'], $failedFiles), count($xlsxFiles));
 
 function read_xlsx_rows(string $filePath): array
 {
@@ -195,6 +211,39 @@ function read_xlsx_rows(string $filePath): array
     return $rows;
 }
 
+function local_xlsx_files(string $directory): array
+{
+    $root = realpath($directory);
+
+    if ($root === false || ! is_dir($root)) {
+        fwrite(STDERR, 'Folder lokal tidak ditemukan: ' . $directory . PHP_EOL);
+        exit(1);
+    }
+
+    $files = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || strtolower($file->getExtension()) !== 'xlsx') {
+            continue;
+        }
+
+        $path = $file->getPathname();
+        $name = str_replace($root . DIRECTORY_SEPARATOR, '', $path);
+
+        $files[] = [
+            'id' => md5($path),
+            'name' => str_replace('_', '/', $name),
+            'mimeType' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'local_path' => $path,
+        ];
+    }
+
+    usort($files, static fn (array $a, array $b): int => strnatcasecmp($a['name'], $b['name']));
+
+    return $files;
+}
+
 function read_extract_cache(string $path): array
 {
     if (! is_readable($path)) {
@@ -233,6 +282,37 @@ function write_extract_cache(string $path, array $cache, array $items, array $cu
         'customers' => $customers,
         'failed' => $cache['failed'],
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+}
+
+function write_outputs(string $outputDir, string $suffix, array $items, array $customers, array $failedFiles, int $invoiceFileCount): void
+{
+    $suffix = $suffix !== '' ? '-' . trim($suffix, '-') : '';
+    $groups = group_similar_items($items);
+    $customerGroups = group_similar_customers($customers);
+
+    usort($groups, static function (array $a, array $b): int {
+        return strcasecmp($a['canonical_name'], $b['canonical_name']);
+    });
+    usort($customerGroups, static function (array $a, array $b): int {
+        return strcasecmp($a['canonical_name'], $b['canonical_name']);
+    });
+
+    write_master_barang_csv($outputDir . '/master-barang' . $suffix . '.csv', $groups);
+    write_alias_csv($outputDir . '/master-barang-alias' . $suffix . '.csv', $groups);
+    write_master_customer_csv($outputDir . '/master-customer' . $suffix . '.csv', $customerGroups);
+    write_customer_alias_csv($outputDir . '/master-customer-alias' . $suffix . '.csv', $customerGroups);
+    write_failed_csv($outputDir . '/master-barang-gagal' . $suffix . '.csv', $failedFiles);
+
+    echo PHP_EOL;
+    echo 'File invoice XLSX: ' . $invoiceFileCount . PHP_EOL;
+    echo 'Baris item terbaca: ' . count($items) . PHP_EOL;
+    echo 'Master barang unik: ' . count($groups) . PHP_EOL;
+    echo 'Customer invoice terbaca: ' . count($customers) . PHP_EOL;
+    echo 'Master customer unik: ' . count($customerGroups) . PHP_EOL;
+    echo 'File gagal: ' . count($failedFiles) . PHP_EOL;
+    echo 'Output: storage/generated/master-barang' . $suffix . '.csv' . PHP_EOL;
+    echo 'Alias: storage/generated/master-barang-alias' . $suffix . '.csv' . PHP_EOL;
+    echo 'Customer: storage/generated/master-customer' . $suffix . '.csv' . PHP_EOL;
 }
 
 function extract_invoice_items(array $rows, string $fileName, string $fileId): array
@@ -294,8 +374,10 @@ function extract_invoice_items(array $rows, string $fileName, string $fileId): a
 
 function extract_invoice_customer(array $rows, string $fileName, string $fileId): ?array
 {
-    $customerName = '';
+    $laundryName = '';
+    $contactName = '';
     $address = '';
+    $phone = '';
     $invoiceNumber = '';
     $invoiceDate = '';
 
@@ -304,11 +386,17 @@ function extract_invoice_customer(array $rows, string $fileName, string $fileId)
         $labelE = strtoupper(normalize_spaces($row['E'] ?? ''));
 
         if ($labelA === 'KEPADA') {
-            $customerName = clean_label_value($row['B'] ?? '');
+            $laundryName = clean_label_value($row['B'] ?? '');
         }
 
         if ($labelA === 'ALAMAT') {
             $address = clean_label_value($row['B'] ?? '');
+        }
+
+        if ($labelA === 'UP.' || $labelA === 'UP') {
+            $contactName = clean_label_value($row['B'] ?? '');
+            $phone = $phone ?: extract_phone_number($contactName);
+            $contactName = strip_phone_from_name($contactName);
         }
 
         if ($labelE === 'NO. INVOICE' || $labelE === 'NO INVOICE') {
@@ -318,17 +406,26 @@ function extract_invoice_customer(array $rows, string $fileName, string $fileId)
         if ($labelE === 'TANGGAL') {
             $invoiceDate = clean_label_value($row['F'] ?? '');
         }
+
+        foreach ($row as $value) {
+            if (preg_match('/\b(hp|wa|telp|telepon|phone)\b/i', (string) $value)) {
+                $phone = $phone ?: extract_phone_number((string) $value);
+            }
+        }
     }
 
-    if ($customerName === '') {
+    if ($laundryName === '') {
         return null;
     }
 
     return [
         'source_file' => $fileName,
         'source_file_id' => $fileId,
-        'raw_name' => $customerName,
-        'normalized_name' => normalize_customer_name($customerName),
+        'raw_name' => $laundryName,
+        'normalized_name' => normalize_customer_name($laundryName),
+        'laundry_name' => $laundryName,
+        'contact_name' => $contactName,
+        'phone' => $phone,
         'address' => $address,
         'invoice_number' => $invoiceNumber,
         'invoice_date' => $invoiceDate,
@@ -375,22 +472,38 @@ function group_similar_customers(array $customers): array
     foreach ($groups as &$group) {
         $nameCounts = [];
         $addressCounts = [];
+        $contactCounts = [];
+        $phoneCounts = [];
 
         foreach ($group['customers'] as $customer) {
             $name = canonical_customer_name($customer['raw_name']);
             $address = normalize_spaces($customer['address']);
+            $contact = normalize_spaces($customer['contact_name'] ?? '');
+            $phone = normalize_spaces($customer['phone'] ?? '');
             $nameCounts[$name] = ($nameCounts[$name] ?? 0) + 1;
 
             if ($address !== '') {
                 $addressCounts[$address] = ($addressCounts[$address] ?? 0) + 1;
             }
+
+            if ($contact !== '') {
+                $contactCounts[$contact] = ($contactCounts[$contact] ?? 0) + 1;
+            }
+
+            if ($phone !== '') {
+                $phoneCounts[$phone] = ($phoneCounts[$phone] ?? 0) + 1;
+            }
         }
 
         arsort($nameCounts);
         arsort($addressCounts);
+        arsort($contactCounts);
+        arsort($phoneCounts);
 
         $group['canonical_name'] = array_key_first($nameCounts) ?: $group['canonical_name'];
         $group['default_address'] = array_key_first($addressCounts) ?: '';
+        $group['default_contact'] = array_key_first($contactCounts) ?: '';
+        $group['default_phone'] = array_key_first($phoneCounts) ?: '';
         $group['invoice_count'] = count(array_unique(array_column($group['customers'], 'source_file')));
     }
 
@@ -473,6 +586,10 @@ function group_similar_items(array $items): array
             $group['canonical_name'] = 'Anti Karat';
         }
 
+        if ($group['normalized_key'] === 'OXO') {
+            $group['canonical_name'] = 'Oxo';
+        }
+
         $group['default_isi'] = array_key_first($packCounts) ?: '';
         $group['default_satuan'] = array_key_first($unitCounts) ?: '';
         $group['default_harga'] = array_key_first($priceCounts) ?: '';
@@ -534,6 +651,10 @@ function normalize_item_name(string $name): string
     $normalizedName = normalize_spaces(implode(' ', $normalizedWords));
     $normalizedName = preg_replace('/\bMC BLEACH LIQUID\b/', 'MC BLEACH', $normalizedName);
     $normalizedName = preg_replace('/\bRUST GONE KARAT\b/', 'ANTI KARAT', $normalizedName);
+    $normalizedName = preg_replace('/\bRUST GONE\b/', 'ANTI KARAT', $normalizedName);
+    $normalizedName = preg_replace('/\bOMAXX OXO\b/', 'OXO', $normalizedName);
+    $normalizedName = preg_replace('/\bOXO BLEACH OMAXX\b/', 'OXO', $normalizedName);
+    $normalizedName = preg_replace('/\b0X0\b/', 'OXO', $normalizedName);
 
     return normalize_spaces($normalizedName);
 }
@@ -564,6 +685,8 @@ function normalize_size(string $value): string
     $value = preg_replace('/\bKILO\b/', 'KG', $value);
     $value = preg_replace('/\bKILOGRAM\b/', 'KG', $value);
     $value = preg_replace('/\s+/', ' ', $value);
+    $value = preg_replace('/^(\d+)\.0$/', '$1 L', $value);
+    $value = preg_replace('/^(\d+)$/', '$1 L', $value);
 
     return trim($value);
 }
@@ -608,6 +731,28 @@ function canonical_customer_name(string $name): string
 function clean_label_value(string $value): string
 {
     return normalize_spaces(ltrim($value, ":\t\n\r\0\x0B "));
+}
+
+function extract_phone_number(string $value): string
+{
+    if (! preg_match('/(?:hp|wa|telp|telepon|phone)?\\s*:?\\s*(\\+?\\d[\\d\\s\\-().]{7,}\\d)/i', $value, $matches)) {
+        return '';
+    }
+
+    $digits = preg_replace('/[^0-9+]/', '', $matches[1]);
+
+    if ($digits === null || strlen(preg_replace('/\\D/', '', $digits)) < 8) {
+        return '';
+    }
+
+    return $digits;
+}
+
+function strip_phone_from_name(string $value): string
+{
+    $value = preg_replace('/\\s*[-–—]?\\s*(?:hp|wa|telp|telepon|phone)?\\s*:?\\s*\\+?\\d[\\d\\s\\-().]{7,}\\d/i', '', $value);
+
+    return normalize_spaces((string) $value);
 }
 
 function token_sort(string $value): string
@@ -718,6 +863,8 @@ function write_master_customer_csv(string $path, array $groups): void
     fputcsv($handle, [
         'kode_customer',
         'nama_customer',
+        'nama_laundry',
+        'no_telepon',
         'alamat_default',
         'jumlah_alias',
         'jumlah_invoice',
@@ -728,7 +875,9 @@ function write_master_customer_csv(string $path, array $groups): void
     foreach ($groups as $index => $group) {
         fputcsv($handle, [
             'CST-' . str_pad((string) ($index + 1), 4, '0', STR_PAD_LEFT),
+            $group['default_contact'],
             $group['canonical_name'],
+            $group['default_phone'],
             $group['default_address'],
             count($group['aliases']),
             $group['invoice_count'],
@@ -746,7 +895,9 @@ function write_customer_alias_csv(string $path, array $groups): void
     fputcsv($handle, [
         'kode_customer',
         'nama_master',
+        'nama_customer',
         'nama_di_invoice',
+        'no_telepon',
         'alamat',
         'nomor_invoice',
         'tanggal_invoice',
@@ -760,7 +911,9 @@ function write_customer_alias_csv(string $path, array $groups): void
             fputcsv($handle, [
                 $code,
                 $group['canonical_name'],
+                $customer['contact_name'] ?? '',
                 $customer['raw_name'],
+                $customer['phone'] ?? '',
                 $customer['address'],
                 $customer['invoice_number'],
                 $customer['invoice_date'],

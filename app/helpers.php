@@ -22,15 +22,44 @@ function e(?string $value): string
 
 function url(string $path = ''): string
 {
-    $baseUrl = rtrim(app_config('base_url'), '/');
+    $baseUrl = rtrim(base_url(), '/');
     $path = '/' . ltrim($path, '/');
 
     return $baseUrl . ($path === '/' ? '' : $path);
 }
 
+function base_path(): string
+{
+    $scriptName = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
+    $directory = rtrim(str_replace('/public', '', dirname($scriptName)), '/');
+
+    return $directory === '/' ? '' : $directory;
+}
+
+function base_url(): string
+{
+    $configuredUrl = app_config('base_url');
+
+    if ($configuredUrl) {
+        return $configuredUrl;
+    }
+
+    $isHttps = (! empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    $scheme = $isHttps ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
+
+    return $scheme . '://' . $host . base_path();
+}
+
 function route_is(string $path): bool
 {
     $currentPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+    $basePath = base_path();
+
+    if ($basePath !== '' && str_starts_with($currentPath, $basePath)) {
+        $currentPath = substr($currentPath, strlen($basePath)) ?: '/';
+    }
 
     return rtrim($currentPath, '/') === rtrim($path, '/') || ($currentPath === '/' && $path === '/');
 }

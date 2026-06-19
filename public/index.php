@@ -2,7 +2,16 @@
 
 require dirname(__DIR__) . '/app/helpers.php';
 
-$path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$basePath = base_path();
+$path = $requestPath;
+
+if ($basePath !== '' && str_starts_with($requestPath, $basePath)) {
+    $path = substr($requestPath, strlen($basePath)) ?: '/';
+}
+
+$path = '/' . trim($path, '/');
+$path = $path === '/' ? '/' : rtrim($path, '/');
 
 $routes = [
     '/' => [

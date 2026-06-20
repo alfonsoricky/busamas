@@ -61,7 +61,7 @@ $routes = [
             'masterSales' => fetch_master_sales(),
         ],
     ],
-    '/database' => [
+    '/db-maintenance' => [
         'view' => 'pages/database',
         'title' => 'Database',
         'data' => fn (): array => [

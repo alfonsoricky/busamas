@@ -5,7 +5,7 @@
         '/master-customer' => 'Master Customer',
         '/master-sales' => 'Master Sales',
         '/invoices' => 'Invoice',
-        '/database' => 'Database',
+        '/db-maintenance' => 'Database',
     ];
 ?>
 <header class="border-b border-stone-200 bg-white/90 backdrop-blur">

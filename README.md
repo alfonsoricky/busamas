@@ -25,7 +25,7 @@ DB_PASSWORD
 Setelah file project ter-upload dan database kosong/siap diganti, buka:
 
 ```text
-/database
+/db-maintenance
 ```
 
 Klik `Jalankan Migrate & Seed` untuk membuat ulang tabel dan mengisi data dari `database/seed-data.sql`. Tombol ini mengganti data master dan invoice dengan snapshot seed terbaru.

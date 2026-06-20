@@ -29,7 +29,7 @@
                 Data pada tabel master dan invoice akan diganti dengan isi seed terbaru.
             </div>
 
-            <form method="post" action="<?= e(url('/database')) ?>" class="mt-5">
+            <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
                 <input type="hidden" name="action" value="migrate-seed">
                 <button class="rounded-lg bg-brand px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
                     Jalankan Migrate & Seed

@@ -178,6 +178,7 @@
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Laundry</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Subtotal</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Status</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Aksi</th>
                         </tr>
                     </thead>
@@ -189,14 +190,26 @@
                                 </td>
                                 <td class="whitespace-nowrap px-4 py-3 text-sm font-bold text-ink"><?= e(rupiah($group['subtotal'])) ?></td>
                                 <td class="px-4 py-3"></td>
+                                <td class="px-4 py-3"></td>
                             </tr>
                             <?php foreach ($group['items'] as $invoice): ?>
-                                <tr class="hover:bg-stone-50">
+                                <?php
+                                    $isUnpaid = (float) ($invoice['total_utang_pembelian_barang'] ?? 0) > 0;
+                                    $rowClass = $isUnpaid ? 'bg-red-50 hover:bg-red-100/70' : 'bg-teal-50/70 hover:bg-teal-100/70';
+                                    $statusClass = $isUnpaid ? 'bg-red-100 text-red-800 ring-red-200' : 'bg-teal-100 text-teal-800 ring-teal-200';
+                                    $statusLabel = $isUnpaid ? 'Belum Lunas' : 'Lunas';
+                                ?>
+                                <tr class="<?= e($rowClass) ?>">
                                     <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand"><?= e($invoice['kode_invoice'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 font-medium text-ink"><?= e($invoice['nomor_invoice'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($invoice['tanggal_invoice'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($invoice['nama_laundry_invoice'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e(rupiah($invoice['subtotal'] ?? 0)) ?></td>
+                                    <td class="whitespace-nowrap px-4 py-3">
+                                        <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-bold ring-1 <?= e($statusClass) ?>">
+                                            <?= e($statusLabel) ?>
+                                        </span>
+                                    </td>
                                     <td class="whitespace-nowrap px-4 py-3">
                                         <a
                                             href="<?= e(url('/invoice-view') . '?' . http_build_query(['code' => $invoice['kode_invoice'] ?? ''])) ?>"

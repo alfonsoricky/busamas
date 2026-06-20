@@ -166,7 +166,7 @@
                     </label>
                     <label class="block">
                         <span class="mb-2 block text-sm font-semibold text-stone-700">Discount (%)</span>
-                        <input type="number" step="0.01" name="discount" id="discount-percent" value="<?= e((string) ($editInvoice['discount_persen'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                        <input type="number" step="0.01" name="discount" id="discount-percent" value="<?= e(clean_decimal($editInvoice['discount_persen'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                     </label>
                     <label class="block">
                         <span class="mb-2 block text-sm font-semibold text-stone-700">Discount Amount</span>
@@ -188,11 +188,11 @@
                         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                             <label class="block">
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Sales 1 (%)</span>
-                                <input type="number" step="0.01" name="komisi_sales_1_persen" id="komisi-sales-1-percent" value="<?= e((string) ($editInvoice['komisi_sales_1_persen'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                <input type="number" step="0.01" name="komisi_sales_1_persen" id="komisi-sales-1-percent" value="<?= e(clean_decimal($editInvoice['komisi_sales_1_persen'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                             <label class="block">
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Sales 2 (%)</span>
-                                <input type="number" step="0.01" name="komisi_sales_2_persen" id="komisi-sales-2-percent" value="<?= e((string) ($editInvoice['komisi_sales_2_persen'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                <input type="number" step="0.01" name="komisi_sales_2_persen" id="komisi-sales-2-percent" value="<?= e(clean_decimal($editInvoice['komisi_sales_2_persen'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                             <label class="block">
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Total Komisi (%)</span>
@@ -482,6 +482,16 @@
                 input.value = formatRupiah(value);
             }
 
+            function cleanNumber(value, precision = 2) {
+                const number = Number.parseFloat(value || '0') || 0;
+
+                if (Math.abs(number) < 0.0000001) {
+                    return '0';
+                }
+
+                return number.toFixed(precision).replace(/\.?0+$/, '');
+            }
+
             function prepareMoneyFields() {
                 document.querySelectorAll('.money-field, [data-item-harga], [data-item-total], [data-purchase-price], [data-purchase-total]').forEach((input) => {
                     input.type = 'text';
@@ -538,7 +548,7 @@
 
             function recalculateCommission() {
                 const totalCommission = moneyValue(komisiSales1Percent) + moneyValue(komisiSales2Percent);
-                totalKomisiPercent.value = totalCommission ? totalCommission.toFixed(2) : '';
+                totalKomisiPercent.value = totalCommission ? cleanNumber(totalCommission) : '0';
                 const commissionAmount = moneyValue(totalHargaJual) * (totalCommission / 100);
                 setMoneyValue(komisiSalesUnpaid, Math.max(commissionAmount - moneyValue(komisiSalesPaid), 0));
             }

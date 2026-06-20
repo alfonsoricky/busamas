@@ -1175,6 +1175,21 @@ function rupiah(mixed $value): string
     return 'Rp' . number_format($number, 0, ',', '.');
 }
 
+function clean_decimal(mixed $value, int $precision = 2): string
+{
+    if ($value === null || $value === '') {
+        return '';
+    }
+
+    $number = (float) $value;
+
+    if (abs($number) < 0.0000001) {
+        return '0';
+    }
+
+    return rtrim(rtrim(number_format($number, $precision, '.', ''), '0'), '.');
+}
+
 function fetch_google_sheet_rows(?string $spreadsheetId = null, ?string $gid = null): array
 {
     $spreadsheetId = $spreadsheetId ?: google_sheet_config('spreadsheet_id');

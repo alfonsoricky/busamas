@@ -173,7 +173,6 @@
                 <table class="min-w-full divide-y divide-stone-200 text-left text-sm">
                     <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
                         <tr>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Kode</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Nomor Invoice</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Laundry</th>
@@ -185,7 +184,7 @@
                     <tbody class="divide-y divide-stone-100">
                         <?php foreach ($invoiceGroups as $group): ?>
                             <tr class="bg-stone-200/70">
-                                <td colspan="4" class="px-4 py-3 text-sm font-bold text-ink">
+                                <td colspan="3" class="px-4 py-3 text-sm font-bold text-ink">
                                     <?= e($group['label']) ?>
                                 </td>
                                 <td class="whitespace-nowrap px-4 py-3 text-sm font-bold text-ink"><?= e(rupiah($group['subtotal'])) ?></td>
@@ -200,7 +199,6 @@
                                     $statusLabel = $isUnpaid ? 'Belum Lunas' : 'Lunas';
                                 ?>
                                 <tr class="<?= e($rowClass) ?>">
-                                    <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand"><?= e($invoice['kode_invoice'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 font-medium text-ink"><?= e($invoice['nomor_invoice'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($invoice['tanggal_invoice'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($invoice['nama_laundry_invoice'] ?? '') ?></td>

@@ -70,7 +70,7 @@
             </div>
         </form>
 
-        <div class="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div class="mb-6 grid gap-4 sm:grid-cols-3">
             <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
                 <p class="text-sm font-medium text-stone-500">Total Invoice</p>
                 <p class="mt-2 text-3xl font-bold text-ink"><?= e((string) $invoiceMapping['summary']['total_invoice']) ?></p>
@@ -82,15 +82,6 @@
             <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
                 <p class="text-sm font-medium text-stone-500">Subtotal</p>
                 <p class="mt-2 text-3xl font-bold text-coral"><?= e(rupiah($invoiceMapping['summary']['subtotal'])) ?></p>
-            </div>
-            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <p class="text-sm font-medium text-stone-500">Pembelian Barang</p>
-                <p class="mt-2 text-3xl font-bold text-ink"><?= e(rupiah($invoiceMapping['summary']['total_pembelian_barang'] ?? 0)) ?></p>
-            </div>
-            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <p class="text-sm font-medium text-stone-500">Utang Pembelian</p>
-                <p class="mt-2 text-3xl font-bold text-red-700"><?= e(rupiah($invoiceMapping['summary']['total_utang_pembelian_barang'] ?? 0)) ?></p>
-                <p class="mt-1 text-xs font-medium text-stone-500"><?= e((string) ($invoiceMapping['summary']['total_invoice_utang'] ?? 0)) ?> invoice</p>
             </div>
         </div>
 

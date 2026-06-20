@@ -1,5 +1,5 @@
 -- Busamas seed snapshot
--- Generated at 2026-06-20 06:20:44
+-- Generated at 2026-06-20 08:50:48
 SET FOREIGN_KEY_CHECKS = 0;
 TRUNCATE TABLE `invoice_items`;
 TRUNCATE TABLE `invoices`;

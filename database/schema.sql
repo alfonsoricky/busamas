@@ -135,6 +135,9 @@ CREATE TABLE IF NOT EXISTS `invoice_items` (
 CREATE TABLE IF NOT EXISTS `operational_expenses` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `tanggal` DATE NULL,
+    `bulan_pnl` TINYINT UNSIGNED NULL COMMENT 'Bulan PNL (1-12) sesuai blok visual Excel, bisa berbeda dari tanggal transaksi',
+    `tahun_pnl` SMALLINT UNSIGNED NULL COMMENT 'Tahun PNL sesuai blok visual Excel',
+    `kategori` VARCHAR(50) NOT NULL DEFAULT 'operational' COMMENT 'Kategori: operational atau bonus',
     `nama_pengeluaran` VARCHAR(255) NOT NULL,
     `jumlah` DECIMAL(15,2) NOT NULL DEFAULT 0,
     `status_pembayaran` VARCHAR(50) NOT NULL DEFAULT 'Lunas',
@@ -142,7 +145,8 @@ CREATE TABLE IF NOT EXISTS `operational_expenses` (
     `keterangan` TEXT NULL,
     `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+    KEY `operational_expenses_bulan_pnl_index` (`tahun_pnl`, `bulan_pnl`, `kategori`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

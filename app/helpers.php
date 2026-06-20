@@ -1911,19 +1911,23 @@ function fetch_laporan_profit_loss(string $month = '', string $year = ''): array
     $opExpenses = fetch_operational_summary($month, $year);
     $operational = $opExpenses['total_pengeluaran'];
 
-    // Bonus calculation
-    $mNum = ($month !== '') ? (int)$month : 0;
-    $yStr = ($year !== '') ? $year : '2026';
-    $bonus = 0.0;
-    if ($yStr === '2026') {
-        if ($mNum === 4) {
-            $bonus = 2643400.0;
-        } elseif ($mNum === 5) {
-            $bonus = 2041050.0;
-        } elseif ($mNum === 0) {
-            $bonus = 2643400.0 + 2041050.0;
-        }
+    // Bonus: baca dari tabel operational_expenses kategori='bonus'
+    $bonusSql = "SELECT COALESCE(SUM(jumlah), 0) FROM operational_expenses WHERE kategori = 'bonus'";
+    $bonusParams = [];
+    if ($month !== '' && $year !== '') {
+        $bonusSql .= ' AND ((bulan_pnl IS NOT NULL AND bulan_pnl = :bm AND tahun_pnl = :by)'
+                   . '  OR  (bulan_pnl IS NULL AND MONTH(tanggal) = :bm2 AND YEAR(tanggal) = :by2))';
+        $bonusParams = ['bm' => (int)$month, 'by' => (int)$year, 'bm2' => (int)$month, 'by2' => (int)$year];
+    } elseif ($month !== '') {
+        $bonusSql .= ' AND ((bulan_pnl IS NOT NULL AND bulan_pnl = :bm) OR (bulan_pnl IS NULL AND MONTH(tanggal) = :bm2))';
+        $bonusParams = ['bm' => (int)$month, 'bm2' => (int)$month];
+    } elseif ($year !== '') {
+        $bonusSql .= ' AND ((tahun_pnl IS NOT NULL AND tahun_pnl = :by) OR (tahun_pnl IS NULL AND YEAR(tanggal) = :by2))';
+        $bonusParams = ['by' => (int)$year, 'by2' => (int)$year];
     }
+    $bonusStmt = $pdo->prepare($bonusSql);
+    $bonusStmt->execute($bonusParams);
+    $bonus = (float) $bonusStmt->fetchColumn();
 
     $total_pengeluaran = $komisi_sales + $komisi_manager + $komisi_admin + $pph + $pembelian_barang + $biaya_admin_bank + $biaya_kirim + $operational + $bonus + $discount;
     $laba_bersih = $pendapatan - $total_pengeluaran;
@@ -2227,17 +2231,25 @@ function fetch_operational_summary(string $month = '', string $year = ''): array
         ];
     }
 
-    $sql = 'SELECT jumlah, status_pembayaran FROM operational_expenses WHERE 1=1';
+    $sql = "SELECT jumlah, status_pembayaran FROM operational_expenses WHERE kategori = 'operational'";
     $params = [];
 
-    if ($month !== '') {
-        $sql .= ' AND MONTH(tanggal) = :month';
-        $params['month'] = (int) $month;
-    }
-
-    if ($year !== '') {
-        $sql .= ' AND YEAR(tanggal) = :year';
-        $params['year'] = (int) $year;
+    if ($month !== '' && $year !== '') {
+        // Prioritas: filter berdasarkan bulan_pnl (blok visual Excel) jika tersedia
+        $sql .= ' AND ((bulan_pnl IS NOT NULL AND bulan_pnl = :bulan_pnl AND tahun_pnl = :tahun_pnl)'
+              . '  OR  (bulan_pnl IS NULL AND MONTH(tanggal) = :bulan_pnl2 AND YEAR(tanggal) = :tahun_pnl2))';
+        $params['bulan_pnl']  = (int) $month;
+        $params['tahun_pnl']  = (int) $year;
+        $params['bulan_pnl2'] = (int) $month;
+        $params['tahun_pnl2'] = (int) $year;
+    } elseif ($month !== '') {
+        $sql .= ' AND ((bulan_pnl IS NOT NULL AND bulan_pnl = :bulan_pnl) OR (bulan_pnl IS NULL AND MONTH(tanggal) = :bulan_pnl2))';
+        $params['bulan_pnl']  = (int) $month;
+        $params['bulan_pnl2'] = (int) $month;
+    } elseif ($year !== '') {
+        $sql .= ' AND ((tahun_pnl IS NOT NULL AND tahun_pnl = :tahun_pnl) OR (tahun_pnl IS NULL AND YEAR(tanggal) = :tahun_pnl2))';
+        $params['tahun_pnl']  = (int) $year;
+        $params['tahun_pnl2'] = (int) $year;
     }
 
     try {
@@ -2386,11 +2398,24 @@ function read_operational_from_workbook_internal(string $path): array
         $rows[] = $values;
     }
 
+    // Deteksi blok bulan: baris yang punya nilai di kolom G (TOTAL) dan kolom A kosong = sub-total bulan, tandai blok
+    // Urutan blok: Januari(bulan 1), Februari(2), dst. setiap kali ketemu baris G berisi angka > 0 & A kosong, bulan++
     $expenses = [];
-    foreach ($rows as $row) {
-        $name = trim((string) ($row['B'] ?? ''));
+    $currentBulan = 0;
+    $currentTahun = 2026;
 
-        if ($name === '' || strcasecmp($name, 'nama pengeluaran') === 0) {
+    foreach ($rows as $row) {
+        $colA = trim((string) ($row['A'] ?? ''));
+        $colB = trim((string) ($row['B'] ?? ''));
+        $colG = trim((string) ($row['G'] ?? ''));
+
+        // Baris sub-total bulan: A kosong, B kosong, G berisi angka > 0
+        if ($colA === '' && $colB === '' && is_numeric($colG) && (float)$colG > 0) {
+            $currentBulan++;
+            continue; // skip baris total, jangan insert
+        }
+
+        if ($colB === '' || strcasecmp($colB, 'nama pengeluaran') === 0) {
             continue;
         }
 
@@ -2404,13 +2429,20 @@ function read_operational_from_workbook_internal(string $path): array
             $status = 'Lunas';
         }
 
+        if ($jumlah <= 0 && $colB !== '') {
+            continue; // skip baris tanpa nilai
+        }
+
         $expenses[] = [
-            'tanggal' => $tanggal,
-            'nama_pengeluaran' => $name,
-            'jumlah' => $jumlah,
-            'status_pembayaran' => $status,
-            'tanggal_pembayaran' => $tanggal_pembayar,
-            'keterangan' => $keterangan,
+            'tanggal'          => $tanggal,
+            'bulan_pnl'        => $currentBulan > 0 ? $currentBulan : null,
+            'tahun_pnl'        => $currentBulan > 0 ? $currentTahun : null,
+            'kategori'         => 'operational',
+            'nama_pengeluaran' => $colB,
+            'jumlah'           => $jumlah,
+            'status_pembayaran'=> $status,
+            'tanggal_pembayaran'=> $tanggal_pembayar,
+            'keterangan'       => $keterangan,
         ];
     }
 
@@ -2419,21 +2451,39 @@ function read_operational_from_workbook_internal(string $path): array
 
 function seed_operational_expenses_from_workbook(PDO $pdo, string $excelPath): int
 {
+    // Pastikan kolom bulan_pnl, tahun_pnl, kategori sudah ada
+    $existingCols = [];
+    $cols = $pdo->query('DESCRIBE operational_expenses')->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($cols as $c) { $existingCols[$c] = true; }
+
+    if (!isset($existingCols['bulan_pnl'])) {
+        $pdo->exec('ALTER TABLE operational_expenses ADD COLUMN bulan_pnl TINYINT UNSIGNED NULL AFTER tanggal');
+    }
+    if (!isset($existingCols['tahun_pnl'])) {
+        $pdo->exec('ALTER TABLE operational_expenses ADD COLUMN tahun_pnl SMALLINT UNSIGNED NULL AFTER bulan_pnl');
+    }
+    if (!isset($existingCols['kategori'])) {
+        $pdo->exec("ALTER TABLE operational_expenses ADD COLUMN kategori VARCHAR(50) NOT NULL DEFAULT 'operational' AFTER tahun_pnl");
+    }
+
     $expenses = read_operational_from_workbook_internal($excelPath);
     $statement = $pdo->prepare('
-        INSERT INTO operational_expenses (tanggal, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran, keterangan)
-        VALUES (:tanggal, :nama_pengeluaran, :jumlah, :status_pembayaran, :tanggal_pembayaran, :keterangan)
+        INSERT INTO operational_expenses (tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran, keterangan)
+        VALUES (:tanggal, :bulan_pnl, :tahun_pnl, :kategori, :nama_pengeluaran, :jumlah, :status_pembayaran, :tanggal_pembayaran, :keterangan)
     ');
 
     $count = 0;
     foreach ($expenses as $expense) {
         $statement->execute([
-            'tanggal' => $expense['tanggal'],
-            'nama_pengeluaran' => $expense['nama_pengeluaran'],
-            'jumlah' => $expense['jumlah'],
+            'tanggal'           => $expense['tanggal'],
+            'bulan_pnl'         => $expense['bulan_pnl'],
+            'tahun_pnl'         => $expense['tahun_pnl'],
+            'kategori'          => $expense['kategori'],
+            'nama_pengeluaran'  => $expense['nama_pengeluaran'],
+            'jumlah'            => $expense['jumlah'],
             'status_pembayaran' => $expense['status_pembayaran'],
-            'tanggal_pembayaran' => $expense['tanggal_pembayaran'],
-            'keterangan' => $expense['keterangan'],
+            'tanggal_pembayaran'=> $expense['tanggal_pembayaran'],
+            'keterangan'        => $expense['keterangan'],
         ]);
         $count++;
     }

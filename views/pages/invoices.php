@@ -7,6 +7,9 @@
                 Data invoice tahun 2025 sampai Juni 2026 yang sudah dipetakan ke master customer dan master barang.
             </p>
         </div>
+        <a href="<?= e(url('/invoice-create')) ?>" class="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800">
+            Buat Invoice
+        </a>
     </div>
 
     <?php if (! ($invoiceMapping['ok'] ?? false)): ?>
@@ -186,7 +189,7 @@
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Subtotal</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Pembelian Barang</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Utang Pembelian Barang</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Lihat</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Aksi</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
@@ -216,13 +219,22 @@
                                             <span class="text-stone-400">-</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td class="whitespace-nowrap px-4 py-3">
+                                    <td class="min-w-[280px] px-4 py-3">
                                         <a
                                             href="<?= e(url('/invoice-view') . '?' . http_build_query(['code' => $invoice['kode_invoice'] ?? ''])) ?>"
-                                            class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-stone-300 text-sm font-semibold text-brand transition hover:border-brand hover:bg-teal-50"
+                                            class="mr-2 inline-flex items-center rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-brand transition hover:border-brand hover:bg-teal-50"
                                             title="Lihat invoice"
                                             aria-label="Lihat invoice"
-                                        >&#128065;</a>
+                                        >Lihat</a>
+                                        <button type="button" class="mr-2 mt-2 inline-flex items-center rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand hover:text-brand">
+                                            Bayar Komisi Sales
+                                        </button>
+                                        <button type="button" class="mr-2 mt-2 inline-flex items-center rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand hover:text-brand">
+                                            Bayar Komisi Manager
+                                        </button>
+                                        <button type="button" class="mt-2 inline-flex items-center rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-teal-800">
+                                            Bayar Barang
+                                        </button>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

@@ -550,6 +550,29 @@ function fetch_invoice_detail(string $code): array
     ];
 }
 
+function fetch_invoice_form_options(): array
+{
+    $customers = db_all('SELECT kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default FROM master_customers ORDER BY nama_laundry') ?? [];
+    $sales = db_all('SELECT kode_sales, nama_sales FROM master_sales ORDER BY nama_sales') ?? [];
+    $barang = db_all('SELECT kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default FROM master_barang ORDER BY nama_barang, ukuran') ?? [];
+
+    return [
+        'ok' => true,
+        'customers' => $customers,
+        'sales' => $sales,
+        'barang' => $barang,
+        'payment_statuses' => [
+            'Belum Lunas',
+            'Lunas',
+            'Piutang',
+        ],
+        'commission_statuses' => [
+            'Belum Dibayar',
+            'Dibayar',
+        ],
+    ];
+}
+
 function invoice_totals_from_local_file(string $sourceFile): ?array
 {
     $path = find_local_invoice_file($sourceFile);

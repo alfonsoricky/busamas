@@ -74,6 +74,13 @@ $routes = [
             ]),
         ],
     ],
+    '/invoice-create' => [
+        'view' => 'pages/invoice-create',
+        'title' => 'Buat Invoice',
+        'data' => fn (): array => [
+            'invoiceForm' => fetch_invoice_form_options(),
+        ],
+    ],
     '/invoice-view' => [
         'view' => 'pages/invoice-view',
         'title' => 'View Invoice',

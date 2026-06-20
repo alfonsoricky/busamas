@@ -69,6 +69,14 @@ $routes = [
             ),
         ],
     ],
+    '/operational' => [
+        'view' => 'pages/operational',
+        'title' => 'Pengeluaran Operasional',
+        'data' => fn (): array => [
+            'expenses' => fetch_operational_expenses($_GET['month'] ?? '', $_GET['year'] ?? date('Y'), $_GET['status'] ?? '', $_GET['search'] ?? ''),
+            'summary' => fetch_operational_summary($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+        ],
+    ],
     '/invoices' => [
         'view' => 'pages/invoices',
         'title' => 'Invoice Mapping',

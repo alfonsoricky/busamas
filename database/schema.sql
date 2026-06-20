@@ -124,4 +124,18 @@ CREATE TABLE IF NOT EXISTS `invoice_items` (
         ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `operational_expenses` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tanggal` DATE NULL,
+    `nama_pengeluaran` VARCHAR(255) NOT NULL,
+    `jumlah` DECIMAL(15,2) NOT NULL DEFAULT 0,
+    `status_pembayaran` VARCHAR(50) NOT NULL DEFAULT 'Lunas',
+    `tanggal_pembayaran` DATE NULL,
+    `keterangan` TEXT NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
+

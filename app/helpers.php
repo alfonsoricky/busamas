@@ -205,7 +205,7 @@ function database_table_counts(): array
 
     $counts = [];
 
-    foreach (['master_barang', 'master_customers', 'master_sales', 'invoices', 'invoice_items'] as $table) {
+    foreach (['master_barang', 'master_customers', 'master_sales', 'invoices', 'invoice_items', 'operational_expenses'] as $table) {
         try {
             $counts[$table] = (int) $pdo->query('SELECT COUNT(*) FROM `' . $table . '`')->fetchColumn();
         } catch (Throwable) {
@@ -250,10 +250,16 @@ function run_database_migration_seed(): array
             'DROP TABLE IF EXISTS `master_sales`',
             'DROP TABLE IF EXISTS `master_barang`',
             'DROP TABLE IF EXISTS `master_customers`',
+            'DROP TABLE IF EXISTS `operational_expenses`',
             'SET FOREIGN_KEY_CHECKS = 1',
         ]);
         $statementCount += execute_sql_file($pdo, $schemaPath, true);
         $statementCount += execute_sql_file($pdo, $seedPath, false);
+
+        $excelPath = dirname(__DIR__) . '/storage/PENJUALAN-2026.xlsx';
+        if (is_readable($excelPath)) {
+            $statementCount += seed_operational_expenses_from_workbook($pdo, $excelPath);
+        }
 
         return [
             'ok' => true,
@@ -1793,8 +1799,11 @@ function fetch_laporan_profit_loss(string $month = '', string $year = ''): array
         $komisi += ($com1 + $com2);
     }
 
+    $opExpenses = fetch_operational_summary($month, $year);
+    $total_operasional = $opExpenses['total_pengeluaran'];
+
     $laba_kotor = $pendapatan - $hpp;
-    $laba_bersih = $laba_kotor - $komisi;
+    $laba_bersih = $laba_kotor - $komisi - $total_operasional;
 
     return [
         'ok' => true,
@@ -1802,6 +1811,7 @@ function fetch_laporan_profit_loss(string $month = '', string $year = ''): array
         'hpp' => $hpp,
         'laba_kotor' => $laba_kotor,
         'komisi' => $komisi,
+        'operasional' => $total_operasional,
         'laba_bersih' => $laba_bersih,
     ];
 }
@@ -2025,6 +2035,279 @@ function fetch_dashboard_summary(string $month = '', string $year = ''): array
         'top_customer' => $topCustomer,
         'recent_invoices' => $recentInvoices,
     ];
+}
+
+function fetch_operational_expenses(string $month = '', string $year = '', string $status = '', string $search = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    }
+
+    $sql = 'SELECT * FROM operational_expenses WHERE 1=1';
+    $params = [];
+
+    if ($month !== '') {
+        $sql .= ' AND MONTH(tanggal) = :month';
+        $params['month'] = (int) $month;
+    }
+
+    if ($year !== '') {
+        $sql .= ' AND YEAR(tanggal) = :year';
+        $params['year'] = (int) $year;
+    }
+
+    if ($status !== '') {
+        $sql .= ' AND status_pembayaran = :status';
+        $params['status'] = $status;
+    }
+
+    if ($search !== '') {
+        $sql .= ' AND (nama_pengeluaran LIKE :search OR keterangan LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
+    $sql .= ' ORDER BY tanggal DESC, id DESC';
+
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $items = $stmt->fetchAll();
+        return [
+            'ok' => true,
+            'items' => $items,
+        ];
+    } catch (Throwable $e) {
+        return [
+            'ok' => false,
+            'error' => 'Gagal mengambil data pengeluaran: ' . $e->getMessage(),
+            'items' => [],
+        ];
+    }
+}
+
+function fetch_operational_summary(string $month = '', string $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'total_pengeluaran' => 0.0,
+            'total_lunas' => 0.0,
+            'total_hutang' => 0.0,
+        ];
+    }
+
+    $sql = 'SELECT jumlah, status_pembayaran FROM operational_expenses WHERE 1=1';
+    $params = [];
+
+    if ($month !== '') {
+        $sql .= ' AND MONTH(tanggal) = :month';
+        $params['month'] = (int) $month;
+    }
+
+    if ($year !== '') {
+        $sql .= ' AND YEAR(tanggal) = :year';
+        $params['year'] = (int) $year;
+    }
+
+    try {
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
+
+        $total = 0.0;
+        $lunas = 0.0;
+        $hutang = 0.0;
+
+        foreach ($rows as $row) {
+            $amt = (float) $row['jumlah'];
+            $status = strtolower(trim($row['status_pembayaran']));
+            $total += $amt;
+            if ($status === 'lunas') {
+                $lunas += $amt;
+            } else {
+                $hutang += $amt;
+            }
+        }
+
+        return [
+            'total_pengeluaran' => $total,
+            'total_lunas' => $lunas,
+            'total_hutang' => $hutang,
+        ];
+    } catch (Throwable) {
+        return [
+            'total_pengeluaran' => 0.0,
+            'total_lunas' => 0.0,
+            'total_hutang' => 0.0,
+        ];
+    }
+}
+
+function parse_excel_date_internal(mixed $value): ?string
+{
+    if ($value === null || $value === '') {
+        return null;
+    }
+    
+    $valueStr = trim((string)$value);
+    if ($valueStr === '') {
+        return null;
+    }
+
+    if (is_numeric($valueStr)) {
+        $val = (float)$valueStr;
+        $timestamp = ($val - 25569) * 86400;
+        return date('Y-m-d', (int)$timestamp);
+    }
+    
+    $ts = strtotime($valueStr);
+    if ($ts !== false) {
+        return date('Y-m-d', $ts);
+    }
+    
+    return null;
+}
+
+function read_operational_from_workbook_internal(string $path): array
+{
+    $zip = new ZipArchive();
+
+    if ($zip->open($path) !== true) {
+        throw new RuntimeException('Workbook tidak bisa dibuka.');
+    }
+
+    $sharedStrings = [];
+    $sharedXml = $zip->getFromName('xl/sharedStrings.xml');
+
+    if ($sharedXml !== false) {
+        $xml = simplexml_load_string($sharedXml);
+
+        foreach ($xml->si as $si) {
+            $text = '';
+
+            if (isset($si->t)) {
+                $text = (string) $si->t;
+            } else {
+                foreach ($si->r as $run) {
+                    $text .= (string) $run->t;
+                }
+            }
+
+            $sharedStrings[] = $text;
+        }
+    }
+
+    $relationships = [];
+    $relsXml = $zip->getFromName('xl/_rels/workbook.xml.rels');
+
+    if ($relsXml !== false) {
+        $xml = simplexml_load_string($relsXml);
+
+        foreach ($xml->Relationship as $relationship) {
+            $relationships[(string) $relationship['Id']] = (string) $relationship['Target'];
+        }
+    }
+
+    $workbook = simplexml_load_string((string) $zip->getFromName('xl/workbook.xml'));
+    $sheetPath = '';
+
+    foreach ($workbook->sheets->sheet as $sheet) {
+        if (strcasecmp((string) $sheet['name'], 'operational') === 0) {
+            $attributes = $sheet->attributes('http://schemas.openxmlformats.org/officeDocument/2006/relationships');
+            $target = $relationships[(string) $attributes['id']] ?? '';
+            $sheetPath = 'xl/' . ltrim($target, '/');
+            break;
+        }
+    }
+
+    if ($sheetPath === '') {
+        throw new RuntimeException('Sheet operational tidak ditemukan.');
+    }
+
+    $sheetXml = $zip->getFromName($sheetPath);
+    $zip->close();
+
+    if ($sheetXml === false) {
+        throw new RuntimeException('XML sheet operational tidak ditemukan.');
+    }
+
+    $sheet = simplexml_load_string($sheetXml);
+    $rows = [];
+
+    foreach ($sheet->sheetData->row as $row) {
+        $values = [];
+
+        foreach ($row->c as $cell) {
+            $ref = (string) $cell['r'];
+            $column = preg_replace('/\d+/', '', $ref);
+            $type = (string) $cell['t'];
+            $value = (string) $cell->v;
+
+            if ($type === 's') {
+                $value = $sharedStrings[(int) $value] ?? $value;
+            } elseif ($type === 'inlineStr') {
+                $value = (string) $cell->is->t;
+            }
+
+            $values[$column] = trim($value);
+        }
+
+        $rows[] = $values;
+    }
+
+    $expenses = [];
+    foreach ($rows as $row) {
+        $name = trim((string) ($row['B'] ?? ''));
+
+        if ($name === '' || strcasecmp($name, 'nama pengeluaran') === 0) {
+            continue;
+        }
+
+        $tanggal = parse_excel_date_internal($row['A'] ?? null);
+        $jumlah = (float) ($row['C'] ?? 0);
+        $status = trim((string) ($row['D'] ?? 'Lunas'));
+        $tanggal_pembayar = parse_excel_date_internal($row['E'] ?? null);
+        $keterangan = trim((string) ($row['F'] ?? ''));
+
+        if ($status === '') {
+            $status = 'Lunas';
+        }
+
+        $expenses[] = [
+            'tanggal' => $tanggal,
+            'nama_pengeluaran' => $name,
+            'jumlah' => $jumlah,
+            'status_pembayaran' => $status,
+            'tanggal_pembayaran' => $tanggal_pembayar,
+            'keterangan' => $keterangan,
+        ];
+    }
+
+    return $expenses;
+}
+
+function seed_operational_expenses_from_workbook(PDO $pdo, string $excelPath): int
+{
+    $expenses = read_operational_from_workbook_internal($excelPath);
+    $statement = $pdo->prepare('
+        INSERT INTO operational_expenses (tanggal, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran, keterangan)
+        VALUES (:tanggal, :nama_pengeluaran, :jumlah, :status_pembayaran, :tanggal_pembayaran, :keterangan)
+    ');
+
+    $count = 0;
+    foreach ($expenses as $expense) {
+        $statement->execute([
+            'tanggal' => $expense['tanggal'],
+            'nama_pengeluaran' => $expense['nama_pengeluaran'],
+            'jumlah' => $expense['jumlah'],
+            'status_pembayaran' => $expense['status_pembayaran'],
+            'tanggal_pembayaran' => $expense['tanggal_pembayaran'],
+            'keterangan' => $expense['keterangan'],
+        ]);
+        $count++;
+    }
+    return $count;
 }
 
 

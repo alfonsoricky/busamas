@@ -3,6 +3,7 @@
         '/' => 'Dashboard',
         '/master' => 'Data Master',
         '/invoices' => 'Invoice',
+        '/operational' => 'Operasional',
         '/laporan' => 'Laporan',
         '/db-maintenance' => 'Database',
     ];

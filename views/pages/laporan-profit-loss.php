@@ -3,6 +3,7 @@ $pendapatan = $reportData['pendapatan'] ?? 0.0;
 $hpp = $reportData['hpp'] ?? 0.0;
 $laba_kotor = $reportData['laba_kotor'] ?? 0.0;
 $komisi = $reportData['komisi'] ?? 0.0;
+$operasional = $reportData['operasional'] ?? 0.0;
 $laba_bersih = $reportData['laba_bersih'] ?? 0.0;
 ?>
 
@@ -103,9 +104,13 @@ $laba_bersih = $reportData['laba_bersih'] ?? 0.0;
                             <span>Beban Komisi Sales Agent</span>
                             <span><?= rupiah($komisi) ?></span>
                         </div>
+                        <div class="flex justify-between pl-4 text-stone-700">
+                            <span>Beban Pengeluaran Operasional</span>
+                            <span><a href="<?= e(url('/operational')) ?>" class="text-brand hover:underline hover:text-teal-800"><?= rupiah($operasional) ?></a></span>
+                        </div>
                         <div class="flex justify-between border-t border-stone-100 pt-2 font-semibold text-ink pl-4">
                             <span>Total Beban Operasional</span>
-                            <span>(<?= rupiah($komisi) ?>)</span>
+                            <span>(<?= rupiah($komisi + $operasional) ?>)</span>
                         </div>
                     </div>
                 </div>

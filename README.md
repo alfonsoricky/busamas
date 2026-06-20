@@ -15,11 +15,23 @@ Buka `http://localhost:8000` di browser.
 Atur koneksi database lewat environment hosting:
 
 ```text
+APP_URL=https://busamas.com/erp
 DB_HOST
 DB_PORT
 DB_DATABASE
 DB_USERNAME
 DB_PASSWORD
+```
+
+Jika hosting tidak menyediakan menu environment variable, buat file `.env` di root project:
+
+```text
+APP_URL=https://busamas.com/erp
+DB_HOST=localhost
+DB_PORT=3306
+DB_DATABASE=nama_database_hostinger
+DB_USERNAME=user_database_hostinger
+DB_PASSWORD=password_database_hostinger
 ```
 
 Setelah file project ter-upload dan database kosong/siap diganti, buka:

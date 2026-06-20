@@ -9,6 +9,13 @@
 
     <?php $result = $databaseMaintenance['result'] ?? null; ?>
 
+    <?php if (! ($databaseMaintenance['database_connected'] ?? false)): ?>
+        <div class="mb-6 rounded-lg border border-red-200 bg-red-50 p-5 text-sm leading-6 text-red-900">
+            <p class="font-semibold">Database belum terkoneksi.</p>
+            <p class="mt-1">Buat file <span class="font-semibold">.env</span> di root project hosting, lalu isi DB_HOST, DB_DATABASE, DB_USERNAME, dan DB_PASSWORD sesuai database Hostinger.</p>
+        </div>
+    <?php endif; ?>
+
     <?php if (is_array($result)): ?>
         <div class="mb-6 rounded-lg border <?= ($result['ok'] ?? false) ? 'border-teal-200 bg-teal-50 text-teal-900' : 'border-red-200 bg-red-50 text-red-900' ?> p-5 text-sm leading-6">
             <p class="font-semibold"><?= e((string) ($result['message'] ?? '')) ?></p>
@@ -65,13 +72,17 @@
 
     <div class="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
         <h2 class="text-lg font-bold text-ink">Jumlah Data Saat Ini</h2>
-        <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <?php foreach (($databaseMaintenance['table_counts'] ?? []) as $table => $count): ?>
-                <div class="rounded-lg border border-stone-200 bg-stone-50 p-4">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-stone-500"><?= e((string) $table) ?></p>
-                    <p class="mt-2 text-2xl font-bold text-ink"><?= $count === null ? '-' : e((string) $count) ?></p>
-                </div>
-            <?php endforeach; ?>
-        </div>
+        <?php if (empty($databaseMaintenance['table_counts'] ?? [])): ?>
+            <p class="mt-3 text-sm leading-6 text-stone-600">Jumlah data akan muncul setelah koneksi database berhasil.</p>
+        <?php else: ?>
+            <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <?php foreach (($databaseMaintenance['table_counts'] ?? []) as $table => $count): ?>
+                    <div class="rounded-lg border border-stone-200 bg-stone-50 p-4">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-stone-500"><?= e((string) $table) ?></p>
+                        <p class="mt-2 text-2xl font-bold text-ink"><?= $count === null ? '-' : e((string) $count) ?></p>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
     </div>
 </section>

@@ -167,15 +167,18 @@ function view(string $name, array $data = []): void
 function fetch_database_maintenance(?string $action = null): array
 {
     $result = null;
+    $counts = database_table_counts();
 
     if ($action === 'migrate-seed') {
         $result = run_database_migration_seed();
+        $counts = database_table_counts();
     }
 
     return [
         'ok' => true,
         'seed_file' => database_seed_file_info(),
-        'table_counts' => database_table_counts(),
+        'table_counts' => $counts,
+        'database_connected' => db() !== null,
         'result' => $result,
     ];
 }

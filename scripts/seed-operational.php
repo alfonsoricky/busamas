@@ -21,7 +21,8 @@ if ($pdo === null) {
 try {
     $pdo->exec('TRUNCATE TABLE operational_expenses');
     $count = seed_operational_expenses_from_workbook($pdo, $excelPath);
-    echo 'operational_expenses: ' . $count . ' rows seeded successfully.' . PHP_EOL;
+    $bonusCount = seed_bonus_expenses($pdo);
+    echo 'operational_expenses: ' . ($count + $bonusCount) . ' rows seeded successfully.' . PHP_EOL;
 } catch (Throwable $exception) {
     fwrite(STDERR, 'Seeder operational gagal: ' . $exception->getMessage() . PHP_EOL);
     exit(1);

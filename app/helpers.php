@@ -244,19 +244,20 @@ function run_database_operational_seed(): array
     try {
         $pdo->exec('TRUNCATE TABLE operational_expenses');
         $count = seed_operational_expenses_from_workbook($pdo, $excelPath);
+        $bonusCount = seed_bonus_expenses($pdo);
 
         return [
-            'ok' => true,
-            'message' => 'Seeder data operasional berhasil dijalankan.',
-            'statements' => $count,
-            'counts' => database_table_counts(),
+            'ok'       => true,
+            'message'  => 'Seeder data operasional + bonus berhasil dijalankan.',
+            'statements' => $count + $bonusCount,
+            'counts'   => database_table_counts(),
         ];
     } catch (Throwable $exception) {
         return [
-            'ok' => false,
-            'message' => 'Seed operasional gagal: ' . $exception->getMessage(),
+            'ok'       => false,
+            'message'  => 'Seed operasional gagal: ' . $exception->getMessage(),
             'statements' => 0,
-            'counts' => database_table_counts(),
+            'counts'   => database_table_counts(),
         ];
     }
 }
@@ -2484,6 +2485,38 @@ function seed_operational_expenses_from_workbook(PDO $pdo, string $excelPath): i
             'status_pembayaran' => $expense['status_pembayaran'],
             'tanggal_pembayaran'=> $expense['tanggal_pembayaran'],
             'keterangan'        => $expense['keterangan'],
+        ]);
+        $count++;
+    }
+    return $count;
+}
+
+/**
+ * Seed data bonus ke tabel operational_expenses (kategori='bonus').
+ * Tambahkan baris baru di $bonusData jika ada bonus periode berikutnya.
+ */
+function seed_bonus_expenses(PDO $pdo): int
+{
+    // Daftar bonus — edit array ini jika ada bonus baru
+    $bonusData = [
+        ['bulan_pnl' => 4, 'tahun_pnl' => 2026, 'nama' => 'Bonus Krisna April 2026', 'jumlah' => 2643400.00],
+        ['bulan_pnl' => 5, 'tahun_pnl' => 2026, 'nama' => 'Bonus Krisna Mei 2026',   'jumlah' => 2041050.00],
+    ];
+
+    $stmt = $pdo->prepare("
+        INSERT INTO operational_expenses
+            (tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, keterangan)
+        VALUES
+            (NULL, :bulan_pnl, :tahun_pnl, 'bonus', :nama_pengeluaran, :jumlah, 'Lunas', 'Bonus dari sheet Bonus Krisna')
+    ");
+
+    $count = 0;
+    foreach ($bonusData as $b) {
+        $stmt->execute([
+            'bulan_pnl'        => $b['bulan_pnl'],
+            'tahun_pnl'        => $b['tahun_pnl'],
+            'nama_pengeluaran' => $b['nama'],
+            'jumlah'           => $b['jumlah'],
         ]);
         $count++;
     }

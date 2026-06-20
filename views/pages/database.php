@@ -26,22 +26,44 @@
     <?php endif; ?>
 
     <div class="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
-        <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-            <h2 class="text-lg font-bold text-ink">Migrate & Seed</h2>
-            <p class="mt-3 text-sm leading-6 text-stone-600">
-                Tombol ini akan membuat ulang tabel master dan invoice, lalu mengisi data dari <span class="font-semibold text-ink">database/seed-data.sql</span>.
-            </p>
+        <div class="space-y-6">
+            <!-- Migrate & Seed -->
+            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+                <h2 class="text-lg font-bold text-ink">Migrate & Seed</h2>
+                <p class="mt-3 text-sm leading-6 text-stone-600">
+                    Tombol ini akan membuat ulang tabel master dan invoice, lalu mengisi data dari <span class="font-semibold text-ink">database/seed-data.sql</span>.
+                </p>
 
-            <div class="mt-5 rounded-lg border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-orange-900">
-                Data pada tabel master dan invoice akan diganti dengan isi seed terbaru.
+                <div class="mt-5 rounded-lg border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-orange-900">
+                    Data pada tabel master dan invoice akan diganti dengan isi seed terbaru.
+                </div>
+
+                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
+                    <input type="hidden" name="action" value="migrate-seed">
+                    <button class="rounded-lg bg-brand px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
+                        Jalankan Migrate & Seed
+                    </button>
+                </form>
             </div>
 
-            <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
-                <input type="hidden" name="action" value="migrate-seed">
-                <button class="rounded-lg bg-brand px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
-                    Jalankan Migrate & Seed
-                </button>
-            </form>
+            <!-- Seed Operasional -->
+            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+                <h2 class="text-lg font-bold text-ink">Seed Data Operasional</h2>
+                <p class="mt-3 text-sm leading-6 text-stone-600">
+                    Tombol ini akan memperbarui dan mengimpor ulang data pengeluaran operasional secara terpisah dengan membaca data terbaru dari lembar <span class="font-semibold text-ink">operational</span> di file <span class="font-semibold text-ink">storage/PENJUALAN-2026.xlsx</span>.
+                </p>
+
+                <div class="mt-5 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-900">
+                    Data pada tabel pengeluaran operasional akan disinkronkan ulang dengan data Excel.
+                </div>
+
+                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
+                    <input type="hidden" name="action" value="seed-operational">
+                    <button class="rounded-lg bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
+                        Jalankan Seed Operasional
+                    </button>
+                </form>
+            </div>
         </div>
 
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">

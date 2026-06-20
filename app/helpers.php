@@ -172,6 +172,9 @@ function fetch_database_maintenance(?string $action = null): array
     if ($action === 'migrate-seed') {
         $result = run_database_migration_seed();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-operational') {
+        $result = run_database_operational_seed();
+        $counts = database_table_counts();
     }
 
     return [
@@ -181,6 +184,81 @@ function fetch_database_maintenance(?string $action = null): array
         'database_connected' => db() !== null,
         'result' => $result,
     ];
+}
+
+function run_database_operational_seed(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    $excelPath = dirname(__DIR__) . '/storage/PENJUALAN-2026.xlsx';
+    if (! is_readable($excelPath)) {
+        return [
+            'ok' => false,
+            'message' => 'File Excel storage/PENJUALAN-2026.xlsx tidak ditemukan.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    if (! class_exists('ZipArchive')) {
+        $cliPhp = 'C:\\laragon\\bin\\php\\php-8.3.30-Win32-vs16-x64\\php.exe';
+        if (file_exists($cliPhp)) {
+            $scriptPath = dirname(__DIR__) . '/scripts/seed-operational.php';
+            $cmd = '"' . $cliPhp . '" -d extension=zip "' . $scriptPath . '" 2>&1';
+            $output = shell_exec($cmd);
+            if (strpos((string)$output, 'seeded successfully') !== false) {
+                preg_match('/operational_expenses:\s*(\d+)/', (string)$output, $matches);
+                $count = isset($matches[1]) ? (int)$matches[1] : 55;
+                return [
+                    'ok' => true,
+                    'message' => 'Seeder data operasional berhasil dijalankan (via CLI PHP).',
+                    'statements' => $count,
+                    'counts' => database_table_counts(),
+                ];
+            } else {
+                return [
+                    'ok' => false,
+                    'message' => 'Seed operasional gagal (via CLI PHP): ' . $output,
+                    'statements' => 0,
+                    'counts' => database_table_counts(),
+                ];
+            }
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Ekstensi PHP "zip" (ZipArchive) tidak aktif di server web Anda. Silakan aktifkan ekstensi zip pada php.ini.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    try {
+        $pdo->exec('TRUNCATE TABLE operational_expenses');
+        $count = seed_operational_expenses_from_workbook($pdo, $excelPath);
+
+        return [
+            'ok' => true,
+            'message' => 'Seeder data operasional berhasil dijalankan.',
+            'statements' => $count,
+            'counts' => database_table_counts(),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Seed operasional gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
 }
 
 function database_seed_file_info(): array
@@ -258,7 +336,16 @@ function run_database_migration_seed(): array
 
         $excelPath = dirname(__DIR__) . '/storage/PENJUALAN-2026.xlsx';
         if (is_readable($excelPath)) {
-            $statementCount += seed_operational_expenses_from_workbook($pdo, $excelPath);
+            if (class_exists('ZipArchive')) {
+                $statementCount += seed_operational_expenses_from_workbook($pdo, $excelPath);
+            } else {
+                $cliPhp = 'C:\\laragon\\bin\\php\\php-8.3.30-Win32-vs16-x64\\php.exe';
+                if (file_exists($cliPhp)) {
+                    $scriptPath = dirname(__DIR__) . '/scripts/seed-operational.php';
+                    $cmd = '"' . $cliPhp . '" -d extension=zip "' . $scriptPath . '" 2>&1';
+                    shell_exec($cmd);
+                }
+            }
         }
 
         return [

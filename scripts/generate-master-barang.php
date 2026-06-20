@@ -287,6 +287,7 @@ function write_extract_cache(string $path, array $cache, array $items, array $cu
 function write_outputs(string $outputDir, string $suffix, array $items, array $customers, array $failedFiles, int $invoiceFileCount): void
 {
     $suffix = $suffix !== '' ? '-' . trim($suffix, '-') : '';
+    [$items, $customers] = apply_manual_invoice_corrections($items, $customers);
     $groups = group_similar_items($items);
     $customerGroups = group_similar_customers($customers);
 
@@ -313,6 +314,83 @@ function write_outputs(string $outputDir, string $suffix, array $items, array $c
     echo 'Output: storage/generated/master-barang' . $suffix . '.csv' . PHP_EOL;
     echo 'Alias: storage/generated/master-barang-alias' . $suffix . '.csv' . PHP_EOL;
     echo 'Customer: storage/generated/master-customer' . $suffix . '.csv' . PHP_EOL;
+}
+
+function apply_manual_invoice_corrections(array $items, array $customers): array
+{
+    $invoiceNumber = '273/BM-INV/I/2026';
+    $sourceFile = $invoiceNumber . ' CLEAN POINT.xlsx';
+    $sourceFileId = 'manual-correction-clean-point-273-2026-01';
+    $hasJanuary2026 = false;
+
+    foreach ($customers as $customer) {
+        if (str_contains((string) ($customer['invoice_number'] ?? ''), '/BM-INV/I/2026')) {
+            $hasJanuary2026 = true;
+            break;
+        }
+    }
+
+    if (! $hasJanuary2026) {
+        foreach ($items as $item) {
+            if (str_contains((string) ($item['source_file'] ?? ''), '/BM-INV/I/2026')) {
+                $hasJanuary2026 = true;
+                break;
+            }
+        }
+    }
+
+    if (! $hasJanuary2026) {
+        return [$items, $customers];
+    }
+
+    $hasCustomer = false;
+    foreach ($customers as $customer) {
+        if (($customer['invoice_number'] ?? '') === $invoiceNumber) {
+            $hasCustomer = true;
+            break;
+        }
+    }
+
+    if (! $hasCustomer) {
+        $customers[] = [
+            'source_file' => $sourceFile,
+            'source_file_id' => $sourceFileId,
+            'raw_name' => 'CLEAN POINT LAUNDRY',
+            'normalized_name' => normalize_customer_name('CLEAN POINT LAUNDRY'),
+            'laundry_name' => 'CLEAN POINT LAUNDRY',
+            'contact_name' => 'Bp. Gandung',
+            'phone' => '081238500058',
+            'address' => 'Jl. Wahyu Graha No. 55 - Buduk',
+            'invoice_number' => $invoiceNumber,
+            'invoice_date' => '20 Januari 2026',
+        ];
+    }
+
+    $hasItem = false;
+    foreach ($items as $item) {
+        if (($item['source_file'] ?? '') === $sourceFile && normalize_item_name((string) ($item['raw_name'] ?? '')) === 'N IRON') {
+            $hasItem = true;
+            break;
+        }
+    }
+
+    if (! $hasItem) {
+        $items[] = [
+            'source_file' => $sourceFile,
+            'source_file_id' => $sourceFileId,
+            'row' => 23,
+            'raw_name' => 'N-IRON',
+            'normalized_name' => 'N IRON',
+            'isi' => '5 KG',
+            'jumlah' => '1',
+            'satuan' => '5 kg',
+            'variant_size' => '5 KG',
+            'harga' => '687500',
+            'total' => '687500',
+        ];
+    }
+
+    return [$items, $customers];
 }
 
 function extract_invoice_items(array $rows, string $fileName, string $fileId): array
@@ -439,9 +517,10 @@ function group_similar_customers(array $customers): array
     foreach ($customers as $customer) {
         $bestIndex = null;
         $bestScore = 0;
+        $normalizedName = normalize_customer_name($customer['raw_name']);
 
         foreach ($groups as $index => $group) {
-            $score = item_similarity_score($customer['normalized_name'], $group['normalized_key']);
+            $score = item_similarity_score($normalizedName, $group['normalized_key']);
 
             if ($score > $bestScore) {
                 $bestScore = $score;
@@ -461,7 +540,7 @@ function group_similar_customers(array $customers): array
         }
 
         $groups[] = [
-            'normalized_key' => $customer['normalized_name'],
+            'normalized_key' => $normalizedName,
             'canonical_name' => canonical_customer_name($customer['raw_name']),
             'customers' => [$customer],
             'aliases' => [$customer['raw_name'] => true],
@@ -586,8 +665,8 @@ function group_similar_items(array $items): array
             $group['canonical_name'] = 'Anti Karat';
         }
 
-        if ($group['normalized_key'] === 'OXO') {
-            $group['canonical_name'] = 'Oxo';
+        if (in_array($group['normalized_key'], ['OXO', 'OXO BLEACH'], true)) {
+            $group['canonical_name'] = 'Oxo Bleach';
         }
 
         $group['default_isi'] = array_key_first($packCounts) ?: '';
@@ -635,6 +714,7 @@ function normalize_item_name(string $name): string
         'BLACH' => 'BLEACH',
         'OXY' => 'OXO',
         'MCB' => 'MC BLEACH',
+        'PAIN' => 'PINE',
         'PARFUME' => 'PARFUM',
         'PERFUME' => 'PARFUM',
         'LITER' => 'L',
@@ -645,6 +725,10 @@ function normalize_item_name(string $name): string
     $normalizedWords = [];
 
     foreach ($words as $word) {
+        if ($word === 'COKRO') {
+            continue;
+        }
+
         $normalizedWords[] = $replacements[$word] ?? $word;
     }
 
@@ -652,9 +736,11 @@ function normalize_item_name(string $name): string
     $normalizedName = preg_replace('/\bMC BLEACH LIQUID\b/', 'MC BLEACH', $normalizedName);
     $normalizedName = preg_replace('/\bRUST GONE KARAT\b/', 'ANTI KARAT', $normalizedName);
     $normalizedName = preg_replace('/\bRUST GONE\b/', 'ANTI KARAT', $normalizedName);
-    $normalizedName = preg_replace('/\bOMAXX OXO\b/', 'OXO', $normalizedName);
-    $normalizedName = preg_replace('/\bOXO BLEACH OMAXX\b/', 'OXO', $normalizedName);
-    $normalizedName = preg_replace('/\b0X0\b/', 'OXO', $normalizedName);
+    $normalizedName = preg_replace('/\bOMAXX OXO\b/', 'OXO BLEACH', $normalizedName);
+    $normalizedName = preg_replace('/\bOXO BLEACH OMAXX\b/', 'OXO BLEACH', $normalizedName);
+    $normalizedName = preg_replace('/\bOXO OMAXX\b/', 'OXO BLEACH', $normalizedName);
+    $normalizedName = preg_replace('/\b0X0\b/', 'OXO BLEACH', $normalizedName);
+    $normalizedName = preg_replace('/\bOXO\b(?!\s+BLEACH)/', 'OXO BLEACH', $normalizedName);
 
     return normalize_spaces($normalizedName);
 }
@@ -667,6 +753,18 @@ function item_variant_size(string $isi, string $satuan, string $normalizedName =
     if ($normalizedName === 'N IRON') {
         $isi = str_replace(' L', ' KG', $isi);
         $satuan = str_replace(' L', ' KG', $satuan);
+
+        if ($isi === '1 PAIL' || $satuan === '1 PAIL') {
+            return '20 KG';
+        }
+    }
+
+    if ($normalizedName === 'MC BLEACH' && ($isi === '1 PAIL' || $satuan === '1 PAIL')) {
+        return '20 L';
+    }
+
+    if ($normalizedName === 'E 951' && ($isi === '1 PAIL' || $satuan === '1 PAIL')) {
+        return '20 L';
     }
 
     if (preg_match('/^\d+(?:\.\d+)?\s+(L|KG)$/', $satuan)) {
@@ -694,6 +792,7 @@ function normalize_size(string $value): string
 function normalize_customer_name(string $name): string
 {
     $name = strtoupper($name);
+    $name = preg_replace('/\bBE\s+TO\s+BE\b/i', 'B2B', $name);
     $name = preg_replace('/\b(BAPAK|BPK|PAK|IBU|BU|MR|MRS|MS)\b\.?/i', ' ', $name);
     $name = str_replace(['&', '+'], ' DAN ', $name);
     $name = preg_replace('/[^A-Z0-9]+/', ' ', $name);
@@ -712,6 +811,10 @@ function normalize_customer_name(string $name): string
     $normalizedWords = [];
 
     foreach ($words as $word) {
+        if ($word === 'COKRO') {
+            continue;
+        }
+
         $normalizedWords[] = $replacements[$word] ?? $word;
     }
 

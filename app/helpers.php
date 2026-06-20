@@ -45,6 +45,69 @@ function google_drive_config(?string $key = null, mixed $default = null): mixed
     return $config[$key] ?? $default;
 }
 
+function database_config(?string $key = null, mixed $default = null): mixed
+{
+    static $config = null;
+
+    if ($config === null) {
+        $config = require dirname(__DIR__) . '/config/database.php';
+    }
+
+    if ($key === null) {
+        return $config;
+    }
+
+    return $config[$key] ?? $default;
+}
+
+function db(): ?PDO
+{
+    static $pdo = false;
+
+    if ($pdo !== false) {
+        return $pdo;
+    }
+
+    $config = database_config();
+    $dsn = sprintf(
+        'mysql:host=%s;port=%s;dbname=%s;charset=%s',
+        $config['host'],
+        $config['port'],
+        $config['database'],
+        $config['charset']
+    );
+
+    try {
+        $pdo = new PDO($dsn, $config['username'], $config['password'], [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ]);
+    } catch (Throwable) {
+        $pdo = null;
+    }
+
+    return $pdo;
+}
+
+function db_all(string $sql, array $params = []): ?array
+{
+    $pdo = db();
+
+    if ($pdo === null) {
+        return null;
+    }
+
+    try {
+        $statement = $pdo->prepare($sql);
+        $statement->execute($params);
+
+        return $statement->fetchAll();
+    } catch (Throwable) {
+        return null;
+    }
+}
+
 function e(?string $value): string
 {
     return htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8');
@@ -103,6 +166,21 @@ function view(string $name, array $data = []): void
 
 function fetch_master_barang(): array
 {
+    $dbItems = db_all('SELECT kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default, jumlah_alias, jumlah_transaksi, jumlah_invoice, alias FROM master_barang ORDER BY nama_barang, ukuran');
+
+    if ($dbItems !== null) {
+        return [
+            'ok' => true,
+            'items' => $dbItems,
+            'summary' => [
+                'total_barang' => count($dbItems),
+                'total_transaksi' => array_sum(array_map(static fn (array $item): int => (int) ($item['jumlah_transaksi'] ?? 0), $dbItems)),
+                'total_invoice' => array_sum(array_map(static fn (array $item): int => (int) ($item['jumlah_invoice'] ?? 0), $dbItems)),
+            ],
+            'error' => null,
+        ];
+    }
+
     $path = dirname(__DIR__) . '/storage/generated/master-barang.csv';
 
     if (! is_readable($path)) {
@@ -144,6 +222,688 @@ function fetch_master_barang(): array
         ],
         'error' => null,
     ];
+}
+
+function fetch_master_customer(): array
+{
+    $dbItems = db_all('SELECT kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, jumlah_alias, jumlah_invoice, alias, alamat_lain FROM master_customers ORDER BY nama_laundry');
+
+    if ($dbItems !== null) {
+        return [
+            'ok' => true,
+            'items' => $dbItems,
+            'summary' => [
+                'total_customer' => count($dbItems),
+                'total_invoice' => array_sum(array_map(static fn (array $item): int => (int) ($item['jumlah_invoice'] ?? 0), $dbItems)),
+                'total_dengan_telepon' => count(array_filter($dbItems, static fn (array $item): bool => trim((string) ($item['no_telepon'] ?? '')) !== '')),
+            ],
+            'error' => null,
+        ];
+    }
+
+    $path = dirname(__DIR__) . '/storage/generated/master-customer.csv';
+
+    if (! is_readable($path)) {
+        return [
+            'ok' => false,
+            'items' => [],
+            'summary' => [
+                'total_customer' => 0,
+                'total_invoice' => 0,
+                'total_dengan_telepon' => 0,
+            ],
+            'error' => 'File master customer belum tersedia. Jalankan scripts/generate-master-barang.php terlebih dahulu.',
+        ];
+    }
+
+    $handle = fopen($path, 'r');
+    $headers = fgetcsv($handle) ?: [];
+    $items = [];
+
+    while (($row = fgetcsv($handle)) !== false) {
+        $item = array_combine($headers, $row);
+
+        if ($item === false) {
+            continue;
+        }
+
+        $items[] = $item;
+    }
+
+    fclose($handle);
+
+    return [
+        'ok' => true,
+        'items' => $items,
+        'summary' => [
+            'total_customer' => count($items),
+            'total_invoice' => array_sum(array_map(static fn (array $item): int => (int) ($item['jumlah_invoice'] ?? 0), $items)),
+            'total_dengan_telepon' => count(array_filter($items, static fn (array $item): bool => trim((string) ($item['no_telepon'] ?? '')) !== '')),
+        ],
+        'error' => null,
+    ];
+}
+
+function fetch_master_sales(): array
+{
+    $items = db_all('SELECT kode_sales, nama_sales FROM master_sales ORDER BY kode_sales');
+
+    if ($items === null) {
+        return [
+            'ok' => false,
+            'items' => [],
+            'summary' => [
+                'total_sales' => 0,
+            ],
+            'error' => 'Tabel master_sales belum tersedia. Jalankan scripts/seed-sales.php terlebih dahulu.',
+        ];
+    }
+
+    return [
+        'ok' => true,
+        'items' => $items,
+        'summary' => [
+            'total_sales' => count($items),
+        ],
+        'error' => null,
+    ];
+}
+
+function fetch_invoice_mapping(array $filters = []): array
+{
+    $invoicePath = dirname(__DIR__) . '/storage/generated/invoices-2025-jan-jun-2026.csv';
+    $itemPath = dirname(__DIR__) . '/storage/generated/invoice-items-2025-jan-jun-2026.csv';
+    $dbInvoices = db_all('SELECT kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, file_invoice FROM invoices ORDER BY kode_invoice');
+    $dbDetails = db_all('SELECT kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, kode_barang, nama_barang_master, ukuran_master, nama_barang_invoice, isi_invoice, jumlah, satuan, harga, total, file_invoice, baris FROM invoice_items ORDER BY kode_invoice, baris');
+
+    if ($dbInvoices !== null && $dbDetails !== null) {
+        $invoices = $dbInvoices;
+        $details = $dbDetails;
+    } elseif (! is_readable($invoicePath) || ! is_readable($itemPath)) {
+        return [
+            'ok' => false,
+            'items' => [],
+            'summary' => [
+                'total_invoice' => 0,
+                'total_detail' => 0,
+                'subtotal' => 0,
+            ],
+            'error' => 'File invoice mapping belum tersedia. Jalankan scripts/generate-invoice-data.php terlebih dahulu.',
+        ];
+    } else {
+        $invoices = read_csv_rows($invoicePath);
+        $details = read_csv_rows($itemPath);
+    }
+
+    $yearOptions = invoice_year_options($invoices);
+    $laundryOptions = invoice_laundry_options($invoices);
+    $month = trim((string) ($filters['month'] ?? ''));
+    $year = trim((string) ($filters['year'] ?? ''));
+    $laundry = trim((string) ($filters['laundry'] ?? ''));
+    $sort = trim((string) ($filters['sort'] ?? ''));
+    $direction = strtolower(trim((string) ($filters['direction'] ?? '')));
+    $direction = in_array($direction, ['asc', 'desc'], true) ? $direction : 'desc';
+
+    $filteredInvoices = array_values(array_filter($invoices, static function (array $invoice) use ($month, $year, $laundry): bool {
+        if ($month !== '' && invoice_month_number((string) ($invoice['nomor_invoice'] ?? '')) !== (int) $month) {
+            return false;
+        }
+
+        if ($year !== '' && invoice_year((string) ($invoice['nomor_invoice'] ?? '')) !== $year) {
+            return false;
+        }
+
+        if ($laundry !== '') {
+            $haystack = strtoupper(implode(' ', [
+                $invoice['nama_laundry_invoice'] ?? '',
+                $invoice['nama_customer_master'] ?? '',
+                $invoice['nama_customer_invoice'] ?? '',
+            ]));
+
+            if (! str_contains($haystack, strtoupper($laundry))) {
+                return false;
+            }
+        }
+
+        return true;
+    }));
+
+    if ($sort === 'subtotal') {
+        usort($filteredInvoices, static function (array $a, array $b) use ($direction): int {
+            $comparison = ((float) ($a['subtotal'] ?? 0)) <=> ((float) ($b['subtotal'] ?? 0));
+
+            if ($comparison === 0) {
+                $comparison = strnatcasecmp((string) ($a['nomor_invoice'] ?? ''), (string) ($b['nomor_invoice'] ?? ''));
+            }
+
+            return $direction === 'asc' ? $comparison : -$comparison;
+        });
+    } else {
+        sort_invoices_newest_first($filteredInvoices);
+    }
+
+    $invoiceCodes = array_fill_keys(array_map(
+        static fn (array $invoice): string => (string) ($invoice['kode_invoice'] ?? ''),
+        $filteredInvoices
+    ), true);
+
+    $filteredDetails = array_values(array_filter(
+        $details,
+        static fn (array $detail): bool => isset($invoiceCodes[(string) ($detail['kode_invoice'] ?? '')])
+    ));
+    $customerSummary = invoice_customer_summary($filteredInvoices);
+
+    return [
+        'ok' => true,
+        'items' => $filteredInvoices,
+        'customer_summary' => $customerSummary,
+        'filters' => [
+            'month' => $month,
+            'year' => $year,
+            'laundry' => $laundry,
+            'sort' => $sort,
+            'direction' => $direction,
+        ],
+        'options' => [
+            'years' => $yearOptions,
+            'laundries' => $laundryOptions,
+        ],
+        'summary' => [
+            'total_invoice' => count($filteredInvoices),
+            'total_detail' => count($filteredDetails),
+            'subtotal' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['subtotal'] ?? 0), $filteredInvoices)),
+            'total_pembelian_barang' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['total_pembelian_barang'] ?? 0), $filteredInvoices)),
+            'total_utang_pembelian_barang' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['total_utang_pembelian_barang'] ?? 0), $filteredInvoices)),
+            'total_invoice_utang' => count(array_filter($filteredInvoices, static fn (array $invoice): bool => (float) ($invoice['total_utang_pembelian_barang'] ?? 0) > 0)),
+        ],
+        'error' => null,
+    ];
+}
+
+function invoice_customer_summary(array $invoices): array
+{
+    $summary = [];
+
+    foreach ($invoices as $invoice) {
+        $customerCode = (string) ($invoice['kode_customer'] ?? '');
+        $key = $customerCode !== '' ? $customerCode : (string) ($invoice['nama_customer_master'] ?? $invoice['nama_laundry_invoice'] ?? '');
+
+        if ($key === '') {
+            continue;
+        }
+
+        if (! isset($summary[$key])) {
+            $summary[$key] = [
+                'kode_customer' => $customerCode,
+                'nama_customer' => $invoice['nama_customer_master'] ?? '',
+                'nama_laundry' => $invoice['nama_laundry_invoice'] ?? '',
+                'jumlah_invoice' => 0,
+                'total_item' => 0,
+                'total_qty' => 0,
+                'subtotal' => 0,
+            ];
+        }
+
+        $summary[$key]['jumlah_invoice']++;
+        $summary[$key]['total_item'] += (int) ($invoice['total_item'] ?? 0);
+        $summary[$key]['total_qty'] += (float) ($invoice['total_qty'] ?? 0);
+        $summary[$key]['subtotal'] += (float) ($invoice['subtotal'] ?? 0);
+    }
+
+    $summary = array_values($summary);
+    usort($summary, static function (array $a, array $b): int {
+        $comparison = ((float) ($b['subtotal'] ?? 0)) <=> ((float) ($a['subtotal'] ?? 0));
+
+        if ($comparison !== 0) {
+            return $comparison;
+        }
+
+        return strcasecmp((string) ($a['nama_laundry'] ?? ''), (string) ($b['nama_laundry'] ?? ''));
+    });
+
+    return $summary;
+}
+
+function fetch_invoice_detail(string $code): array
+{
+    $invoicePath = dirname(__DIR__) . '/storage/generated/invoices-2025-jan-jun-2026.csv';
+    $itemPath = dirname(__DIR__) . '/storage/generated/invoice-items-2025-jan-jun-2026.csv';
+    $invoiceRows = db_all(
+        'SELECT kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, file_invoice FROM invoices WHERE kode_invoice = :kode_invoice OR nomor_invoice = :nomor_invoice LIMIT 1',
+        [
+            'kode_invoice' => $code,
+            'nomor_invoice' => $code,
+        ]
+    );
+
+    if ($invoiceRows !== null && $invoiceRows !== []) {
+        $invoice = $invoiceRows[0];
+        $items = db_all(
+            'SELECT kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, kode_barang, nama_barang_master, ukuran_master, nama_barang_invoice, isi_invoice, jumlah, satuan, harga, total, file_invoice, baris FROM invoice_items WHERE kode_invoice = :kode_invoice ORDER BY baris',
+            ['kode_invoice' => $invoice['kode_invoice']]
+        ) ?? [];
+    } elseif (! is_readable($invoicePath) || ! is_readable($itemPath)) {
+        return [
+            'ok' => false,
+            'invoice' => null,
+            'items' => [],
+            'summary' => [],
+            'error' => 'File invoice mapping belum tersedia.',
+        ];
+    } else {
+        $invoice = null;
+        foreach (read_csv_rows($invoicePath) as $row) {
+            if (($row['kode_invoice'] ?? '') === $code || ($row['nomor_invoice'] ?? '') === $code) {
+                $invoice = $row;
+                break;
+            }
+        }
+
+        if ($invoice === null) {
+            return [
+                'ok' => false,
+                'invoice' => null,
+                'items' => [],
+                'summary' => [],
+                'error' => 'Invoice tidak ditemukan.',
+            ];
+        }
+
+        $items = array_values(array_filter(
+            read_csv_rows($itemPath),
+            static fn (array $item): bool => ($item['kode_invoice'] ?? '') === ($invoice['kode_invoice'] ?? '')
+        ));
+    }
+
+    if ($invoice === null) {
+        return [
+            'ok' => false,
+            'invoice' => null,
+            'items' => [],
+            'summary' => [],
+            'error' => 'Invoice tidak ditemukan.',
+        ];
+    }
+
+    $subtotal = array_sum(array_map(static fn (array $item): float => (float) ($item['total'] ?? 0), $items));
+    $discount = 0;
+    $total = $subtotal - $discount;
+    $sourceTotals = invoice_totals_from_local_file((string) ($invoice['file_invoice'] ?? ''));
+
+    if ($sourceTotals !== null) {
+        $subtotal = $sourceTotals['subtotal'] ?? $subtotal;
+        $discount = $sourceTotals['discount'] ?? $discount;
+        $total = $sourceTotals['total'] ?? $total;
+    }
+
+    return [
+        'ok' => true,
+        'invoice' => $invoice,
+        'items' => $items,
+        'summary' => [
+            'subtotal' => $subtotal,
+            'discount' => $discount,
+            'total' => $total,
+            'terbilang' => ucwords(normalize_spaces(number_to_indonesian_words((int) $total))) . ' Rupiah',
+        ],
+        'error' => null,
+    ];
+}
+
+function invoice_totals_from_local_file(string $sourceFile): ?array
+{
+    $path = find_local_invoice_file($sourceFile);
+
+    if ($path === null || ! class_exists('ZipArchive')) {
+        return null;
+    }
+
+    try {
+        $rows = read_xlsx_rows_for_invoice_view($path);
+    } catch (Throwable) {
+        return null;
+    }
+
+    $totals = [
+        'subtotal' => null,
+        'discount' => null,
+        'total' => null,
+    ];
+
+    foreach ($rows as $row) {
+        $marker = strtoupper(normalize_spaces(implode(' ', array_map('strval', $row))));
+        $amount = last_numeric_value($row);
+
+        if ($amount === null) {
+            continue;
+        }
+
+        if (str_contains($marker, 'SUB TOTAL') || str_contains($marker, 'SUBTOTAL')) {
+            $totals['subtotal'] = $amount;
+            continue;
+        }
+
+        if (str_contains($marker, 'DISC')) {
+            $totals['discount'] = $amount;
+            continue;
+        }
+
+        if (preg_match('/\bTOTAL\b/', $marker) === 1 && ! str_contains($marker, 'TOTAL (')) {
+            $totals['total'] = $amount;
+        }
+    }
+
+    if ($totals['subtotal'] === null && $totals['discount'] === null && $totals['total'] === null) {
+        return null;
+    }
+
+    return [
+        'subtotal' => (float) ($totals['subtotal'] ?? 0),
+        'discount' => (float) ($totals['discount'] ?? 0),
+        'total' => (float) ($totals['total'] ?? (($totals['subtotal'] ?? 0) - ($totals['discount'] ?? 0))),
+    ];
+}
+
+function find_local_invoice_file(string $sourceFile): ?string
+{
+    $root = dirname(__DIR__) . '/storage/drive';
+    $target = str_replace('/', '_', $sourceFile);
+    $target = normalize_spaces($target);
+
+    if ($target === '' || ! is_dir($root)) {
+        return null;
+    }
+
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root));
+
+    foreach ($iterator as $file) {
+        if (! $file->isFile() || strtolower($file->getExtension()) !== 'xlsx') {
+            continue;
+        }
+
+        if (normalize_spaces($file->getFilename()) === $target) {
+            return $file->getPathname();
+        }
+    }
+
+    return null;
+}
+
+function read_xlsx_rows_for_invoice_view(string $filePath): array
+{
+    $zip = new ZipArchive();
+
+    if ($zip->open($filePath) !== true) {
+        return [];
+    }
+
+    $sharedStrings = [];
+    $sharedXml = $zip->getFromName('xl/sharedStrings.xml');
+
+    if ($sharedXml !== false) {
+        $xml = simplexml_load_string($sharedXml);
+
+        foreach ($xml->si as $si) {
+            $text = '';
+
+            if (isset($si->t)) {
+                $text = (string) $si->t;
+            } else {
+                foreach ($si->r as $run) {
+                    $text .= (string) $run->t;
+                }
+            }
+
+            $sharedStrings[] = $text;
+        }
+    }
+
+    $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
+    $zip->close();
+
+    if ($sheetXml === false) {
+        return [];
+    }
+
+    $sheet = simplexml_load_string($sheetXml);
+    $rows = [];
+
+    foreach ($sheet->sheetData->row as $row) {
+        $values = [];
+
+        foreach ($row->c as $cell) {
+            $ref = (string) $cell['r'];
+            $column = preg_replace('/\d+/', '', $ref);
+            $type = (string) $cell['t'];
+            $value = (string) $cell->v;
+
+            if ($type === 's') {
+                $value = $sharedStrings[(int) $value] ?? $value;
+            } elseif ($type === 'inlineStr') {
+                $value = (string) $cell->is->t;
+            }
+
+            $values[$column] = trim($value);
+        }
+
+        $rows[] = $values;
+    }
+
+    return $rows;
+}
+
+function last_numeric_value(array $row): ?float
+{
+    $numbers = [];
+
+    foreach ($row as $value) {
+        $clean = preg_replace('/[^0-9.\-]/', '', str_replace(',', '.', (string) $value)) ?? '';
+
+        if ($clean !== '' && is_numeric($clean)) {
+            $numbers[] = (float) $clean;
+        }
+    }
+
+    return $numbers === [] ? null : end($numbers);
+}
+
+function number_to_indonesian_words(int $number): string
+{
+    $number = abs($number);
+    $words = [
+        '',
+        'satu',
+        'dua',
+        'tiga',
+        'empat',
+        'lima',
+        'enam',
+        'tujuh',
+        'delapan',
+        'sembilan',
+        'sepuluh',
+        'sebelas',
+    ];
+
+    if ($number < 12) {
+        return $words[$number];
+    }
+
+    if ($number < 20) {
+        return number_to_indonesian_words($number - 10) . ' belas';
+    }
+
+    if ($number < 100) {
+        return number_to_indonesian_words(intdiv($number, 10)) . ' puluh ' . number_to_indonesian_words($number % 10);
+    }
+
+    if ($number < 200) {
+        return 'seratus ' . number_to_indonesian_words($number - 100);
+    }
+
+    if ($number < 1000) {
+        return number_to_indonesian_words(intdiv($number, 100)) . ' ratus ' . number_to_indonesian_words($number % 100);
+    }
+
+    if ($number < 2000) {
+        return 'seribu ' . number_to_indonesian_words($number - 1000);
+    }
+
+    if ($number < 1000000) {
+        return number_to_indonesian_words(intdiv($number, 1000)) . ' ribu ' . number_to_indonesian_words($number % 1000);
+    }
+
+    if ($number < 1000000000) {
+        return number_to_indonesian_words(intdiv($number, 1000000)) . ' juta ' . number_to_indonesian_words($number % 1000000);
+    }
+
+    return number_to_indonesian_words(intdiv($number, 1000000000)) . ' milyar ' . number_to_indonesian_words($number % 1000000000);
+}
+
+function invoice_months(): array
+{
+    return [
+        1 => 'Januari',
+        2 => 'Februari',
+        3 => 'Maret',
+        4 => 'April',
+        5 => 'Mei',
+        6 => 'Juni',
+        7 => 'Juli',
+        8 => 'Agustus',
+        9 => 'September',
+        10 => 'Oktober',
+        11 => 'November',
+        12 => 'Desember',
+    ];
+}
+
+function invoice_month_number(string $invoiceNumber): int
+{
+    if (! preg_match('~/BM-INV/([IVXLCDM]+)/~i', $invoiceNumber, $match)) {
+        return 0;
+    }
+
+    return roman_month_to_number(strtoupper($match[1]));
+}
+
+function invoice_year(string $invoiceNumber): string
+{
+    if (! preg_match('~/(\d{4})$~', $invoiceNumber, $match)) {
+        return '';
+    }
+
+    return $match[1];
+}
+
+function invoice_sequence_number(string $invoiceNumber): int
+{
+    if (! preg_match('~^(\d+)~', $invoiceNumber, $match)) {
+        return 0;
+    }
+
+    return (int) $match[1];
+}
+
+function sort_invoices_newest_first(array &$invoices): void
+{
+    usort($invoices, static function (array $a, array $b): int {
+        $aNumber = (string) ($a['nomor_invoice'] ?? '');
+        $bNumber = (string) ($b['nomor_invoice'] ?? '');
+        $comparison = ((int) invoice_year($bNumber)) <=> ((int) invoice_year($aNumber));
+
+        if ($comparison !== 0) {
+            return $comparison;
+        }
+
+        $comparison = invoice_month_number($bNumber) <=> invoice_month_number($aNumber);
+
+        if ($comparison !== 0) {
+            return $comparison;
+        }
+
+        $comparison = invoice_sequence_number($bNumber) <=> invoice_sequence_number($aNumber);
+
+        if ($comparison !== 0) {
+            return $comparison;
+        }
+
+        return strnatcasecmp((string) ($b['kode_invoice'] ?? ''), (string) ($a['kode_invoice'] ?? ''));
+    });
+}
+
+function invoice_year_options(array $invoices): array
+{
+    $years = [];
+    foreach ($invoices as $invoice) {
+        $year = invoice_year((string) ($invoice['nomor_invoice'] ?? ''));
+        if ($year !== '') {
+            $years[$year] = true;
+        }
+    }
+
+    $years = array_keys($years);
+    rsort($years);
+
+    return $years;
+}
+
+function invoice_laundry_options(array $invoices): array
+{
+    $laundries = [];
+    foreach ($invoices as $invoice) {
+        $name = trim((string) ($invoice['nama_laundry_invoice'] ?? ''));
+        if ($name !== '') {
+            $laundries[$name] = true;
+        }
+    }
+
+    $laundries = array_keys($laundries);
+    natcasesort($laundries);
+
+    return array_values($laundries);
+}
+
+function roman_month_to_number(string $roman): int
+{
+    return [
+        'I' => 1,
+        'II' => 2,
+        'III' => 3,
+        'IV' => 4,
+        'V' => 5,
+        'VI' => 6,
+        'VII' => 7,
+        'VIII' => 8,
+        'IX' => 9,
+        'X' => 10,
+        'XI' => 11,
+        'XII' => 12,
+    ][$roman] ?? 0;
+}
+
+function read_csv_rows(string $path): array
+{
+    $handle = fopen($path, 'r');
+    $headers = fgetcsv($handle) ?: [];
+    $rows = [];
+
+    while (($row = fgetcsv($handle)) !== false) {
+        $item = array_combine($headers, $row);
+
+        if ($item !== false) {
+            $rows[] = $item;
+        }
+    }
+
+    fclose($handle);
+
+    return $rows;
+}
+
+function normalize_spaces(string $value): string
+{
+    return trim(preg_replace('/\s+/', ' ', $value) ?? $value);
 }
 
 function rupiah(mixed $value): string

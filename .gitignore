@@ -2,6 +2,7 @@
 /vendor/
 /.env
 /storage/*.json
+/storage/*.xlsx
 /storage/generated/
 /storage/drive/
 *.log

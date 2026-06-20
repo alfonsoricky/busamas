@@ -47,6 +47,40 @@ $routes = [
             'masterBarang' => fetch_master_barang(),
         ],
     ],
+    '/master-customer' => [
+        'view' => 'pages/master-customer',
+        'title' => 'Master Customer',
+        'data' => fn (): array => [
+            'masterCustomer' => fetch_master_customer(),
+        ],
+    ],
+    '/master-sales' => [
+        'view' => 'pages/master-sales',
+        'title' => 'Master Sales',
+        'data' => fn (): array => [
+            'masterSales' => fetch_master_sales(),
+        ],
+    ],
+    '/invoices' => [
+        'view' => 'pages/invoices',
+        'title' => 'Invoice Mapping',
+        'data' => fn (): array => [
+            'invoiceMapping' => fetch_invoice_mapping([
+                'month' => $_GET['month'] ?? '',
+                'year' => $_GET['year'] ?? '',
+                'laundry' => $_GET['laundry'] ?? '',
+                'sort' => $_GET['sort'] ?? '',
+                'direction' => $_GET['direction'] ?? '',
+            ]),
+        ],
+    ],
+    '/invoice-view' => [
+        'view' => 'pages/invoice-view',
+        'title' => 'View Invoice',
+        'data' => fn (): array => [
+            'invoiceDetail' => fetch_invoice_detail($_GET['code'] ?? ''),
+        ],
+    ],
 ];
 
 if (! array_key_exists($path, $routes)) {

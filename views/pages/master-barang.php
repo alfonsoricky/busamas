@@ -8,12 +8,6 @@
             </p>
         </div>
 
-        <a
-            href="<?= e(url('/drive')) ?>"
-            class="inline-flex rounded-lg border border-stone-300 px-4 py-3 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand"
-        >
-            Lihat Drive
-        </a>
     </div>
 
     <?php if (! ($masterBarang['ok'] ?? false)): ?>
@@ -48,7 +42,6 @@
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Harga</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Transaksi</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Invoice</th>
-                            <th class="px-4 py-3 font-semibold">Alias</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
@@ -60,7 +53,6 @@
                                 <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e(rupiah($item['harga_default'] ?? 0)) ?></td>
                                 <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['jumlah_transaksi'] ?? '0') ?></td>
                                 <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['jumlah_invoice'] ?? '0') ?></td>
-                                <td class="min-w-64 px-4 py-3 text-stone-600"><?= e($item['alias'] ?? '') ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>

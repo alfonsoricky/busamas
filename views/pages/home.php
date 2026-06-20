@@ -9,11 +9,11 @@
                 Struktur ini memisahkan konfigurasi, helper, layout, partial, dan halaman supaya perubahan kecil tidak membuat kode cepat berantakan.
             </p>
             <div class="mt-8 flex flex-wrap gap-3">
-                <a href="<?= e(url('/about')) ?>" class="rounded-lg bg-brand px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
-                    Lihat Struktur
+                <a href="<?= e(url('/invoices')) ?>" class="rounded-lg bg-brand px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
+                    Lihat Invoice
                 </a>
-                <a href="<?= e(url('/contact')) ?>" class="rounded-lg border border-stone-300 px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
-                    Hubungi Kami
+                <a href="<?= e(url('/master-barang')) ?>" class="rounded-lg border border-stone-300 px-5 py-3 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                    Master Barang
                 </a>
             </div>
         </div>

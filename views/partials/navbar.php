@@ -2,10 +2,9 @@
     $links = [
         '/' => 'Dashboard',
         '/master-barang' => 'Master Barang',
-        '/sheet' => 'Sheet',
-        '/drive' => 'Drive',
-        '/about' => 'Tentang',
-        '/contact' => 'Kontak',
+        '/master-customer' => 'Master Customer',
+        '/master-sales' => 'Master Sales',
+        '/invoices' => 'Invoice',
     ];
 ?>
 <header class="border-b border-stone-200 bg-white/90 backdrop-blur">

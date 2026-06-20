@@ -1639,3 +1639,392 @@ function http_post_form(string $url, array $data): array
         'error' => null,
     ];
 }
+
+function fetch_laporan_penjualan(string $type = 'invoice', string $month = '', string $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    }
+
+    if ($type === 'customer') {
+        $invoices = db_all('SELECT kode_customer, COALESCE(nama_customer_master, nama_laundry_invoice) AS nama_customer, total_qty, total_harga_jual, nomor_invoice FROM invoices');
+        $filtered = [];
+        foreach ($invoices ?? [] as $inv) {
+            $invNo = $inv['nomor_invoice'] ?? '';
+            if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
+            if ($year !== '' && invoice_year($invNo) !== $year) continue;
+
+            $custCode = $inv['kode_customer'] ?? 'UNKNOWN';
+            $custName = $inv['nama_customer'] ?? 'Unknown Customer';
+            if (! isset($filtered[$custCode])) {
+                $filtered[$custCode] = [
+                    'kode_customer' => $custCode,
+                    'nama_customer' => $custName,
+                    'jumlah_invoice' => 0,
+                    'total_qty' => 0.0,
+                    'total_penjualan' => 0.0
+                ];
+            }
+            $filtered[$custCode]['jumlah_invoice']++;
+            $filtered[$custCode]['total_qty'] += (float)$inv['total_qty'];
+            $filtered[$custCode]['total_penjualan'] += (float)$inv['total_harga_jual'];
+        }
+        $data = array_values($filtered);
+        usort($data, static fn ($a, $b) => $b['total_penjualan'] <=> $a['total_penjualan']);
+
+    } elseif ($type === 'produk') {
+        $items = db_all('SELECT kode_barang, nama_barang_master, ukuran_master, jumlah, total, nomor_invoice FROM invoice_items');
+        $filtered = [];
+        foreach ($items ?? [] as $item) {
+            $invNo = $item['nomor_invoice'] ?? '';
+            if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
+            if ($year !== '' && invoice_year($invNo) !== $year) continue;
+
+            $code = $item['kode_barang'] ?? 'UNKNOWN';
+            if (! isset($filtered[$code])) {
+                $filtered[$code] = [
+                    'kode_barang' => $code,
+                    'nama_barang_master' => $item['nama_barang_master'] ?? 'Unknown',
+                    'ukuran_master' => $item['ukuran_master'] ?? '',
+                    'total_qty' => 0.0,
+                    'total_penjualan' => 0.0
+                ];
+            }
+            $filtered[$code]['total_qty'] += (float)$item['jumlah'];
+            $filtered[$code]['total_penjualan'] += (float)$item['total'];
+        }
+        $data = array_values($filtered);
+        usort($data, static fn ($a, $b) => $b['total_penjualan'] <=> $a['total_penjualan']);
+
+    } elseif ($type === 'sales') {
+        $invoices = db_all('SELECT nomor_invoice, kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2, komisi_sales_1_persen, komisi_sales_2_persen, total_harga_jual FROM invoices');
+        $filtered = [];
+        foreach ($invoices ?? [] as $inv) {
+            $invNo = $inv['nomor_invoice'] ?? '';
+            if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
+            if ($year !== '' && invoice_year($invNo) !== $year) continue;
+
+            // Sales 1
+            if (! empty($inv['kode_sales_1'])) {
+                $sCode = $inv['kode_sales_1'];
+                $sName = $inv['nama_sales_1'];
+                $penjualan = (float)$inv['total_harga_jual'];
+                $komisi = $penjualan * ((float)$inv['komisi_sales_1_persen'] / 100);
+                if (! isset($filtered[$sCode])) {
+                    $filtered[$sCode] = [
+                        'kode_sales' => $sCode,
+                        'nama_sales' => $sName,
+                        'jumlah_invoice' => 0,
+                        'total_penjualan' => 0.0,
+                        'total_komisi' => 0.0
+                    ];
+                }
+                $filtered[$sCode]['jumlah_invoice']++;
+                $filtered[$sCode]['total_penjualan'] += $penjualan;
+                $filtered[$sCode]['total_komisi'] += $komisi;
+            }
+            // Sales 2
+            if (! empty($inv['kode_sales_2'])) {
+                $sCode = $inv['kode_sales_2'];
+                $sName = $inv['nama_sales_2'];
+                $penjualan = (float)$inv['total_harga_jual'];
+                $komisi = $penjualan * ((float)$inv['komisi_sales_2_persen'] / 100);
+                if (! isset($filtered[$sCode])) {
+                    $filtered[$sCode] = [
+                        'kode_sales' => $sCode,
+                        'nama_sales' => $sName,
+                        'jumlah_invoice' => 0,
+                        'total_penjualan' => 0.0,
+                        'total_komisi' => 0.0
+                    ];
+                }
+                $filtered[$sCode]['jumlah_invoice']++;
+                $filtered[$sCode]['total_penjualan'] += $penjualan;
+                $filtered[$sCode]['total_komisi'] += $komisi;
+            }
+        }
+        $data = array_values($filtered);
+        usort($data, static fn ($a, $b) => $b['total_penjualan'] <=> $a['total_penjualan']);
+
+    } else {
+        $type = 'invoice';
+        $invoices = db_all('SELECT nomor_invoice, tanggal_invoice, COALESCE(nama_customer_master, nama_laundry_invoice) AS nama_customer, nama_sales_1, total_qty, subtotal, discount_amount, total_harga_jual FROM invoices ORDER BY nomor_invoice DESC');
+        $data = [];
+        foreach ($invoices ?? [] as $inv) {
+            $invNo = $inv['nomor_invoice'] ?? '';
+            if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
+            if ($year !== '' && invoice_year($invNo) !== $year) continue;
+            $data[] = $inv;
+        }
+    }
+
+    return [
+        'ok' => true,
+        'type' => $type,
+        'items' => $data ?? [],
+    ];
+}
+
+function fetch_laporan_profit_loss(string $month = '', string $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    }
+
+    $invoices = db_all('SELECT nomor_invoice, total_harga_jual, total_pembelian_barang, komisi_sales_1_persen, komisi_sales_2_persen FROM invoices');
+    $pendapatan = 0.0;
+    $hpp = 0.0;
+    $komisi = 0.0;
+
+    foreach ($invoices ?? [] as $inv) {
+        $invNo = $inv['nomor_invoice'] ?? '';
+        if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
+        if ($year !== '' && invoice_year($invNo) !== $year) continue;
+
+        $rev = (float)$inv['total_harga_jual'];
+        $cogs = (float)$inv['total_pembelian_barang'];
+        $com1 = $rev * ((float)$inv['komisi_sales_1_persen'] / 100);
+        $com2 = $rev * ((float)$inv['komisi_sales_2_persen'] / 100);
+
+        $pendapatan += $rev;
+        $hpp += $cogs;
+        $komisi += ($com1 + $com2);
+    }
+
+    $laba_kotor = $pendapatan - $hpp;
+    $laba_bersih = $laba_kotor - $komisi;
+
+    return [
+        'ok' => true,
+        'pendapatan' => $pendapatan,
+        'hpp' => $hpp,
+        'laba_kotor' => $laba_kotor,
+        'komisi' => $komisi,
+        'laba_bersih' => $laba_bersih,
+    ];
+}
+
+function fetch_laporan_hutang(string $month = '', string $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    }
+
+    $invoices = db_all('SELECT nomor_invoice, tanggal_invoice, COALESCE(nama_customer_master, nama_laundry_invoice) AS nama_customer, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang FROM invoices WHERE total_utang_pembelian_barang > 0');
+    $data = [];
+
+    foreach ($invoices ?? [] as $inv) {
+        $invNo = $inv['nomor_invoice'] ?? '';
+        if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
+        if ($year !== '' && invoice_year($invNo) !== $year) continue;
+
+        $data[] = $inv;
+    }
+
+    usort($data, static fn ($a, $b) => (float)($b['total_utang_pembelian_barang'] ?? 0) <=> (float)($a['total_utang_pembelian_barang'] ?? 0));
+
+    return [
+        'ok' => true,
+        'items' => $data,
+        'total_hutang' => array_sum(array_map(static fn ($item) => (float)($item['total_utang_pembelian_barang'] ?? 0), $data)),
+    ];
+}
+
+function fetch_laporan_piutang(string $month = '', string $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    }
+
+    $invoices = db_all('SELECT nomor_invoice, tanggal_invoice, COALESCE(nama_customer_master, nama_laundry_invoice) AS nama_customer, no_telepon, total_harga_jual, status_pembelian_barang FROM invoices WHERE status_pembelian_barang = \'Utang\'');
+    $filtered = [];
+
+    foreach ($invoices ?? [] as $inv) {
+        $invNo = $inv['nomor_invoice'] ?? '';
+        if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
+        if ($year !== '' && invoice_year($invNo) !== $year) continue;
+
+        $filtered[] = $inv;
+    }
+
+    $aging = [
+        '0_30' => ['label' => '0 - 30 Hari', 'items' => [], 'total' => 0],
+        '31_60' => ['label' => '31 - 60 Hari', 'items' => [], 'total' => 0],
+        '61_90' => ['label' => '61 - 90 Hari', 'items' => [], 'total' => 0],
+        '90_plus' => ['label' => '> 90 Hari', 'items' => [], 'total' => 0],
+    ];
+
+    $overdue = [];
+    $total_piutang = 0;
+    $currentDate = strtotime('2026-06-20');
+
+    foreach ($filtered as $invoice) {
+        $dateStr = date_input_value($invoice['tanggal_invoice'] ?? '');
+        $days = 0;
+        if ($dateStr !== '') {
+            $invoiceDate = strtotime($dateStr);
+            $days = (int)floor(($currentDate - $invoiceDate) / 86400);
+        }
+
+        $amount = (float)($invoice['total_harga_jual'] ?? 0);
+        $invoice['days_overdue'] = $days;
+        $total_piutang += $amount;
+
+        if ($days <= 30) {
+            $aging['0_30']['items'][] = $invoice;
+            $aging['0_30']['total'] += $amount;
+        } elseif ($days <= 60) {
+            $aging['31_60']['items'][] = $invoice;
+            $aging['31_60']['total'] += $amount;
+            $overdue[] = $invoice;
+        } elseif ($days <= 90) {
+            $aging['61_90']['items'][] = $invoice;
+            $aging['61_90']['total'] += $amount;
+            $overdue[] = $invoice;
+        } else {
+            $aging['90_plus']['items'][] = $invoice;
+            $aging['90_plus']['total'] += $amount;
+            $overdue[] = $invoice;
+        }
+    }
+
+    return [
+        'ok' => true,
+        'aging' => $aging,
+        'overdue' => $overdue,
+        'total_piutang' => $total_piutang,
+    ];
+}
+
+function fetch_laporan_profit(string $type = 'produk', string $month = '', string $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    }
+
+    if ($type === 'customer') {
+        $invoices = db_all('SELECT kode_customer, COALESCE(nama_customer_master, nama_laundry_invoice) AS nama_customer, total_harga_jual, total_pembelian_barang, nomor_invoice FROM invoices');
+        $filtered = [];
+
+        foreach ($invoices ?? [] as $inv) {
+            $invNo = $inv['nomor_invoice'] ?? '';
+            if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
+            if ($year !== '' && invoice_year($invNo) !== $year) continue;
+
+            $custCode = $inv['kode_customer'] ?? 'UNKNOWN';
+            $custName = $inv['nama_customer'] ?? 'Unknown Customer';
+            $sale = (float)$inv['total_harga_jual'];
+            $cogs = (float)$inv['total_pembelian_barang'];
+
+            if (! isset($filtered[$custCode])) {
+                $filtered[$custCode] = [
+                    'kode_customer' => $custCode,
+                    'nama_customer' => $custName,
+                    'total_penjualan' => 0.0,
+                    'total_hpp' => 0.0,
+                    'total_profit' => 0.0,
+                ];
+            }
+            $filtered[$custCode]['total_penjualan'] += $sale;
+            $filtered[$custCode]['total_hpp'] += $cogs;
+            $filtered[$custCode]['total_profit'] += ($sale - $cogs);
+        }
+        $data = array_values($filtered);
+        usort($data, static fn ($a, $b) => $b['total_profit'] <=> $a['total_profit']);
+
+    } else {
+        $type = 'produk';
+        $invoices = db_all('SELECT kode_invoice, nomor_invoice, total_pembelian_barang, subtotal FROM invoices');
+        $items = db_all('SELECT kode_invoice, nomor_invoice, kode_barang, nama_barang_master, ukuran_master, jumlah, total FROM invoice_items');
+
+        $invoiceMap = [];
+        foreach ($invoices ?? [] as $inv) {
+            $invNo = $inv['nomor_invoice'] ?? '';
+            if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
+            if ($year !== '' && invoice_year($invNo) !== $year) continue;
+
+            $invoiceMap[$inv['kode_invoice']] = [
+                'hpp' => (float)$inv['total_pembelian_barang'],
+                'subtotal' => (float)$inv['subtotal'],
+            ];
+        }
+
+        $productProfit = [];
+        foreach ($items ?? [] as $item) {
+            $invCode = $item['kode_invoice'];
+            if (! isset($invoiceMap[$invCode])) continue;
+
+            $code = $item['kode_barang'] ?? 'UNKNOWN';
+            $invSubtotal = $invoiceMap[$invCode]['subtotal'] ?? 0;
+            $invHpp = $invoiceMap[$invCode]['hpp'] ?? 0;
+
+            $itemTotal = (float)$item['total'];
+            $share = $invSubtotal > 0 ? ($itemTotal / $invSubtotal) : 0;
+            $allocatedHpp = $share * $invHpp;
+            $allocatedProfit = $itemTotal - $allocatedHpp;
+
+            if (! isset($productProfit[$code])) {
+                $productProfit[$code] = [
+                    'kode_barang' => $code,
+                    'nama_barang' => $item['nama_barang_master'] ?? 'Unknown',
+                    'ukuran' => $item['ukuran_master'] ?? '',
+                    'total_qty' => 0.0,
+                    'total_penjualan' => 0.0,
+                    'total_hpp' => 0.0,
+                    'total_profit' => 0.0,
+                ];
+            }
+
+            $productProfit[$code]['total_qty'] += (float)$item['jumlah'];
+            $productProfit[$code]['total_penjualan'] += $itemTotal;
+            $productProfit[$code]['total_hpp'] += $allocatedHpp;
+            $productProfit[$code]['total_profit'] += $allocatedProfit;
+        }
+
+        $data = array_values($productProfit);
+        usort($data, static fn ($a, $b) => $b['total_profit'] <=> $a['total_profit']);
+    }
+
+    return [
+        'ok' => true,
+        'type' => $type,
+        'items' => $data ?? [],
+    ];
+}
+
+function fetch_dashboard_summary(string $month = '', string $year = ''): array
+{
+    $pl = fetch_laporan_profit_loss($month, $year);
+    $piutang = fetch_laporan_piutang($month, $year);
+    $hutang = fetch_laporan_hutang($month, $year);
+
+    // Top 5 Products
+    $produkRep = fetch_laporan_penjualan('produk', $month, $year);
+    $topProduk = array_slice($produkRep['items'] ?? [], 0, 5);
+
+    // Top 5 Customers
+    $customerRep = fetch_laporan_penjualan('customer', $month, $year);
+    $topCustomer = array_slice($customerRep['items'] ?? [], 0, 5);
+
+    // Recent 5 Invoices
+    $invoiceRep = fetch_laporan_penjualan('invoice', $month, $year);
+    $recentInvoices = array_slice($invoiceRep['items'] ?? [], 0, 5);
+
+    return [
+        'ok' => true,
+        'revenue' => (float)($pl['pendapatan'] ?? 0.0),
+        'profit' => (float)($pl['laba_bersih'] ?? 0.0),
+        'piutang' => (float)($piutang['total_piutang'] ?? 0.0),
+        'hutang' => (float)($hutang['total_hutang'] ?? 0.0),
+        'top_produk' => $topProduk,
+        'top_customer' => $topCustomer,
+        'recent_invoices' => $recentInvoices,
+    ];
+}
+
+

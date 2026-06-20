@@ -17,6 +17,9 @@ $routes = [
     '/' => [
         'view' => 'pages/home',
         'title' => 'Dashboard',
+        'data' => fn (): array => [
+            'dashboardData' => fetch_dashboard_summary($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+        ],
     ],
     '/about' => [
         'view' => 'pages/about',
@@ -40,26 +43,22 @@ $routes = [
             'drive' => fetch_google_drive_files(),
         ],
     ],
-    '/master-barang' => [
-        'view' => 'pages/master-barang',
-        'title' => 'Master Barang',
-        'data' => fn (): array => [
-            'masterBarang' => fetch_master_barang(),
-        ],
-    ],
-    '/master-customer' => [
-        'view' => 'pages/master-customer',
-        'title' => 'Master Customer',
-        'data' => fn (): array => [
-            'masterCustomer' => fetch_master_customer(),
-        ],
-    ],
-    '/master-sales' => [
-        'view' => 'pages/master-sales',
-        'title' => 'Master Sales',
-        'data' => fn (): array => [
-            'masterSales' => fetch_master_sales(),
-        ],
+    '/master' => [
+        'view' => 'pages/master',
+        'title' => 'Data Master',
+        'data' => function (): array {
+            $tab = $_GET['tab'] ?? 'barang';
+            $data = ['tab' => $tab];
+            if ($tab === 'customer') {
+                $data['masterCustomer'] = fetch_master_customer();
+            } elseif ($tab === 'sales') {
+                $data['masterSales'] = fetch_master_sales();
+            } else {
+                $data['tab'] = 'barang';
+                $data['masterBarang'] = fetch_master_barang();
+            }
+            return $data;
+        },
     ],
     '/db-maintenance' => [
         'view' => 'pages/database',
@@ -95,6 +94,45 @@ $routes = [
         'title' => 'View Invoice',
         'data' => fn (): array => [
             'invoiceDetail' => fetch_invoice_detail($_GET['code'] ?? ''),
+        ],
+    ],
+    '/laporan' => [
+        'view' => 'pages/laporan',
+        'title' => 'Laporan Utama',
+    ],
+    '/laporan/penjualan' => [
+        'view' => 'pages/laporan-penjualan',
+        'title' => 'Laporan Penjualan',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_penjualan($_GET['group'] ?? 'invoice', $_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+        ],
+    ],
+    '/laporan/profit-loss' => [
+        'view' => 'pages/laporan-profit-loss',
+        'title' => 'Laporan Profit & Loss',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_profit_loss($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+        ],
+    ],
+    '/laporan/hutang' => [
+        'view' => 'pages/laporan-hutang',
+        'title' => 'Laporan Hutang Dagang',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_hutang($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+        ],
+    ],
+    '/laporan/piutang' => [
+        'view' => 'pages/laporan-piutang',
+        'title' => 'Laporan Piutang Dagang',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_piutang($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+        ],
+    ],
+    '/laporan/profit' => [
+        'view' => 'pages/laporan-profit',
+        'title' => 'Laporan Analisis Profit',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_profit($_GET['group'] ?? 'produk', $_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
         ],
     ],
 ];

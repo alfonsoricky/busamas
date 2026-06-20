@@ -1,10 +1,9 @@
 <?php
     $links = [
         '/' => 'Dashboard',
-        '/master-barang' => 'Master Barang',
-        '/master-customer' => 'Master Customer',
-        '/master-sales' => 'Master Sales',
+        '/master' => 'Data Master',
         '/invoices' => 'Invoice',
+        '/laporan' => 'Laporan',
         '/db-maintenance' => 'Database',
     ];
 ?>

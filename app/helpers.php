@@ -164,6 +164,187 @@ function view(string $name, array $data = []): void
     require dirname(__DIR__) . '/views/layouts/app.php';
 }
 
+function fetch_database_maintenance(?string $action = null): array
+{
+    $result = null;
+
+    if ($action === 'migrate-seed') {
+        $result = run_database_migration_seed();
+    }
+
+    return [
+        'ok' => true,
+        'seed_file' => database_seed_file_info(),
+        'table_counts' => database_table_counts(),
+        'result' => $result,
+    ];
+}
+
+function database_seed_file_info(): array
+{
+    $path = dirname(__DIR__) . '/database/seed-data.sql';
+
+    return [
+        'exists' => is_readable($path),
+        'path' => 'database/seed-data.sql',
+        'size' => is_readable($path) ? filesize($path) : 0,
+        'updated_at' => is_readable($path) ? date('Y-m-d H:i:s', (int) filemtime($path)) : null,
+    ];
+}
+
+function database_table_counts(): array
+{
+    $pdo = db();
+
+    if ($pdo === null) {
+        return [];
+    }
+
+    $counts = [];
+
+    foreach (['master_barang', 'master_customers', 'master_sales', 'invoices', 'invoice_items'] as $table) {
+        try {
+            $counts[$table] = (int) $pdo->query('SELECT COUNT(*) FROM `' . $table . '`')->fetchColumn();
+        } catch (Throwable) {
+            $counts[$table] = null;
+        }
+    }
+
+    return $counts;
+}
+
+function run_database_migration_seed(): array
+{
+    $pdo = db();
+
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi. Cek konfigurasi DB_HOST, DB_DATABASE, DB_USERNAME, dan DB_PASSWORD.',
+            'statements' => 0,
+            'counts' => [],
+        ];
+    }
+
+    $schemaPath = dirname(__DIR__) . '/database/schema.sql';
+    $seedPath = dirname(__DIR__) . '/database/seed-data.sql';
+
+    if (! is_readable($schemaPath) || ! is_readable($seedPath)) {
+        return [
+            'ok' => false,
+            'message' => 'File schema.sql atau seed-data.sql belum tersedia.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    try {
+        $statementCount = 0;
+        $statementCount += execute_sql_statements($pdo, [
+            'SET FOREIGN_KEY_CHECKS = 0',
+            'DROP TABLE IF EXISTS `invoice_items`',
+            'DROP TABLE IF EXISTS `invoices`',
+            'DROP TABLE IF EXISTS `master_sales`',
+            'DROP TABLE IF EXISTS `master_barang`',
+            'DROP TABLE IF EXISTS `master_customers`',
+            'SET FOREIGN_KEY_CHECKS = 1',
+        ]);
+        $statementCount += execute_sql_file($pdo, $schemaPath, true);
+        $statementCount += execute_sql_file($pdo, $seedPath, false);
+
+        return [
+            'ok' => true,
+            'message' => 'Migrate dan seed berhasil dijalankan.',
+            'statements' => $statementCount,
+            'counts' => database_table_counts(),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Migrate/seed gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
+function execute_sql_file(PDO $pdo, string $path, bool $skipDatabaseStatements): int
+{
+    $sql = (string) file_get_contents($path);
+    $statements = split_sql_statements($sql);
+
+    if ($skipDatabaseStatements) {
+        $statements = array_values(array_filter($statements, static function (string $statement): bool {
+            return preg_match('/^\s*(CREATE\s+DATABASE|USE)\b/i', $statement) !== 1;
+        }));
+    }
+
+    return execute_sql_statements($pdo, $statements);
+}
+
+function execute_sql_statements(PDO $pdo, array $statements): int
+{
+    $count = 0;
+
+    foreach ($statements as $statement) {
+        $statement = trim($statement);
+
+        if ($statement === '') {
+            continue;
+        }
+
+        $pdo->exec($statement);
+        $count++;
+    }
+
+    return $count;
+}
+
+function split_sql_statements(string $sql): array
+{
+    $lines = preg_split('/\R/', $sql) ?: [];
+    $sql = implode(PHP_EOL, array_filter($lines, static fn (string $line): bool => ! str_starts_with(ltrim($line), '--')));
+    $statements = [];
+    $current = '';
+    $quote = null;
+    $length = strlen($sql);
+
+    for ($index = 0; $index < $length; $index++) {
+        $char = $sql[$index];
+        $current .= $char;
+
+        if ($quote !== null) {
+            if ($char === '\\') {
+                $index++;
+                $current .= $sql[$index] ?? '';
+                continue;
+            }
+
+            if ($char === $quote) {
+                $quote = null;
+            }
+
+            continue;
+        }
+
+        if ($char === "'" || $char === '"') {
+            $quote = $char;
+            continue;
+        }
+
+        if ($char === ';') {
+            $statements[] = substr($current, 0, -1);
+            $current = '';
+        }
+    }
+
+    if (trim($current) !== '') {
+        $statements[] = $current;
+    }
+
+    return $statements;
+}
+
 function fetch_master_barang(): array
 {
     $dbItems = db_all('SELECT kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default, jumlah_alias, jumlah_transaksi, jumlah_invoice, alias FROM master_barang ORDER BY nama_barang, ukuran');
@@ -313,7 +494,7 @@ function fetch_invoice_mapping(array $filters = []): array
 {
     $invoicePath = dirname(__DIR__) . '/storage/generated/invoices-2025-jan-jun-2026.csv';
     $itemPath = dirname(__DIR__) . '/storage/generated/invoice-items-2025-jan-jun-2026.csv';
-    $dbInvoices = db_all('SELECT kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, file_invoice FROM invoices ORDER BY kode_invoice');
+    $dbInvoices = db_all('SELECT kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan, po_number, kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2, komisi_sales_1_persen, komisi_sales_2_persen, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, harga_normal_pricelist, discount_persen, discount_amount, total_harga_jual, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, file_invoice FROM invoices ORDER BY kode_invoice');
     $dbDetails = db_all('SELECT kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, kode_barang, nama_barang_master, ukuran_master, nama_barang_invoice, isi_invoice, jumlah, satuan, harga, total, file_invoice, baris FROM invoice_items ORDER BY kode_invoice, baris');
 
     if ($dbInvoices !== null && $dbDetails !== null) {
@@ -469,7 +650,7 @@ function fetch_invoice_detail(string $code): array
     $invoicePath = dirname(__DIR__) . '/storage/generated/invoices-2025-jan-jun-2026.csv';
     $itemPath = dirname(__DIR__) . '/storage/generated/invoice-items-2025-jan-jun-2026.csv';
     $invoiceRows = db_all(
-        'SELECT kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, file_invoice FROM invoices WHERE kode_invoice = :kode_invoice OR nomor_invoice = :nomor_invoice LIMIT 1',
+        'SELECT kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan, po_number, kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2, komisi_sales_1_persen, komisi_sales_2_persen, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, harga_normal_pricelist, discount_persen, discount_amount, total_harga_jual, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, file_invoice FROM invoices WHERE kode_invoice = :kode_invoice OR nomor_invoice = :nomor_invoice LIMIT 1',
         [
             'kode_invoice' => $code,
             'nomor_invoice' => $code,
@@ -550,27 +731,82 @@ function fetch_invoice_detail(string $code): array
     ];
 }
 
-function fetch_invoice_form_options(): array
+function fetch_invoice_form_options(string $code = ''): array
 {
     $customers = db_all('SELECT kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default FROM master_customers ORDER BY nama_laundry') ?? [];
     $sales = db_all('SELECT kode_sales, nama_sales FROM master_sales ORDER BY nama_sales') ?? [];
     $barang = db_all('SELECT kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default FROM master_barang ORDER BY nama_barang, ukuran') ?? [];
+    $edit = [
+        'mode' => 'create',
+        'invoice' => null,
+        'items' => [],
+    ];
+
+    if (trim($code) !== '') {
+        $detail = fetch_invoice_detail($code);
+
+        if (($detail['ok'] ?? false) && is_array($detail['invoice'] ?? null)) {
+            $invoice = $detail['invoice'];
+            $edit = [
+                'mode' => 'update',
+                'invoice' => [
+                    ...$invoice,
+                    'tanggal_invoice_input' => date_input_value((string) ($invoice['tanggal_invoice'] ?? '')),
+                    'tanggal_surat_jalan_input' => date_input_value((string) ($invoice['tanggal_surat_jalan'] ?? '')),
+                ],
+                'items' => array_map(static fn (array $item): array => [
+                    'kode_barang' => (string) ($item['kode_barang'] ?? ''),
+                    'isi' => (string) ($item['isi_invoice'] ?? ''),
+                    'jumlah' => (float) ($item['jumlah'] ?? 0),
+                    'satuan' => (string) ($item['satuan'] ?? ''),
+                    'harga' => (float) ($item['harga'] ?? 0),
+                    'total' => (float) ($item['total'] ?? 0),
+                ], $detail['items'] ?? []),
+            ];
+        }
+    }
 
     return [
         'ok' => true,
         'customers' => $customers,
         'sales' => $sales,
         'barang' => $barang,
+        'edit' => $edit,
         'payment_statuses' => [
             'Belum Lunas',
             'Lunas',
-            'Piutang',
         ],
         'commission_statuses' => [
             'Belum Dibayar',
             'Dibayar',
         ],
     ];
+}
+
+function date_input_value(string $date): string
+{
+    $date = normalize_spaces($date);
+
+    if ($date === '') {
+        return '';
+    }
+
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1) {
+        return $date;
+    }
+
+    if (preg_match('/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/', $date, $match) !== 1) {
+        return '';
+    }
+
+    $months = array_change_key_case(array_flip(invoice_months()), CASE_LOWER);
+    $month = $months[strtolower($match[2])] ?? null;
+
+    if ($month === null) {
+        return '';
+    }
+
+    return sprintf('%04d-%02d-%02d', (int) $match[3], (int) $month, (int) $match[1]);
 }
 
 function invoice_totals_from_local_file(string $sourceFile): ?array

@@ -10,6 +10,26 @@ php -S localhost:8000 -t public
 
 Buka `http://localhost:8000` di browser.
 
+## Database Hosting
+
+Atur koneksi database lewat environment hosting:
+
+```text
+DB_HOST
+DB_PORT
+DB_DATABASE
+DB_USERNAME
+DB_PASSWORD
+```
+
+Setelah file project ter-upload dan database kosong/siap diganti, buka:
+
+```text
+/database
+```
+
+Klik `Jalankan Migrate & Seed` untuk membuat ulang tabel dan mengisi data dari `database/seed-data.sql`. Tombol ini mengganti data master dan invoice dengan snapshot seed terbaru.
+
 ## Struktur Folder
 
 ```text

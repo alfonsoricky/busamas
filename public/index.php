@@ -61,6 +61,15 @@ $routes = [
             'masterSales' => fetch_master_sales(),
         ],
     ],
+    '/database' => [
+        'view' => 'pages/database',
+        'title' => 'Database',
+        'data' => fn (): array => [
+            'databaseMaintenance' => fetch_database_maintenance(
+                ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' ? ($_POST['action'] ?? null) : null
+            ),
+        ],
+    ],
     '/invoices' => [
         'view' => 'pages/invoices',
         'title' => 'Invoice Mapping',
@@ -78,7 +87,7 @@ $routes = [
         'view' => 'pages/invoice-create',
         'title' => 'Buat Invoice',
         'data' => fn (): array => [
-            'invoiceForm' => fetch_invoice_form_options(),
+            'invoiceForm' => fetch_invoice_form_options($_GET['code'] ?? ''),
         ],
     ],
     '/invoice-view' => [

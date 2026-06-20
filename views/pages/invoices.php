@@ -187,8 +187,6 @@
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Laundry</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Subtotal</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Pembelian Barang</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Utang Pembelian Barang</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Aksi</th>
                         </tr>
                     </thead>
@@ -199,8 +197,6 @@
                                     <?= e($group['label']) ?>
                                 </td>
                                 <td class="whitespace-nowrap px-4 py-3 text-sm font-bold text-ink"><?= e(rupiah($group['subtotal'])) ?></td>
-                                <td class="whitespace-nowrap px-4 py-3 text-sm font-bold text-ink"><?= e(rupiah($group['total_pembelian_barang'])) ?></td>
-                                <td class="whitespace-nowrap px-4 py-3 text-sm font-bold text-red-700"><?= e(rupiah($group['total_utang_pembelian_barang'])) ?></td>
                                 <td class="px-4 py-3"></td>
                             </tr>
                             <?php foreach ($group['items'] as $invoice): ?>
@@ -210,31 +206,19 @@
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($invoice['tanggal_invoice'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($invoice['nama_laundry_invoice'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e(rupiah($invoice['subtotal'] ?? 0)) ?></td>
-                                    <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e(rupiah($invoice['total_pembelian_barang'] ?? 0)) ?></td>
                                     <td class="whitespace-nowrap px-4 py-3">
-                                        <?php $debtTotal = (float) ($invoice['total_utang_pembelian_barang'] ?? 0); ?>
-                                        <?php if ($debtTotal > 0): ?>
-                                            <span class="font-semibold text-red-700"><?= e(rupiah($debtTotal)) ?></span>
-                                        <?php else: ?>
-                                            <span class="text-stone-400">-</span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="min-w-[280px] px-4 py-3">
                                         <a
                                             href="<?= e(url('/invoice-view') . '?' . http_build_query(['code' => $invoice['kode_invoice'] ?? ''])) ?>"
                                             class="mr-2 inline-flex items-center rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-brand transition hover:border-brand hover:bg-teal-50"
                                             title="Lihat invoice"
                                             aria-label="Lihat invoice"
                                         >Lihat</a>
-                                        <button type="button" class="mr-2 mt-2 inline-flex items-center rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand hover:text-brand">
-                                            Bayar Komisi Sales
-                                        </button>
-                                        <button type="button" class="mr-2 mt-2 inline-flex items-center rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-brand hover:text-brand">
-                                            Bayar Komisi Manager
-                                        </button>
-                                        <button type="button" class="mt-2 inline-flex items-center rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-teal-800">
-                                            Bayar Barang
-                                        </button>
+                                        <a
+                                            href="<?= e(url('/invoice-create') . '?' . http_build_query(['code' => $invoice['kode_invoice'] ?? ''])) ?>"
+                                            class="inline-flex items-center rounded-md bg-brand px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-teal-800"
+                                            title="Update invoice"
+                                            aria-label="Update invoice"
+                                        >Update</a>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

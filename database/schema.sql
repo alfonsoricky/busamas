@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS `invoices` (
     `komisi_sales_2_persen` DECIMAL(8,4) NOT NULL DEFAULT 0,
     `komisi_manager_terbayar` DECIMAL(15,2) NOT NULL DEFAULT 0,
     `komisi_manager_utang` DECIMAL(15,2) NOT NULL DEFAULT 0,
+    `tanggal_transfer_komisi_manager` DATE NULL,
     `kode_customer` VARCHAR(20) NULL,
     `nama_customer_master` VARCHAR(150) NULL,
     `nama_customer_invoice` VARCHAR(150) NULL,

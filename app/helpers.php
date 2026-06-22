@@ -175,6 +175,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-operational') {
         $result = run_database_operational_seed();
         $counts = database_table_counts();
+    } elseif ($action === 'update-manager-commission') {
+        $result = run_update_manager_commission();
+        $counts = database_table_counts();
     } elseif ($action === 'generate-invoice-data') {
         $result = run_invoice_data_generation();
         $counts = database_table_counts();
@@ -187,6 +190,160 @@ function fetch_database_maintenance(?string $action = null): array
         'database_connected' => db() !== null,
         'result' => $result,
     ];
+}
+
+function run_update_manager_commission(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok'         => false,
+            'message'    => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    $excelPath = dirname(__DIR__) . '/storage/PENJUALAN-2026.xlsx';
+    if (! is_readable($excelPath)) {
+        return [
+            'ok'         => false,
+            'message'    => 'File Excel storage/PENJUALAN-2026.xlsx tidak ditemukan.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    if (! class_exists('ZipArchive')) {
+        $cliPhp = 'C:\\laragon\\bin\\php\\php-8.3.30-Win32-vs16-x64\\php.exe';
+        if (file_exists($cliPhp)) {
+            $scriptPath = dirname(__DIR__) . '/scripts/update-invoice-manager-commission.php';
+            $cmd        = '"' . $cliPhp . '" -d extension=zip "' . $scriptPath . '" 2>&1';
+            $output     = shell_exec($cmd);
+            if (strpos((string) $output, 'updated successfully') !== false) {
+                preg_match('/invoices updated.*?:\s*(\d+)/', (string) $output, $m);
+                $count = isset($m[1]) ? (int) $m[1] : 0;
+                return [
+                    'ok'         => true,
+                    'message'    => 'Update komisi manager berhasil (via CLI PHP).',
+                    'statements' => $count,
+                    'counts'     => database_table_counts(),
+                ];
+            } else {
+                return [
+                    'ok'         => false,
+                    'message'    => 'Update komisi manager gagal (via CLI PHP): ' . $output,
+                    'statements' => 0,
+                    'counts'     => database_table_counts(),
+                ];
+            }
+        }
+
+        return [
+            'ok'         => false,
+            'message'    => 'Ekstensi PHP "zip" (ZipArchive) tidak aktif. Aktifkan extension=zip pada php.ini.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    try {
+        $count = update_invoice_manager_commission_from_excel($pdo, $excelPath);
+        return [
+            'ok'         => true,
+            'message'    => 'Update komisi manager berhasil. ' . $count . ' invoice diperbarui.',
+            'statements' => $count,
+            'counts'     => database_table_counts(),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok'         => false,
+            'message'    => 'Update komisi manager gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+}
+
+function update_invoice_manager_commission_from_excel(PDO $pdo, string $excelPath): int
+{
+    // Pastikan kolom tanggal_transfer_komisi_manager ada
+    $cols         = $pdo->query('DESCRIBE invoices')->fetchAll(PDO::FETCH_COLUMN);
+    $existingCols = array_flip($cols);
+    if (! isset($existingCols['tanggal_transfer_komisi_manager'])) {
+        $pdo->exec('ALTER TABLE invoices ADD COLUMN tanggal_transfer_komisi_manager DATE NULL AFTER komisi_manager_utang');
+    }
+
+    $rows = read_xlsx_sheet_rows_internal($excelPath, 'Penjualan');
+
+    $statement = $pdo->prepare('
+        UPDATE invoices
+        SET komisi_manager_terbayar = :terbayar,
+            komisi_manager_utang    = :utang,
+            tanggal_transfer_komisi_manager = :tanggal
+        WHERE nomor_invoice = :nomor_invoice
+    ');
+
+    $pdo->beginTransaction();
+    $count = 0;
+    foreach ($rows as $row) {
+        $invoiceNo = trim((string) ($row['A'] ?? ''));
+        if ($invoiceNo === '' || strcasecmp($invoiceNo, 'nomor invoice') === 0) {
+            continue;
+        }
+
+        $terbayar  = manager_commission_parse_number($row['W'] ?? '');
+        $utang     = manager_commission_parse_number($row['X'] ?? '');
+        $tanggal   = manager_commission_excel_date(trim((string) ($row['Y'] ?? '')));
+
+        if ($terbayar === 0.0 && $utang === 0.0 && $tanggal === null) {
+            continue;
+        }
+
+        $statement->execute([
+            'terbayar'       => $terbayar,
+            'utang'          => $utang,
+            'tanggal'        => $tanggal,
+            'nomor_invoice'  => $invoiceNo,
+        ]);
+
+        if ($statement->rowCount() > 0) {
+            $count++;
+        }
+    }
+    $pdo->commit();
+    return $count;
+}
+
+function manager_commission_parse_number(mixed $value): float
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return 0.0;
+    }
+    $value = str_replace(',', '.', $value);
+    $clean = preg_replace('/[^0-9.\-Ee+]/', '', $value) ?? '';
+    return is_numeric($clean) ? (float) $clean : 0.0;
+}
+
+function manager_commission_excel_date(string $value): ?string
+{
+    if ($value === '' || ! is_numeric($value)) {
+        return null;
+    }
+    $serial = (int) round((float) $value);
+    if ($serial <= 0) {
+        return null;
+    }
+    if ($serial >= 60) {
+        $serial--;
+    }
+    $unix = ($serial - 1) * 86400 + mktime(0, 0, 0, 1, 1, 1900);
+    $year = (int) date('Y', $unix);
+    if ($year < 2000 || $year > 2100) {
+        return null;
+    }
+    return date('Y-m-d', $unix);
 }
 
 function run_invoice_data_generation(): array

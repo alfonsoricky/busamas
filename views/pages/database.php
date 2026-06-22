@@ -65,6 +65,25 @@
                 </form>
             </div>
 
+            <!-- Update Komisi Manager -->
+            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+                <h2 class="text-lg font-bold text-ink">Update Komisi Manager</h2>
+                <p class="mt-3 text-sm leading-6 text-stone-600">
+                    Memperbarui data <span class="font-semibold text-ink">komisi manager terbayar</span>, <span class="font-semibold text-ink">komisi manager utang</span>, dan <span class="font-semibold text-ink">tanggal transfer</span> dari kolom W, X, Y pada lembar <span class="font-semibold text-ink">Penjualan</span> di file <span class="font-semibold text-ink">storage/PENJUALAN-2026.xlsx</span>.
+                </p>
+
+                <div class="mt-5 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-900">
+                    Hanya kolom komisi manager yang diperbarui, data invoice lainnya tidak berubah.
+                </div>
+
+                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
+                    <input type="hidden" name="action" value="update-manager-commission">
+                    <button class="rounded-lg bg-violet-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-800">
+                        Jalankan Update Komisi Manager
+                    </button>
+                </form>
+            </div>
+
             <!-- Generate Invoice Data -->
             <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
                 <h2 class="text-lg font-bold text-ink">Generate Invoice Data</h2>

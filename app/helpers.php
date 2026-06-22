@@ -178,6 +178,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'update-manager-commission') {
         $result = run_update_manager_commission();
         $counts = database_table_counts();
+    } elseif ($action === 'update-commission') {
+        $result = run_update_all_commission();
+        $counts = database_table_counts();
     } elseif ($action === 'generate-invoice-data') {
         $result = run_invoice_data_generation();
         $counts = database_table_counts();
@@ -344,6 +347,160 @@ function manager_commission_excel_date(string $value): ?string
         return null;
     }
     return date('Y-m-d', $unix);
+}
+
+function run_update_all_commission(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok'         => false,
+            'message'    => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    $excelPath = dirname(__DIR__) . '/storage/PENJUALAN-2026.xlsx';
+    if (! is_readable($excelPath)) {
+        return [
+            'ok'         => false,
+            'message'    => 'File Excel storage/PENJUALAN-2026.xlsx tidak ditemukan.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    if (! class_exists('ZipArchive')) {
+        $cliPhp = 'C:\\laragon\\bin\\php\\php-8.3.30-Win32-vs16-x64\\php.exe';
+        if (file_exists($cliPhp)) {
+            $scriptPath = dirname(__DIR__) . '/scripts/update-invoice-commission.php';
+            $cmd        = '"' . $cliPhp . '" -d extension=zip "' . $scriptPath . '" 2>&1';
+            $output     = shell_exec($cmd);
+            if (strpos((string) $output, 'updated successfully') !== false) {
+                preg_match('/invoices updated.*?:\s*(\d+)/', (string) $output, $m);
+                $count = isset($m[1]) ? (int) $m[1] : 0;
+                return [
+                    'ok'         => true,
+                    'message'    => 'Update komisi berhasil (via CLI PHP).',
+                    'statements' => $count,
+                    'counts'     => database_table_counts(),
+                ];
+            } else {
+                return [
+                    'ok'         => false,
+                    'message'    => 'Update komisi gagal (via CLI PHP): ' . $output,
+                    'statements' => 0,
+                    'counts'     => database_table_counts(),
+                ];
+            }
+        }
+
+        return [
+            'ok'         => false,
+            'message'    => 'Ekstensi PHP "zip" (ZipArchive) tidak aktif. Aktifkan extension=zip pada php.ini.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    try {
+        $count = update_invoice_all_commission_from_excel($pdo, $excelPath);
+        return [
+            'ok'         => true,
+            'message'    => 'Update komisi berhasil. ' . $count . ' invoice diperbarui.',
+            'statements' => $count,
+            'counts'     => database_table_counts(),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok'         => false,
+            'message'    => 'Update komisi gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+}
+
+function update_invoice_all_commission_from_excel(PDO $pdo, string $excelPath): int
+{
+    // Pastikan semua kolom baru sudah ada
+    $cols         = $pdo->query('DESCRIBE invoices')->fetchAll(PDO::FETCH_COLUMN);
+    $existingCols = array_flip($cols);
+
+    $newCols = [
+        'komisi_sales_terbayar'          => "ADD COLUMN komisi_sales_terbayar DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER komisi_sales_2_persen",
+        'komisi_sales_belum_terbayar'    => "ADD COLUMN komisi_sales_belum_terbayar DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER komisi_sales_terbayar",
+        'status_pembayaran_komisi_sales' => "ADD COLUMN status_pembayaran_komisi_sales VARCHAR(50) NULL AFTER komisi_sales_belum_terbayar",
+        'tanggal_transfer_komisi_sales'  => "ADD COLUMN tanggal_transfer_komisi_sales DATE NULL AFTER status_pembayaran_komisi_sales",
+        'tanggal_transfer_komisi_manager'=> "ADD COLUMN tanggal_transfer_komisi_manager DATE NULL AFTER komisi_manager_utang",
+        'tanggal_transfer_komisi_admin'  => "ADD COLUMN tanggal_transfer_komisi_admin DATE NULL AFTER komisi_admin_belum_terbayar",
+    ];
+
+    foreach ($newCols as $colName => $alterSql) {
+        if (! isset($existingCols[$colName])) {
+            $pdo->exec('ALTER TABLE invoices ' . $alterSql);
+        }
+    }
+
+    $rows = read_xlsx_sheet_rows_internal($excelPath, 'Penjualan');
+
+    $statement = $pdo->prepare('
+        UPDATE invoices
+        SET komisi_sales_terbayar           = :sales_terbayar,
+            komisi_sales_belum_terbayar     = :sales_belum_terbayar,
+            status_pembayaran_komisi_sales  = :status_sales,
+            tanggal_transfer_komisi_sales   = :tgl_sales,
+            komisi_manager_terbayar         = :manager_terbayar,
+            komisi_manager_utang            = :manager_utang,
+            tanggal_transfer_komisi_manager = :tgl_manager,
+            tanggal_transfer_komisi_admin   = :tgl_admin
+        WHERE nomor_invoice = :nomor_invoice
+    ');
+
+    $pdo->beginTransaction();
+    $count = 0;
+
+    foreach ($rows as $row) {
+        $invoiceNo = trim((string) ($row['A'] ?? ''));
+        if ($invoiceNo === '' || stripos($invoiceNo, 'invoice') !== false) {
+            continue;
+        }
+
+        $salesTerbayar      = manager_commission_parse_number($row['S'] ?? '');
+        $salesBelumTerbayar = manager_commission_parse_number($row['T'] ?? '');
+        $statusSales        = trim((string) ($row['U'] ?? ''));
+        $tglSales           = manager_commission_excel_date(trim((string) ($row['V'] ?? '')));
+        $managerTerbayar    = manager_commission_parse_number($row['W'] ?? '');
+        $managerUtang       = manager_commission_parse_number($row['X'] ?? '');
+        $tglManager         = manager_commission_excel_date(trim((string) ($row['Y'] ?? '')));
+        $tglAdmin           = manager_commission_excel_date(trim((string) ($row['AD'] ?? '')));
+
+        if ($salesTerbayar === 0.0 && $salesBelumTerbayar === 0.0
+            && $managerTerbayar === 0.0 && $managerUtang === 0.0
+            && $statusSales === '' && $tglSales === null) {
+            continue;
+        }
+
+        $statement->execute([
+            'sales_terbayar'      => $salesTerbayar,
+            'sales_belum_terbayar'=> $salesBelumTerbayar,
+            'status_sales'        => $statusSales !== '' ? $statusSales : null,
+            'tgl_sales'           => $tglSales,
+            'manager_terbayar'    => $managerTerbayar,
+            'manager_utang'       => $managerUtang,
+            'tgl_manager'         => $tglManager,
+            'tgl_admin'           => $tglAdmin,
+            'nomor_invoice'       => $invoiceNo,
+        ]);
+
+        if ($statement->rowCount() > 0) {
+            $count++;
+        }
+    }
+
+    $pdo->commit();
+    return $count;
 }
 
 function run_invoice_data_generation(): array
@@ -952,7 +1109,7 @@ function fetch_invoice_detail(string $code): array
     $invoicePath = dirname(__DIR__) . '/storage/generated/invoices-2025-jan-jun-2026.csv';
     $itemPath = dirname(__DIR__) . '/storage/generated/invoice-items-2025-jan-jun-2026.csv';
     $invoiceRows = db_all(
-        'SELECT kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan, po_number, kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2, komisi_sales_1_persen, komisi_sales_2_persen, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, harga_normal_pricelist, discount_persen, discount_amount, total_harga_jual, status_pembayaran, tanggal_pembayaran, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, file_invoice FROM invoices WHERE kode_invoice = :kode_invoice OR nomor_invoice = :nomor_invoice LIMIT 1',
+        'SELECT kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan, po_number, kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2, komisi_sales_1_persen, komisi_sales_2_persen, komisi_sales_terbayar, komisi_sales_belum_terbayar, status_pembayaran_komisi_sales, tanggal_transfer_komisi_sales, komisi_manager_terbayar, komisi_manager_utang, tanggal_transfer_komisi_manager, tanggal_transfer_komisi_admin, pph_final_terbayar, pph_final_belum_terbayar, komisi_admin_terbayar, komisi_admin_belum_terbayar, biaya_kirim, biaya_admin_bank, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, harga_normal_pricelist, discount_persen, discount_amount, total_harga_jual, status_pembayaran, tanggal_pembayaran, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, file_invoice FROM invoices WHERE kode_invoice = :kode_invoice OR nomor_invoice = :nomor_invoice LIMIT 1',
         [
             'kode_invoice' => $code,
             'nomor_invoice' => $code,

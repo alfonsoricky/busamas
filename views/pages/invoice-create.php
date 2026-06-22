@@ -200,23 +200,23 @@
                             </label>
                             <label class="block" data-sales-paid-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Sales Terbayar</span>
-                                <input type="number" step="0.01" name="komisi_sales_terbayar" id="komisi-sales-paid" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                <input type="number" step="0.01" name="komisi_sales_terbayar" id="komisi-sales-paid" value="<?= e((string) ($editInvoice['komisi_sales_terbayar'] ?? '')) ?>" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                             <label class="block">
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Status Pembayaran Sales</span>
                                 <select name="status_pembayaran_sales" id="status-pembayaran-sales" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                     <?php foreach ($invoiceForm['commission_statuses'] as $status): ?>
-                                        <option value="<?= e($status) ?>"><?= e($status) ?></option>
+                                        <option value="<?= e($status) ?>" <?= (string) ($editInvoice['status_pembayaran_komisi_sales'] ?? '') === $status ? 'selected' : '' ?>><?= e($status) ?></option>
                                     <?php endforeach; ?>
                                 </select>
                             </label>
                             <label class="block" data-sales-paid-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Transfer Komisi Sales</span>
-                                <input type="date" name="tanggal_transfer_komisi_sales" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                <input type="date" name="tanggal_transfer_komisi_sales" value="<?= e((string) ($editInvoice['tanggal_transfer_komisi_sales'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                             <label class="block" data-sales-unpaid-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Sales Belum Terbayar</span>
-                                <input type="number" step="0.01" name="komisi_sales_belum_terbayar" id="komisi-sales-unpaid" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
+                                <input type="number" step="0.01" name="komisi_sales_belum_terbayar" id="komisi-sales-unpaid" value="<?= e((string) ($editInvoice['komisi_sales_belum_terbayar'] ?? '')) ?>" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
                             </label>
                         </div>
                     </section>
@@ -225,26 +225,26 @@
                         <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">Komisi Manager</h3>
                         <div class="mb-4 grid gap-3 sm:grid-cols-2">
                             <label class="flex items-center gap-3 rounded-lg border border-stone-200 p-3 text-sm font-semibold text-ink">
-                                <input type="radio" name="mode_komisi_manager" value="paid" class="h-4 w-4 accent-brand">
+                                <input type="radio" name="mode_komisi_manager" value="paid" class="h-4 w-4 accent-brand" <?= (float)($editInvoice['komisi_manager_terbayar'] ?? 0) > 0 || (string)($editInvoice['tanggal_transfer_komisi_manager'] ?? '') !== '' ? 'checked' : '' ?>>
                                 Terbayar
                             </label>
                             <label class="flex items-center gap-3 rounded-lg border border-stone-200 p-3 text-sm font-semibold text-ink">
-                                <input type="radio" name="mode_komisi_manager" value="debt" class="h-4 w-4 accent-brand" checked>
+                                <input type="radio" name="mode_komisi_manager" value="debt" class="h-4 w-4 accent-brand" <?= (float)($editInvoice['komisi_manager_terbayar'] ?? 0) <= 0 && (string)($editInvoice['tanggal_transfer_komisi_manager'] ?? '') === '' ? 'checked' : '' ?>>
                                 Komisi Manager Utang
                             </label>
                         </div>
                         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                             <label class="block" data-manager-paid-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Manager Terbayar</span>
-                                <input type="number" step="0.01" name="komisi_manager_terbayar" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                <input type="number" step="0.01" name="komisi_manager_terbayar" value="<?= e((string) ($editInvoice['komisi_manager_terbayar'] ?? '')) ?>" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                             <label class="block" data-manager-debt-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Manager Utang (Rp)</span>
-                                <input type="number" step="0.01" name="komisi_manager_utang" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                <input type="number" step="0.01" name="komisi_manager_utang" value="<?= e((string) ($editInvoice['komisi_manager_utang'] ?? '')) ?>" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                             <label class="block" data-manager-paid-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Transfer Manager</span>
-                                <input type="date" name="tanggal_transfer_manager" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                <input type="date" name="tanggal_transfer_manager" value="<?= e((string) ($editInvoice['tanggal_transfer_komisi_manager'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                         </div>
                     </section>
@@ -253,22 +253,22 @@
                         <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">Pajak</h3>
                         <div class="mb-4 grid gap-3 sm:grid-cols-2">
                             <label class="flex items-center gap-3 rounded-lg border border-stone-200 p-3 text-sm font-semibold text-ink">
-                                <input type="radio" name="mode_pajak" value="paid" class="h-4 w-4 accent-brand">
+                                <input type="radio" name="mode_pajak" value="paid" class="h-4 w-4 accent-brand" <?= (float)($editInvoice['pph_final_terbayar'] ?? 0) > 0 ? 'checked' : '' ?>>
                                 Pajak Terbayar
                             </label>
                             <label class="flex items-center gap-3 rounded-lg border border-stone-200 p-3 text-sm font-semibold text-ink">
-                                <input type="radio" name="mode_pajak" value="debt" class="h-4 w-4 accent-brand" checked>
+                                <input type="radio" name="mode_pajak" value="debt" class="h-4 w-4 accent-brand" <?= (float)($editInvoice['pph_final_terbayar'] ?? 0) <= 0 ? 'checked' : '' ?>>
                                 Pajak Belum Terbayar
                             </label>
                         </div>
                         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                             <label class="block" data-tax-paid-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">PPH Final Terbayar</span>
-                                <input type="number" step="0.01" name="pph_final_terbayar" id="pph-final-paid" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
+                                <input type="number" step="0.01" name="pph_final_terbayar" id="pph-final-paid" value="<?= e((string) ($editInvoice['pph_final_terbayar'] ?? '')) ?>" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
                             </label>
                             <label class="block" data-tax-debt-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">PPH Final Belum Terbayar</span>
-                                <input type="number" step="0.01" name="pph_final_belum_terbayar" id="pph-final-unpaid" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
+                                <input type="number" step="0.01" name="pph_final_belum_terbayar" id="pph-final-unpaid" value="<?= e((string) ($editInvoice['pph_final_belum_terbayar'] ?? '')) ?>" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
                             </label>
                         </div>
                     </section>
@@ -277,26 +277,26 @@
                         <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-stone-500">Komisi Admin</h3>
                         <div class="mb-4 grid gap-3 sm:grid-cols-2">
                             <label class="flex items-center gap-3 rounded-lg border border-stone-200 p-3 text-sm font-semibold text-ink">
-                                <input type="radio" name="mode_komisi_admin" value="paid" class="h-4 w-4 accent-brand">
+                                <input type="radio" name="mode_komisi_admin" value="paid" class="h-4 w-4 accent-brand" <?= (float)($editInvoice['komisi_admin_terbayar'] ?? 0) > 0 || (string)($editInvoice['tanggal_transfer_komisi_admin'] ?? '') !== '' ? 'checked' : '' ?>>
                                 Komisi Admin Terbayar
                             </label>
                             <label class="flex items-center gap-3 rounded-lg border border-stone-200 p-3 text-sm font-semibold text-ink">
-                                <input type="radio" name="mode_komisi_admin" value="debt" class="h-4 w-4 accent-brand" checked>
+                                <input type="radio" name="mode_komisi_admin" value="debt" class="h-4 w-4 accent-brand" <?= (float)($editInvoice['komisi_admin_terbayar'] ?? 0) <= 0 && (string)($editInvoice['tanggal_transfer_komisi_admin'] ?? '') === '' ? 'checked' : '' ?>>
                                 Komisi Admin Belum Terbayar
                             </label>
                         </div>
                         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                             <label class="block" data-admin-paid-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Admin Terbayar</span>
-                                <input type="number" step="0.01" name="komisi_admin_terbayar" id="komisi-admin-paid" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
+                                <input type="number" step="0.01" name="komisi_admin_terbayar" id="komisi-admin-paid" value="<?= e((string) ($editInvoice['komisi_admin_terbayar'] ?? '')) ?>" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
                             </label>
                             <label class="block" data-admin-debt-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Admin Belum Terbayar</span>
-                                <input type="number" step="0.01" name="komisi_admin_belum_terbayar" id="komisi-admin-unpaid" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
+                                <input type="number" step="0.01" name="komisi_admin_belum_terbayar" id="komisi-admin-unpaid" value="<?= e((string) ($editInvoice['komisi_admin_belum_terbayar'] ?? '')) ?>" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
                             </label>
                             <label class="block" data-admin-paid-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Transfer Komisi Admin</span>
-                                <input type="date" name="tanggal_transfer_komisi_admin" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                <input type="date" name="tanggal_transfer_komisi_admin" value="<?= e((string) ($editInvoice['tanggal_transfer_komisi_admin'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                         </div>
                     </section>
@@ -306,11 +306,11 @@
                         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                             <label class="block">
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Biaya Kirim</span>
-                                <input type="number" step="0.01" name="biaya_kirim" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                <input type="number" step="0.01" name="biaya_kirim" value="<?= e((string) ($editInvoice['biaya_kirim'] ?? '')) ?>" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                             <label class="block">
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Biaya Admin Bank</span>
-                                <input type="number" step="0.01" name="biaya_admin_bank" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                <input type="number" step="0.01" name="biaya_admin_bank" value="<?= e((string) ($editInvoice['biaya_admin_bank'] ?? '')) ?>" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                         </div>
                     </section>

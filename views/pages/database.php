@@ -27,78 +27,21 @@
 
     <div class="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
         <div class="space-y-6">
-            <!-- Migrate & Seed -->
+            <!-- Update Database Hosting -->
             <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <h2 class="text-lg font-bold text-ink">Migrate & Seed</h2>
+                <h2 class="text-lg font-bold text-ink">Update Database Hosting</h2>
                 <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Tombol ini akan membuat ulang tabel master dan invoice, lalu mengisi data dari <span class="font-semibold text-ink">database/seed-data.sql</span>.
-                </p>
-
-                <div class="mt-5 rounded-lg border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-orange-900">
-                    Data pada tabel master dan invoice akan diganti dengan isi seed terbaru.
-                </div>
-
-                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
-                    <input type="hidden" name="action" value="migrate-seed">
-                    <button class="rounded-lg bg-brand px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
-                        Jalankan Migrate & Seed
-                    </button>
-                </form>
-            </div>
-
-            <!-- Seed Operasional -->
-            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <h2 class="text-lg font-bold text-ink">Seed Data Operasional</h2>
-                <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Tombol ini akan memperbarui dan mengimpor ulang data pengeluaran operasional secara terpisah dengan membaca data terbaru dari lembar <span class="font-semibold text-ink">operational</span> di file <span class="font-semibold text-ink">storage/PENJUALAN-2026.xlsx</span>.
+                    Tombol ini akan mensinkronisasikan seluruh data di database hosting Anda. Ini mencakup pembuatan ulang struktur tabel, pengisian data awal dari seed snapshot terbaru, serta penyinkronan data komisi, PNL, pembelian barang, dan pengeluaran operasional secara otomatis dari file Excel di folder storage.
                 </p>
 
                 <div class="mt-5 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-900">
-                    Data pada tabel pengeluaran operasional akan disinkronkan ulang dengan data Excel.
+                    <strong>PENTING:</strong> Pastikan Anda telah mengunggah file <span class="font-semibold text-ink">PENJUALAN-2026.xlsx</span> terbaru ke folder <span class="font-semibold text-ink">storage/</span> di hosting sebelum menjalankan update ini.
                 </div>
 
                 <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
-                    <input type="hidden" name="action" value="seed-operational">
-                    <button class="rounded-lg bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
-                        Jalankan Seed Operasional
-                    </button>
-                </form>
-            </div>
-
-            <!-- Update Komisi -->
-            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <h2 class="text-lg font-bold text-ink">Update Komisi</h2>
-                <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Memperbarui data <span class="font-semibold text-ink">komisi sales</span> (kolom S, T, U, V), <span class="font-semibold text-ink">komisi manager</span> (kolom W, X, Y), dan <span class="font-semibold text-ink">komisi admin</span> (kolom AD) pada lembar <span class="font-semibold text-ink">Penjualan</span> di file <span class="font-semibold text-ink">storage/PENJUALAN-2026.xlsx</span>.
-                </p>
-
-                <div class="mt-5 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-900">
-                    Kolom komisi sales, manager, dan admin akan disinkronkan dengan data Excel.
-                </div>
-
-                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
-                    <input type="hidden" name="action" value="update-commission">
-                    <button class="rounded-lg bg-violet-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-800">
-                        Jalankan Update Komisi
-                    </button>
-                </form>
-            </div>
-
-            <!-- Generate Invoice Data -->
-            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <h2 class="text-lg font-bold text-ink">Generate Invoice Data</h2>
-                <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Tombol ini menjalankan <span class="font-semibold text-ink">scripts/generate-invoice-data.php</span> untuk membuat ulang CSV invoice dan detail invoice di folder <span class="font-semibold text-ink">storage/generated</span>.
-                </p>
-
-                <div class="mt-5 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900">
-                    File CSV invoice akan dibuat ulang dari cache extract dan master alias yang tersedia.
-                </div>
-
-                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
-                    <input type="hidden" name="action" value="generate-invoice-data">
-                    <button class="rounded-lg bg-sky-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-800">
-                        Jalankan Generate Invoice Data
+                    <input type="hidden" name="action" value="update-hosting">
+                    <button class="rounded-lg bg-brand px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
+                        Jalankan Update Database
                     </button>
                 </form>
             </div>

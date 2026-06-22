@@ -15,11 +15,17 @@ $sources = [
     ],
 ];
 
-foreach ($sources as $source) {
+$sources = array_filter($sources, static function (array $source) use ($baseDir): bool {
     if (! is_readable($source['path'])) {
-        fwrite(STDERR, 'File tidak ditemukan: ' . relative_path($baseDir, $source['path']) . PHP_EOL);
-        exit(1);
+        echo 'Warning: File tidak ditemukan/tidak terbaca, dilewati: ' . relative_path($baseDir, $source['path']) . PHP_EOL;
+        return false;
     }
+    return true;
+});
+
+if ($sources === []) {
+    fwrite(STDERR, 'Tidak ada file Excel penjualan yang ditemukan atau terbaca.' . PHP_EOL);
+    exit(1);
 }
 
 $pdo = connect_database($config);
@@ -31,7 +37,8 @@ $statement = $pdo->prepare('
     UPDATE invoices
     SET total_pembelian_barang = :total_pembelian_barang,
         total_utang_pembelian_barang = :total_utang_pembelian_barang,
-        status_pembelian_barang = :status_pembelian_barang
+        status_pembelian_barang = :status_pembelian_barang,
+        tanggal_transfer_pembelian_barang = :tanggal_transfer_pembelian_barang
     WHERE nomor_invoice = :nomor_invoice
 ');
 
@@ -43,7 +50,8 @@ $pdo->exec("
     UPDATE invoices
     SET total_pembelian_barang = 0,
         total_utang_pembelian_barang = 0,
-        status_pembelian_barang = 'Lunas'
+        status_pembelian_barang = 'Lunas',
+        tanggal_transfer_pembelian_barang = NULL
 ");
 
 foreach ($purchaseRecords as $invoiceNumber => $record) {
@@ -55,11 +63,15 @@ foreach ($purchaseRecords as $invoiceNumber => $record) {
     }
 
     $debtTotal = (float) ($record['debt_total'] ?? 0);
+    $transferDate = $record['transfer_date'];
+    $status = $transferDate !== null ? 'Lunas' : ($debtTotal > 0 ? 'Utang' : 'Lunas');
+
     $statement->execute([
         'nomor_invoice' => $existingInvoices[$invoiceKey],
         'total_pembelian_barang' => $record['purchase_total'],
         'total_utang_pembelian_barang' => $debtTotal,
-        'status_pembelian_barang' => $debtTotal > 0 ? 'Utang' : 'Lunas',
+        'status_pembelian_barang' => $status,
+        'tanggal_transfer_pembelian_barang' => $transferDate,
     ]);
 
     $matched++;
@@ -117,6 +129,14 @@ function ensure_invoice_purchase_columns(PDO $pdo): void
             AFTER total_utang_pembelian_barang
         ");
     }
+
+    if (! invoice_column_exists($pdo, 'tanggal_transfer_pembelian_barang')) {
+        $pdo->exec("
+            ALTER TABLE invoices
+            ADD COLUMN tanggal_transfer_pembelian_barang DATE NULL
+            AFTER status_pembelian_barang
+        ");
+    }
 }
 
 function invoice_column_exists(PDO $pdo, string $columnName): bool
@@ -161,19 +181,56 @@ function read_purchase_records(array $sources): array
             $invoiceNumber = normalize_spaces((string) ($row['A'] ?? ''));
             $purchaseTotal = parse_number($row['AG'] ?? '');
             $debtTotal = parse_number($row['AH'] ?? '');
+            $transferDateRaw = trim((string) ($row['AI'] ?? ''));
+            $transferDate = excel_serial_to_date_pembelian($transferDateRaw);
 
-            if (! is_invoice_number($invoiceNumber) || ($purchaseTotal === null && $debtTotal === null)) {
+            if (! is_invoice_number($invoiceNumber) || ($purchaseTotal === null && $debtTotal === null && $transferDate === null)) {
                 continue;
             }
 
             $records[$invoiceNumber] = [
                 'purchase_total' => $purchaseTotal ?? 0,
                 'debt_total' => $debtTotal ?? 0,
+                'transfer_date' => $transferDate,
             ];
         }
     }
 
     return $records;
+}
+
+function excel_serial_to_date_pembelian(string $value): ?string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return null;
+    }
+
+    if (!is_numeric($value)) {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return $value;
+        }
+        return null;
+    }
+
+    $serial = (int) round((float) $value);
+    if ($serial <= 0) {
+        return null;
+    }
+
+    if ($serial >= 60) {
+        $serial--;
+    }
+
+    $unix = ($serial - 1) * 86400 + mktime(0, 0, 0, 1, 1, 1900);
+    $date = date('Y-m-d', $unix);
+
+    $year = (int) date('Y', $unix);
+    if ($year < 2000 || $year > 2100) {
+        return null;
+    }
+
+    return $date;
 }
 
 function is_invoice_number(string $value): bool

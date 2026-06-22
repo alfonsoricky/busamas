@@ -169,7 +169,10 @@ function fetch_database_maintenance(?string $action = null): array
     $result = null;
     $counts = database_table_counts();
 
-    if ($action === 'migrate-seed') {
+    if ($action === 'update-hosting') {
+        $result = run_hosting_update();
+        $counts = database_table_counts();
+    } elseif ($action === 'migrate-seed') {
         $result = run_database_migration_seed();
         $counts = database_table_counts();
     } elseif ($action === 'seed-operational') {
@@ -1109,7 +1112,7 @@ function fetch_invoice_detail(string $code): array
     $invoicePath = dirname(__DIR__) . '/storage/generated/invoices-2025-jan-jun-2026.csv';
     $itemPath = dirname(__DIR__) . '/storage/generated/invoice-items-2025-jan-jun-2026.csv';
     $invoiceRows = db_all(
-        'SELECT kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan, po_number, kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2, komisi_sales_1_persen, komisi_sales_2_persen, komisi_sales_terbayar, komisi_sales_belum_terbayar, status_pembayaran_komisi_sales, tanggal_transfer_komisi_sales, komisi_manager_terbayar, komisi_manager_utang, tanggal_transfer_komisi_manager, tanggal_transfer_komisi_admin, pph_final_terbayar, pph_final_belum_terbayar, komisi_admin_terbayar, komisi_admin_belum_terbayar, biaya_kirim, biaya_admin_bank, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, harga_normal_pricelist, discount_persen, discount_amount, total_harga_jual, status_pembayaran, tanggal_pembayaran, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, file_invoice FROM invoices WHERE kode_invoice = :kode_invoice OR nomor_invoice = :nomor_invoice LIMIT 1',
+        'SELECT kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan, po_number, kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2, komisi_sales_1_persen, komisi_sales_2_persen, komisi_sales_terbayar, komisi_sales_belum_terbayar, status_pembayaran_komisi_sales, tanggal_transfer_komisi_sales, komisi_manager_terbayar, komisi_manager_utang, tanggal_transfer_komisi_manager, tanggal_transfer_komisi_admin, pph_final_terbayar, pph_final_belum_terbayar, komisi_admin_terbayar, komisi_admin_belum_terbayar, biaya_kirim, biaya_admin_bank, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, harga_normal_pricelist, discount_persen, discount_amount, total_harga_jual, status_pembayaran, tanggal_pembayaran, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, tanggal_transfer_pembelian_barang, file_invoice FROM invoices WHERE kode_invoice = :kode_invoice OR nomor_invoice = :nomor_invoice LIMIT 1',
         [
             'kode_invoice' => $code,
             'nomor_invoice' => $code,
@@ -1236,10 +1239,358 @@ function fetch_invoice_form_options(string $code = ''): array
             'Lunas',
         ],
         'commission_statuses' => [
-            'Belum Dibayar',
-            'Dibayar',
+            'Belum TF',
+            'Transfer',
         ],
     ];
+}
+
+function clean_money_value(mixed $value): float
+{
+    $value = trim((string)$value);
+    if ($value === '') {
+        return 0.0;
+    }
+    
+    // Remove any currency symbol like "Rp" and spaces
+    $value = preg_replace('/[^\d,.-]/u', '', $value);
+    
+    if (str_contains($value, ',')) {
+        // If it has comma, it's Indonesian style: dots are thousands, comma is decimal
+        $value = str_replace('.', '', $value);
+        $value = str_replace(',', '.', $value);
+    } else {
+        // If it has only dots, check if it's thousands (e.g. 1.000 or 1.500.000)
+        $parts = explode('.', $value);
+        if (count($parts) > 1) {
+            $isThousands = true;
+            foreach (array_slice($parts, 1) as $part) {
+                if (strlen($part) !== 3) {
+                    $isThousands = false;
+                    break;
+                }
+            }
+            if ($isThousands) {
+                $value = implode('', $parts);
+            }
+        }
+    }
+    
+    return (float) $value;
+}
+
+function save_invoice_form(array $postData): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Koneksi database gagal.'];
+    }
+
+    $cleanFloat = static fn ($val) => clean_money_value($val);
+    $cleanInt = static fn ($val) => (int) ($val ?? 0);
+    $cleanString = static fn ($val) => trim((string) ($val ?? ''));
+
+    $formatDateToIndonesian = static function (string $dateStr): string {
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $dateStr, $matches)) {
+            $year = $matches[1];
+            $month = (int)$matches[2];
+            $day = (int)$matches[3];
+            $months = [
+                1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+                5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+                9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'
+            ];
+            $monthName = $months[$month] ?? '';
+            return "$day $monthName $year";
+        }
+        return $dateStr;
+    };
+
+    $getSalesName = static function ($pdo, $kode) {
+        if (empty($kode)) return null;
+        $stmt = $pdo->prepare("SELECT nama_sales FROM master_sales WHERE kode_sales = ?");
+        $stmt->execute([$kode]);
+        return $stmt->fetchColumn() ?: null;
+    };
+
+    $getBarangInfo = static function ($pdo, $kode) {
+        if (empty($kode)) return null;
+        $stmt = $pdo->prepare("SELECT nama_barang, ukuran FROM master_barang WHERE kode_barang = ?");
+        $stmt->execute([$kode]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    };
+
+    $kodeInvoice = $cleanString($postData['kode_invoice'] ?? '');
+    $isUpdate = ($kodeInvoice !== '');
+
+    $nomorInvoice = $cleanString($postData['nomor_invoice'] ?? '');
+    if ($nomorInvoice === '') {
+        return ['ok' => false, 'message' => 'Nomor invoice tidak boleh kosong.'];
+    }
+
+    // Get customer info
+    $kodeCustomer = $cleanString($postData['kode_customer'] ?? '');
+    $namaCustomerMaster = '';
+    $namaLaundryInvoice = '';
+    $namaCustomerInvoice = $cleanString($postData['nama_customer'] ?? '');
+    if ($kodeCustomer !== '') {
+        $stmt = $pdo->prepare("SELECT nama_customer, nama_laundry FROM master_customers WHERE kode_customer = ?");
+        $stmt->execute([$kodeCustomer]);
+        $custRow = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($custRow) {
+            $namaCustomerMaster = $custRow['nama_customer'];
+            $namaLaundryInvoice = $custRow['nama_laundry'];
+        }
+    }
+
+    $tanggalInvoiceRaw = $cleanString($postData['tanggal_invoice'] ?? '');
+    $tanggalInvoice = $formatDateToIndonesian($tanggalInvoiceRaw);
+
+    // Calculate totals from items
+    $items = $postData['items'] ?? [];
+    $totalItem = count($items);
+    $totalQty = 0.0;
+    $subtotal = 0.0;
+
+    foreach ($items as $item) {
+        $totalQty += (float) ($item['jumlah'] ?? 0);
+        $subtotal += $cleanFloat($item['total'] ?? 0);
+    }
+
+    // Form inputs mapped to DB
+    $nomorSuratJalan = $cleanString($postData['nomor_surat_jalan'] ?? '');
+    $tanggalSuratJalan = $formatDateToIndonesian($cleanString($postData['tanggal_surat_jalan'] ?? ''));
+    $poNumber = $cleanString($postData['po_number'] ?? '');
+    $noTelepon = $cleanString($postData['no_telepon'] ?? '');
+    $alamat = $cleanString($postData['alamat'] ?? '');
+
+    $kodeSales1 = $cleanString($postData['kode_sales_1'] ?? '');
+    $namaSales1 = $getSalesName($pdo, $kodeSales1);
+    $kodeSales2 = $cleanString($postData['kode_sales_2'] ?? '');
+    $namaSales2 = $getSalesName($pdo, $kodeSales2);
+
+    $komisiSales1Persen = (float) ($postData['komisi_sales_1_persen'] ?? 0);
+    $komisiSales2Persen = (float) ($postData['komisi_sales_2_persen'] ?? 0);
+    $komisiSalesTerbayar = $cleanFloat($postData['komisi_sales_terbayar'] ?? 0);
+    $statusPembayaranSales = $cleanString($postData['status_pembayaran_sales'] ?? '');
+    $tanggalTransferKomisiSales = !empty($postData['tanggal_transfer_komisi_sales']) ? $postData['tanggal_transfer_komisi_sales'] : null;
+    $komisiSalesBelumTerbayar = $cleanFloat($postData['komisi_sales_belum_terbayar'] ?? 0);
+
+    // Manager
+    $komisiManagerTerbayar = $cleanFloat($postData['komisi_manager_terbayar'] ?? 0);
+    $komisiManagerUtang = $cleanFloat($postData['komisi_manager_utang'] ?? 0);
+    $tanggalTransferKomisiManager = !empty($postData['tanggal_transfer_manager']) ? $postData['tanggal_transfer_manager'] : null;
+
+    // Admin
+    $komisiAdminTerbayar = $cleanFloat($postData['komisi_admin_terbayar'] ?? 0);
+    $komisiAdminBelumTerbayar = $cleanFloat($postData['komisi_admin_belum_terbayar'] ?? 0);
+    $tanggalTransferKomisiAdmin = !empty($postData['tanggal_transfer_komisi_admin']) ? $postData['tanggal_transfer_komisi_admin'] : null;
+
+    // Tax
+    $pphFinalTerbayar = $cleanFloat($postData['pph_final_terbayar'] ?? 0);
+    $pphFinalBelumTerbayar = $cleanFloat($postData['pph_final_belum_terbayar'] ?? 0);
+
+    $biayaKirim = $cleanFloat($postData['biaya_kirim'] ?? 0);
+    $biayaAdminBank = $cleanFloat($postData['biaya_admin_bank'] ?? 0);
+
+    $discountPersen = (float) ($postData['discount'] ?? 0);
+    $discountAmount = $cleanFloat($postData['discount_amount'] ?? 0);
+    $totalHargaJual = $cleanFloat($postData['total_harga_jual'] ?? 0);
+
+    $statusPembayaran = $cleanString($postData['status_pembayaran'] ?? 'Lunas');
+    $tanggalPembayaran = !empty($postData['tanggal_pembayaran']) ? $postData['tanggal_pembayaran'] : null;
+
+    // Purchase / COGS
+    $totalPembelianBarang = $cleanFloat($postData['pembelian_barang'] ?? 0);
+    $totalUtangPembelianBarang = $cleanFloat($postData['jumlah_utang_pembelian_barang'] ?? 0);
+    $tanggalTransferPembelianBarang = !empty($postData['tanggal_transfer_pembelian_barang']) ? $postData['tanggal_transfer_pembelian_barang'] : null;
+    $statusPembelianBarang = $tanggalTransferPembelianBarang !== null ? 'Lunas' : 'Utang';
+
+    try {
+        $pdo->beginTransaction();
+
+        if ($isUpdate) {
+            // Check if exists
+            $stmt = $pdo->prepare("SELECT file_invoice FROM invoices WHERE kode_invoice = ?");
+            $stmt->execute([$kodeInvoice]);
+            $existingInvoice = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$existingInvoice) {
+                $pdo->rollBack();
+                return ['ok' => false, 'message' => 'Invoice tidak ditemukan.'];
+            }
+            $fileInvoice = $existingInvoice['file_invoice'];
+
+            // Update invoices
+            $stmt = $pdo->prepare('
+                UPDATE invoices SET
+                    nomor_invoice = ?,
+                    tanggal_invoice = ?,
+                    nomor_surat_jalan = ?,
+                    tanggal_surat_jalan = ?,
+                    po_number = ?,
+                    kode_sales_1 = ?,
+                    nama_sales_1 = ?,
+                    kode_sales_2 = ?,
+                    nama_sales_2 = ?,
+                    komisi_sales_1_persen = ?,
+                    komisi_sales_2_persen = ?,
+                    komisi_sales_terbayar = ?,
+                    komisi_sales_belum_terbayar = ?,
+                    status_pembayaran_komisi_sales = ?,
+                    tanggal_transfer_komisi_sales = ?,
+                    komisi_manager_terbayar = ?,
+                    komisi_manager_utang = ?,
+                    tanggal_transfer_komisi_manager = ?,
+                    tanggal_transfer_komisi_admin = ?,
+                    kode_customer = ?,
+                    nama_customer_master = ?,
+                    nama_customer_invoice = ?,
+                    nama_laundry_invoice = ?,
+                    no_telepon = ?,
+                    alamat = ?,
+                    total_item = ?,
+                    total_qty = ?,
+                    subtotal = ?,
+                    harga_normal_pricelist = ?,
+                    discount_persen = ?,
+                    discount_amount = ?,
+                    total_harga_jual = ?,
+                    status_pembayaran = ?,
+                    tanggal_pembayaran = ?,
+                    pph_final_terbayar = ?,
+                    pph_final_belum_terbayar = ?,
+                    komisi_admin_terbayar = ?,
+                    komisi_admin_belum_terbayar = ?,
+                    biaya_kirim = ?,
+                    biaya_admin_bank = ?,
+                    total_pembelian_barang = ?,
+                    total_utang_pembelian_barang = ?,
+                    status_pembelian_barang = ?,
+                    tanggal_transfer_pembelian_barang = ?
+                WHERE kode_invoice = ?
+            ');
+            $stmt->execute([
+                $nomorInvoice, $tanggalInvoice, $nomorSuratJalan, $tanggalSuratJalan, $poNumber,
+                $kodeSales1, $namaSales1, $kodeSales2, $namaSales2,
+                $komisiSales1Persen, $komisiSales2Persen, $komisiSalesTerbayar, $komisiSalesBelumTerbayar,
+                $statusPembayaranSales, $tanggalTransferKomisiSales,
+                $komisiManagerTerbayar, $komisiManagerUtang, $tanggalTransferKomisiManager,
+                $tanggalTransferKomisiAdmin, $kodeCustomer, $namaCustomerMaster,
+                $namaCustomerInvoice, $namaLaundryInvoice, $noTelepon, $alamat,
+                $totalItem, $totalQty, $subtotal, $subtotal, $discountPersen, $discountAmount, $totalHargaJual,
+                $statusPembayaran, $tanggalPembayaran,
+                $pphFinalTerbayar, $pphFinalBelumTerbayar,
+                $komisiAdminTerbayar, $komisiAdminBelumTerbayar,
+                $biayaKirim, $biayaAdminBank,
+                $totalPembelianBarang, $totalUtangPembelianBarang, $statusPembelianBarang,
+                $tanggalTransferPembelianBarang,
+                $kodeInvoice
+            ]);
+
+            // Delete existing invoice items
+            $stmt = $pdo->prepare("DELETE FROM invoice_items WHERE kode_invoice = ?");
+            $stmt->execute([$kodeInvoice]);
+        } else {
+            // Generate next code
+            $maxCode = $pdo->query("SELECT MAX(kode_invoice) FROM invoices")->fetchColumn();
+            if ($maxCode && preg_match('/^INV-(\d+)$/', $maxCode, $matches)) {
+                $nextNum = (int)$matches[1] + 1;
+            } else {
+                $nextNum = 1;
+            }
+            $kodeInvoice = 'INV-' . str_pad((string)$nextNum, 5, '0', STR_PAD_LEFT);
+            $fileInvoice = null;
+
+            // Insert invoices
+            $stmt = $pdo->prepare('
+                INSERT INTO invoices (
+                    kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan, po_number,
+                    kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2,
+                    komisi_sales_1_persen, komisi_sales_2_persen, komisi_sales_terbayar, komisi_sales_belum_terbayar,
+                    status_pembayaran_komisi_sales, tanggal_transfer_komisi_sales,
+                    komisi_manager_terbayar, komisi_manager_utang, tanggal_transfer_komisi_manager,
+                    tanggal_transfer_komisi_admin, kode_customer, nama_customer_master,
+                    nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat,
+                    total_item, total_qty, subtotal, harga_normal_pricelist, discount_persen, discount_amount, total_harga_jual,
+                    status_pembayaran, tanggal_pembayaran,
+                    pph_final_terbayar, pph_final_belum_terbayar,
+                    komisi_admin_terbayar, komisi_admin_belum_terbayar,
+                    biaya_kirim, biaya_admin_bank,
+                    total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, tanggal_transfer_pembelian_barang, file_invoice
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?,
+                    ?, ?,
+                    ?, ?,
+                    ?, ?,
+                    ?, ?, ?, ?, ?
+                )
+            ');
+            $stmt->execute([
+                $kodeInvoice, $nomorInvoice, $tanggalInvoice, $nomorSuratJalan, $tanggalSuratJalan, $poNumber,
+                $kodeSales1, $namaSales1, $kodeSales2, $namaSales2,
+                $komisiSales1Persen, $komisiSales2Persen, $komisiSalesTerbayar, $komisiSalesBelumTerbayar,
+                $statusPembayaranSales, $tanggalTransferKomisiSales,
+                $komisiManagerTerbayar, $komisiManagerUtang, $tanggalTransferKomisiManager,
+                $tanggalTransferKomisiAdmin, $kodeCustomer, $namaCustomerMaster,
+                $namaCustomerInvoice, $namaLaundryInvoice, $noTelepon, $alamat,
+                $totalItem, $totalQty, $subtotal, $subtotal, $discountPersen, $discountAmount, $totalHargaJual,
+                $statusPembayaran, $tanggalPembayaran,
+                $pphFinalTerbayar, $pphFinalBelumTerbayar,
+                $komisiAdminTerbayar, $komisiAdminBelumTerbayar,
+                $biayaKirim, $biayaAdminBank,
+                $totalPembelianBarang, $totalUtangPembelianBarang, $statusPembelianBarang, $tanggalTransferPembelianBarang, $fileInvoice
+            ]);
+        }
+
+        // Insert new invoice items
+        $stmt = $pdo->prepare('
+            INSERT INTO invoice_items (
+                kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, kode_barang,
+                nama_barang_master, ukuran_master, nama_barang_invoice, isi_invoice,
+                jumlah, satuan, harga, total, file_invoice, baris
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ');
+
+        $baris = 23;
+        foreach ($items as $item) {
+            $kodeBarang = $cleanString($item['kode_barang'] ?? '');
+            if ($kodeBarang === '') continue;
+
+            $barangInfo = $getBarangInfo($pdo, $kodeBarang);
+            $namaBarangMaster = $barangInfo ? $barangInfo['nama_barang'] : '';
+            $ukuranMaster = $barangInfo ? $barangInfo['ukuran'] : '';
+            $namaBarangInvoice = $namaBarangMaster;
+
+            $isiInvoice = $cleanString($item['isi'] ?? '');
+            $jumlah = (float) ($item['jumlah'] ?? 0);
+            $satuan = $cleanString($item['satuan'] ?? '');
+            $harga = $cleanFloat($item['harga'] ?? 0);
+            $total = $cleanFloat($item['total'] ?? 0);
+
+            $stmt->execute([
+                $kodeInvoice, $nomorInvoice, $tanggalInvoice, $kodeCustomer, $kodeBarang,
+                $namaBarangMaster, $ukuranMaster, $namaBarangInvoice, $isiInvoice,
+                $jumlah, $satuan, $harga, $total, $fileInvoice, $baris
+            ]);
+            $baris += 2;
+        }
+
+        $pdo->commit();
+        return ['ok' => true, 'kode_invoice' => $kodeInvoice];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        return ['ok' => false, 'message' => 'Gagal menyimpan ke database: ' . $exception->getMessage()];
+    }
 }
 
 function date_input_value(string $date): string
@@ -3145,4 +3496,156 @@ function seed_pnl_invoice_columns(PDO $pdo, string $excelPath): void
         ]);
     }
     $pdo->commit();
+}
+
+function run_hosting_update(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts' => [],
+        ];
+    }
+
+    $excelPath = dirname(__DIR__) . '/storage/PENJUALAN-2026.xlsx';
+    if (! is_readable($excelPath)) {
+        return [
+            'ok' => false,
+            'message' => 'File Excel storage/PENJUALAN-2026.xlsx tidak ditemukan.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    try {
+        $outputLogs = [];
+        
+        // 1. Run database migration & seed (schema.sql + seed-data.sql)
+        $migrationResult = run_database_migration_seed();
+        if (!$migrationResult['ok']) {
+            return $migrationResult;
+        }
+        $outputLogs[] = "1. Re-create Tabel & Seed Data Awal: Selesai (" . $migrationResult['statements'] . " SQL statements)";
+
+        // 2. Sync all commissions from Excel (Sales, Manager, Admin Transfer Date)
+        if (! class_exists('ZipArchive')) {
+            $outputLogs[] = "2. Skip Sinkronisasi Excel karena ZipArchive tidak aktif.";
+        } else {
+            $commCount = update_invoice_all_commission_from_excel($pdo, $excelPath);
+            $outputLogs[] = "2. Sinkronisasi Komisi Sales, Manager & Admin: Selesai ($commCount baris diperbarui)";
+            
+            // 3. Sync PNL columns from Excel (Manager/Admin Paid, Tax, Delivery Cost, Bank Admin Fee)
+            seed_pnl_invoice_columns($pdo, $excelPath);
+            $outputLogs[] = "3. Sinkronisasi Kolom PNL (Admin Paid, Tax, Kirim, Bank): Selesai";
+            
+            // 4. Sync Purchase Totals & Transfer Dates from Excel
+            $purchaseCount = update_invoice_purchase_data_from_excel($pdo, $excelPath);
+            $outputLogs[] = "4. Sinkronisasi Pembelian Barang (Lunas/Utang & Tgl Transfer): Selesai ($purchaseCount baris diperbarui)";
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Update Database Hosting Berhasil!',
+            'statements' => $migrationResult['statements'],
+            'counts' => database_table_counts(),
+            'output' => implode("\n", $outputLogs),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Update hosting gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
+function update_invoice_purchase_data_from_excel(PDO $pdo, string $excelPath): int
+{
+    // Pastikan semua kolom baru sudah ada
+    $cols = $pdo->query('DESCRIBE invoices')->fetchAll(PDO::FETCH_COLUMN);
+    $existingCols = array_flip($cols);
+
+    if (! isset($existingCols['total_pembelian_barang'])) {
+        $pdo->exec('ALTER TABLE invoices ADD COLUMN total_pembelian_barang DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER subtotal');
+    }
+    if (! isset($existingCols['total_utang_pembelian_barang'])) {
+        $pdo->exec('ALTER TABLE invoices ADD COLUMN total_utang_pembelian_barang DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER total_pembelian_barang');
+    }
+    if (! isset($existingCols['status_pembelian_barang'])) {
+        $pdo->exec("ALTER TABLE invoices ADD COLUMN status_pembelian_barang VARCHAR(20) NOT NULL DEFAULT 'Lunas' AFTER total_utang_pembelian_barang");
+    }
+    if (! isset($existingCols['tanggal_transfer_pembelian_barang'])) {
+        $pdo->exec('ALTER TABLE invoices ADD COLUMN tanggal_transfer_pembelian_barang DATE NULL AFTER status_pembelian_barang');
+    }
+
+    $rows = read_xlsx_sheet_rows_internal($excelPath, 'Penjualan');
+
+    $statement = $pdo->prepare('
+        UPDATE invoices
+        SET total_pembelian_barang = :total_pembelian_barang,
+            total_utang_pembelian_barang = :total_utang_pembelian_barang,
+            status_pembelian_barang = :status_pembelian_barang,
+            tanggal_transfer_pembelian_barang = :tanggal_transfer_pembelian_barang
+        WHERE nomor_invoice = :nomor_invoice
+    ');
+
+    $pdo->beginTransaction();
+    $pdo->exec("
+        UPDATE invoices
+        SET total_pembelian_barang = 0,
+            total_utang_pembelian_barang = 0,
+            status_pembelian_barang = 'Lunas',
+            tanggal_transfer_pembelian_barang = NULL
+    ");
+
+    $count = 0;
+    foreach ($rows as $row) {
+        $invoiceNo = trim((string) ($row['A'] ?? ''));
+        if ($invoiceNo === '' || stripos($invoiceNo, 'invoice') !== false) {
+            continue;
+        }
+
+        $purchaseTotal = (float) parse_number_internal($row['AG'] ?? 0);
+        $debtTotal = (float) parse_number_internal($row['AH'] ?? 0);
+        $transferDateRaw = trim((string) ($row['AI'] ?? ''));
+        
+        $transferDate = null;
+        if ($transferDateRaw !== '' && is_numeric($transferDateRaw)) {
+            $serial = (int) round((float) $transferDateRaw);
+            if ($serial > 0) {
+                if ($serial >= 60) $serial--;
+                $unix = ($serial - 1) * 86400 + mktime(0, 0, 0, 1, 1, 1900);
+                $year = (int) date('Y', $unix);
+                if ($year >= 2000 && $year <= 2100) {
+                    $transferDate = date('Y-m-d', $unix);
+                }
+            }
+        } elseif ($transferDateRaw !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $transferDateRaw)) {
+            $transferDate = $transferDateRaw;
+        }
+
+        if ($purchaseTotal === 0.0 && $debtTotal === 0.0 && $transferDate === null) {
+            continue;
+        }
+
+        $status = $transferDate !== null ? 'Lunas' : ($debtTotal > 0 ? 'Utang' : 'Lunas');
+
+        $statement->execute([
+            'total_pembelian_barang' => $purchaseTotal,
+            'total_utang_pembelian_barang' => $debtTotal,
+            'status_pembelian_barang' => $status,
+            'tanggal_transfer_pembelian_barang' => $transferDate,
+            'nomor_invoice' => $invoiceNo,
+        ]);
+
+        if ($statement->rowCount() > 0) {
+            $count++;
+        }
+    }
+    $pdo->commit();
+    return $count;
 }

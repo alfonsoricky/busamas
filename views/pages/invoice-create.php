@@ -11,6 +11,12 @@
             $editItems = is_array($edit['items'] ?? null) ? $edit['items'] : [];
             $purchaseMode = (float) ($editInvoice['total_utang_pembelian_barang'] ?? 0) > 0 ? 'debt' : 'paid';
         ?>
+        <?php if (isset($invoiceForm['error'])): ?>
+            <div class="mb-6 rounded-lg border border-red-200 bg-red-50 p-5 text-sm leading-6 text-red-900">
+                <p class="font-semibold">Gagal menyimpan invoice:</p>
+                <p><?= e($invoiceForm['error']) ?></p>
+            </div>
+        <?php endif; ?>
         <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
                 <p class="mb-3 text-sm font-semibold uppercase tracking-wide text-brand">Transaksi</p>
@@ -349,7 +355,7 @@
                     </label>
                     <label class="block" data-purchase-paid-field>
                         <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Transfer Pembelian Barang</span>
-                        <input type="date" name="tanggal_transfer_pembelian_barang" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                        <input type="date" name="tanggal_transfer_pembelian_barang" value="<?= e((string) ($editInvoice['tanggal_transfer_pembelian_barang'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                     </label>
                 </div>
 
@@ -377,7 +383,7 @@
                 <a href="<?= e(url('/invoices')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
                     Batal
                 </a>
-                <button type="button" class="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800">
+                <button type="submit" class="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800">
                     Simpan Invoice
                 </button>
             </div>
@@ -554,7 +560,7 @@
             }
 
             function toggleSalesPaymentFields() {
-                const isPaid = statusPembayaranSales.value === 'Dibayar';
+                const isPaid = statusPembayaranSales.value === 'Transfer';
 
                 salesPaidFields.forEach((field) => field.classList.toggle('hidden', !isPaid));
                 salesUnpaidFields.forEach((field) => field.classList.toggle('hidden', isPaid));
@@ -836,6 +842,25 @@
             togglePurchasePanelButton.addEventListener('click', () => {
                 purchasePanel.classList.toggle('hidden');
                 rebuildPurchaseRows();
+            });
+
+            const form = document.querySelector('#invoice-form');
+            form.addEventListener('submit', (event) => {
+                // 1. Assign proper indices to items input names
+                const rows = itemRows.querySelectorAll('tr');
+                rows.forEach((row, index) => {
+                    row.querySelectorAll('[name^="items"]').forEach((input) => {
+                        const name = input.getAttribute('name');
+                        const newName = name.replace('items[]', `items[${index}]`);
+                        input.setAttribute('name', newName);
+                    });
+                });
+
+                // 2. Clean money fields so they submit as raw numbers
+                form.querySelectorAll('.money-field, [data-item-harga], [data-item-total], [data-purchase-price], [data-purchase-total]').forEach((input) => {
+                    const val = moneyValue(input);
+                    input.value = val;
+                });
             });
 
             prepareMoneyFields();

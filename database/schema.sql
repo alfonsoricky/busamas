@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS `invoices` (
     `total_pembelian_barang` DECIMAL(15,2) NOT NULL DEFAULT 0,
     `total_utang_pembelian_barang` DECIMAL(15,2) NOT NULL DEFAULT 0,
     `status_pembelian_barang` VARCHAR(20) NOT NULL DEFAULT 'Lunas',
+    `tanggal_transfer_pembelian_barang` DATE NULL,
     `file_invoice` VARCHAR(255) NULL,
     `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

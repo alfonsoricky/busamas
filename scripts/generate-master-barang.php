@@ -866,11 +866,6 @@ function token_sort(string $value): string
     return implode(' ', $tokens);
 }
 
-function normalize_spaces(string $value): string
-{
-    return trim(preg_replace('/\s+/', ' ', $value));
-}
-
 function normalize_number(string $value): string
 {
     $value = preg_replace('/[^0-9.-]/', '', $value);

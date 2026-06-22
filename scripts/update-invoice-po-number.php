@@ -7,7 +7,11 @@ $config = require $baseDir . '/config/database.php';
 $driveDir = $baseDir . '/storage/drive';
 
 if (! is_dir($driveDir)) {
-    fwrite(STDERR, 'Folder tidak ditemukan: storage/drive' . PHP_EOL);
+    $driveDir = $baseDir . '/storage';
+}
+
+if (! is_dir($driveDir)) {
+    fwrite(STDERR, 'Folder tidak ditemukan: storage/drive atau storage' . PHP_EOL);
     exit(1);
 }
 

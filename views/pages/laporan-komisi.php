@@ -260,7 +260,7 @@ $months = [
                                 $sDebt = (float)($inv['komisi_sales_belum_terbayar'] ?? 0);
                                 $sStatus = trim((string)($inv['status_pembayaran_komisi_sales'] ?? ''));
                                 if ($sStatus === '') {
-                                    $sStatus = $sDebt > 0 ? 'Belum Dibayar' : ($sPaid > 0 ? 'Dibayar' : '-');
+                                    $sStatus = $sDebt > 0 ? 'Belum TF' : ($sPaid > 0 ? 'Transfer' : '-');
                                 }
                                 
                                 // Agent and rates formatting
@@ -289,9 +289,9 @@ $months = [
                                     <td class="px-4 py-3 text-right text-emerald-700 whitespace-nowrap"><?= $sPaid > 0 ? rupiah($sPaid) : '-' ?></td>
                                     <td class="px-4 py-3 text-right text-red-600 whitespace-nowrap"><?= $sDebt > 0 ? rupiah($sDebt) : '-' ?></td>
                                     <td class="px-4 py-3 text-center whitespace-nowrap">
-                                        <?php if ($sStatus === 'Dibayar'): ?>
+                                        <?php if ($sStatus === 'Dibayar' || $sStatus === 'Transfer'): ?>
                                             <span class="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">Lunas</span>
-                                        <?php elseif ($sStatus === 'Belum Dibayar' || $sDebt > 0): ?>
+                                        <?php elseif ($sStatus === 'Belum Dibayar' || $sStatus === 'Belum TF' || $sDebt > 0): ?>
                                             <span class="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-800">Utang</span>
                                         <?php else: ?>
                                             <span class="text-stone-400">-</span>

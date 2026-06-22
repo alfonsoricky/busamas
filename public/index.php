@@ -93,9 +93,24 @@ $routes = [
     '/invoice-create' => [
         'view' => 'pages/invoice-create',
         'title' => 'Buat Invoice',
-        'data' => fn (): array => [
-            'invoiceForm' => fetch_invoice_form_options($_GET['code'] ?? ''),
-        ],
+        'data' => function (): array {
+            $error = null;
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+                $result = save_invoice_form($_POST);
+                if ($result['ok']) {
+                    header('Location: ' . url('/invoices'));
+                    exit;
+                }
+                $error = $result['message'];
+            }
+            $invoiceForm = fetch_invoice_form_options($_GET['code'] ?? $_POST['kode_invoice'] ?? '');
+            if ($error !== null) {
+                $invoiceForm['error'] = $error;
+            }
+            return [
+                'invoiceForm' => $invoiceForm,
+            ];
+        },
     ],
     '/invoice-view' => [
         'view' => 'pages/invoice-view',

@@ -74,6 +74,7 @@ $tables = [
         'total_pembelian_barang',
         'total_utang_pembelian_barang',
         'status_pembelian_barang',
+        'tanggal_transfer_pembelian_barang',
         'file_invoice',
     ],
     'invoice_items' => [

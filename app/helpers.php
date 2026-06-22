@@ -2407,6 +2407,138 @@ function fetch_laporan_piutang(string $month = '', string $year = ''): array
     ];
 }
 
+function fetch_laporan_komisi(string $month = '', string $year = '', string $status = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    }
+
+    $invoices = db_all('
+        SELECT 
+            nomor_invoice, 
+            tanggal_invoice, 
+            nama_laundry_invoice,
+            COALESCE(nama_customer_master, nama_customer_invoice) AS nama_customer,
+            subtotal,
+            total_harga_jual,
+            kode_sales_1,
+            nama_sales_1,
+            kode_sales_2,
+            nama_sales_2,
+            komisi_sales_1_persen,
+            komisi_sales_2_persen,
+            komisi_sales_terbayar,
+            komisi_sales_belum_terbayar,
+            status_pembayaran_komisi_sales,
+            tanggal_transfer_komisi_sales,
+            komisi_manager_terbayar,
+            komisi_manager_utang,
+            tanggal_transfer_komisi_manager,
+            komisi_admin_terbayar,
+            komisi_admin_belum_terbayar,
+            tanggal_transfer_komisi_admin
+        FROM invoices
+        ORDER BY tanggal_invoice DESC, nomor_invoice DESC
+    ') ?? [];
+
+    $filtered = [];
+    
+    $summary = [
+        'sales_paid' => 0.0,
+        'sales_unpaid' => 0.0,
+        'sales_total' => 0.0,
+        
+        'manager_paid' => 0.0,
+        'manager_unpaid' => 0.0,
+        'manager_total' => 0.0,
+        
+        'admin_paid' => 0.0,
+        'admin_unpaid' => 0.0,
+        'admin_total' => 0.0,
+        
+        'total_paid' => 0.0,
+        'total_unpaid' => 0.0,
+        'total_all' => 0.0,
+    ];
+
+    $options = [
+        'years' => [],
+    ];
+
+    foreach ($invoices as $inv) {
+        $invNo = $inv['nomor_invoice'] ?? '';
+        $invMonth = invoice_month_number($invNo);
+        $invYear = (string) invoice_year($invNo);
+
+        if ($invYear !== '') {
+            $options['years'][$invYear] = true;
+        }
+
+        if ($month !== '' && $invMonth !== (int)$month) {
+            continue;
+        }
+        if ($year !== '' && $invYear !== $year) {
+            continue;
+        }
+
+        $salesPaid   = (float) ($inv['komisi_sales_terbayar'] ?? 0);
+        $salesUnpaid = (float) ($inv['komisi_sales_belum_terbayar'] ?? 0);
+        
+        $managerPaid   = (float) ($inv['komisi_manager_terbayar'] ?? 0);
+        $managerUnpaid = (float) ($inv['komisi_manager_utang'] ?? 0);
+        
+        $adminPaid   = (float) ($inv['komisi_admin_terbayar'] ?? 0);
+        $adminUnpaid = (float) ($inv['komisi_admin_belum_terbayar'] ?? 0);
+
+        if ($status === 'paid') {
+            if ($salesPaid <= 0 && $managerPaid <= 0 && $adminPaid <= 0) {
+                continue;
+            }
+        } elseif ($status === 'unpaid') {
+            if ($salesUnpaid <= 0 && $managerUnpaid <= 0 && $adminUnpaid <= 0) {
+                continue;
+            }
+        }
+
+        $summary['sales_paid'] += $salesPaid;
+        $summary['sales_unpaid'] += $salesUnpaid;
+        $summary['sales_total'] += ($salesPaid + $salesUnpaid);
+
+        $summary['manager_paid'] += $managerPaid;
+        $summary['manager_unpaid'] += $managerUnpaid;
+        $summary['manager_total'] += ($managerPaid + $managerUnpaid);
+
+        $summary['admin_paid'] += $adminPaid;
+        $summary['admin_unpaid'] += $adminUnpaid;
+        $summary['admin_total'] += ($adminPaid + $adminUnpaid);
+
+        $summary['total_paid'] += ($salesPaid + $managerPaid + $adminPaid);
+        $summary['total_unpaid'] += ($salesUnpaid + $managerUnpaid + $adminUnpaid);
+        $summary['total_all'] += ($salesPaid + $salesUnpaid + $managerPaid + $managerUnpaid + $adminPaid + $adminUnpaid);
+
+        $filtered[] = $inv;
+    }
+
+    $options['years'] = array_keys($options['years']);
+    sort($options['years']);
+    if (empty($options['years'])) {
+        $options['years'] = [date('Y')];
+    }
+
+    return [
+        'ok' => true,
+        'summary' => $summary,
+        'items' => $filtered,
+        'options' => $options,
+        'filters' => [
+            'month' => $month,
+            'year' => $year,
+            'status' => $status,
+        ],
+    ];
+}
+
 function fetch_laporan_profit(string $type = 'produk', string $month = '', string $year = ''): array
 {
     $pdo = db();

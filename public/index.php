@@ -143,6 +143,13 @@ $routes = [
             'reportData' => fetch_laporan_profit($_GET['group'] ?? 'produk', $_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
         ],
     ],
+    '/laporan/komisi' => [
+        'view' => 'pages/laporan-komisi',
+        'title' => 'Laporan Komisi Sales, Manager & Admin',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_komisi($_GET['month'] ?? '', $_GET['year'] ?? date('Y'), $_GET['status'] ?? ''),
+        ],
+    ],
 ];
 
 if (! array_key_exists($path, $routes)) {

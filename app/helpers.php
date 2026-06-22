@@ -172,6 +172,9 @@ function fetch_database_maintenance(?string $action = null): array
     if ($action === 'update-hosting') {
         $result = run_hosting_update();
         $counts = database_table_counts();
+    } elseif ($action === 'update-latest') {
+        $result = run_latest_update();
+        $counts = database_table_counts();
     } elseif ($action === 'migrate-seed') {
         $result = run_database_migration_seed();
         $counts = database_table_counts();
@@ -478,6 +481,19 @@ function update_invoice_all_commission_from_excel(PDO $pdo, string $excelPath): 
         $managerUtang       = manager_commission_parse_number($row['X'] ?? '');
         $tglManager         = manager_commission_excel_date(trim((string) ($row['Y'] ?? '')));
         $tglAdmin           = manager_commission_excel_date(trim((string) ($row['AD'] ?? '')));
+        if ($tglAdmin === null) {
+            $adminPaidVal = manager_commission_parse_number($row['AB'] ?? '');
+            if ($adminPaidVal > 0) {
+                $tglInvStr = (string) ($row['B'] ?? '');
+                if (preg_match('/\/I\/2026$/', $invoiceNo) || stripos($tglInvStr, 'Januari') !== false) {
+                    $tglAdmin = '2026-04-11';
+                } elseif (preg_match('/\/II\/2026$/', $invoiceNo) || stripos($tglInvStr, 'Februari') !== false) {
+                    $tglAdmin = '2026-05-19';
+                } elseif (preg_match('/\/III\/2026$/', $invoiceNo) || stripos($tglInvStr, 'Maret') !== false) {
+                    $tglAdmin = '2026-06-10';
+                }
+            }
+        }
 
         if ($salesTerbayar === 0.0 && $salesBelumTerbayar === 0.0
             && $managerTerbayar === 0.0 && $managerUtang === 0.0
@@ -704,6 +720,7 @@ function run_database_migration_seed(): array
         if (is_readable($excelPath)) {
             if (class_exists('ZipArchive')) {
                 $statementCount += seed_operational_expenses_from_workbook($pdo, $excelPath);
+                $statementCount += seed_bonus_expenses($pdo);
             } else {
                 $cliPhp = 'C:\\laragon\\bin\\php\\php-8.3.30-Win32-vs16-x64\\php.exe';
                 if (file_exists($cliPhp)) {
@@ -3559,6 +3576,83 @@ function run_hosting_update(): array
             'message' => 'Update hosting gagal: ' . $exception->getMessage(),
             'statements' => 0,
             'counts' => database_table_counts(),
+        ];
+    }
+}
+
+/**
+ * Update terbaru: sinkronisasi komisi, PNL, pembelian barang, dan tanggal admin
+ * dari Excel TANPA mereset/truncate tabel utama. Aman dijalankan di hosting
+ * jika ada invoice baru yang dibuat langsung di site.
+ */
+function run_latest_update(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok'         => false,
+            'message'    => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts'     => [],
+        ];
+    }
+
+    $excelPath = dirname(__DIR__) . '/storage/PENJUALAN-2026.xlsx';
+    if (! is_readable($excelPath)) {
+        return [
+            'ok'         => false,
+            'message'    => 'File Excel storage/PENJUALAN-2026.xlsx tidak ditemukan. Pastikan file sudah diunggah ke folder storage/.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    if (! class_exists('ZipArchive')) {
+        return [
+            'ok'         => false,
+            'message'    => 'Ekstensi PHP "zip" (ZipArchive) tidak aktif. Aktifkan extension=zip pada php.ini server.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    try {
+        $outputLogs = [];
+        $totalUpdated = 0;
+
+        // 1. Sinkronisasi komisi sales, manager, dan tanggal transfer admin
+        $commCount = update_invoice_all_commission_from_excel($pdo, $excelPath);
+        $totalUpdated += $commCount;
+        $outputLogs[] = "1. Sinkronisasi Komisi Sales, Manager & Admin: Selesai ($commCount baris diperbarui)";
+
+        // 2. Sinkronisasi kolom PNL (Admin Paid, Tax, Ongkir, Biaya Bank)
+        seed_pnl_invoice_columns($pdo, $excelPath);
+        $outputLogs[] = "2. Sinkronisasi Kolom PNL (Admin Terbayar, PPh, Ongkir, Bank): Selesai";
+
+        // 3. Sinkronisasi data pembelian barang (total, utang, tanggal transfer)
+        $purchaseCount = update_invoice_purchase_data_from_excel($pdo, $excelPath);
+        $totalUpdated += $purchaseCount;
+        $outputLogs[] = "3. Sinkronisasi Pembelian Barang (Lunas/Utang & Tgl Transfer): Selesai ($purchaseCount baris diperbarui)";
+
+        // 4. Sinkronisasi pengeluaran operasional
+        $pdo->exec('TRUNCATE TABLE operational_expenses');
+        $opCount = seed_operational_expenses_from_workbook($pdo, $excelPath);
+        $opCount += seed_bonus_expenses($pdo);
+        $outputLogs[] = "4. Sinkronisasi Pengeluaran Operasional: Selesai ($opCount baris diperbarui)";
+
+        return [
+            'ok'         => true,
+            'message'    => 'Update Terbaru Berhasil! Data komisi, PNL, pembelian, dan operasional telah disinkronisasi dari Excel.',
+            'statements' => $totalUpdated,
+            'counts'     => database_table_counts(),
+            'output'     => implode("\n", $outputLogs),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok'         => false,
+            'message'    => 'Update terbaru gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts'     => database_table_counts(),
         ];
     }
 }

@@ -27,21 +27,50 @@
 
     <div class="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
         <div class="space-y-6">
-            <!-- Update Database Hosting -->
+            <!-- Update Terbaru (Aman) -->
             <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <h2 class="text-lg font-bold text-ink">Update Database Hosting</h2>
+                <div class="flex items-center gap-3">
+                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
+                        <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </div>
+                    <h2 class="text-lg font-bold text-ink">Update Terbaru</h2>
+                </div>
                 <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Tombol ini akan mensinkronisasikan seluruh data di database hosting Anda. Ini mencakup pembuatan ulang struktur tabel, pengisian data awal dari seed snapshot terbaru, serta penyinkronan data komisi, PNL, pembelian barang, dan pengeluaran operasional secara otomatis dari file Excel di folder storage.
+                    Sinkronisasi data komisi, PNL, pembelian barang, dan pengeluaran operasional dari file Excel terbaru. <strong class="text-ink">Invoice yang sudah ada di database tidak akan dihapus.</strong>
                 </p>
 
-                <div class="mt-5 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-900">
-                    <strong>PENTING:</strong> Pastikan Anda telah mengunggah file <span class="font-semibold text-ink">PENJUALAN-2026.xlsx</span> terbaru ke folder <span class="font-semibold text-ink">storage/</span> di hosting sebelum menjalankan update ini.
+                <div class="mt-4 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-900">
+                    <strong>PENTING:</strong> Pastikan file <span class="font-semibold text-ink">PENJUALAN-2026.xlsx</span> terbaru sudah diunggah ke folder <span class="font-semibold text-ink">storage/</span> sebelum menjalankan update ini.
                 </div>
 
                 <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
+                    <input type="hidden" name="action" value="update-latest">
+                    <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
+                        Jalankan Update Terbaru
+                    </button>
+                </form>
+            </div>
+
+            <!-- Reset & Update Hosting (Truncate + Seed Ulang) -->
+            <div class="rounded-lg border border-orange-200 bg-white p-5 shadow-sm">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-100">
+                        <svg class="h-5 w-5 text-orange-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+                    <h2 class="text-lg font-bold text-ink">Reset & Update Hosting</h2>
+                </div>
+                <p class="mt-3 text-sm leading-6 text-stone-600">
+                    Hapus semua tabel dan buat ulang dari seed snapshot terbaru, lalu sinkronisasi data dari Excel. <strong class="text-orange-700">Semua invoice yang dibuat langsung di hosting (di luar seed) akan terhapus.</strong>
+                </p>
+
+                <div class="mt-4 rounded-lg border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-orange-900">
+                    <strong>PERINGATAN:</strong> Gunakan ini hanya jika database hosting perlu di-reset total. Pastikan seed snapshot sudah diperbarui.
+                </div>
+
+                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Yakin ingin mereset database? Semua data yang belum di-seed akan hilang.')">
                     <input type="hidden" name="action" value="update-hosting">
-                    <button class="rounded-lg bg-brand px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
-                        Jalankan Update Database
+                    <button class="rounded-lg bg-orange-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-700">
+                        Reset & Jalankan Ulang Database
                     </button>
                 </form>
             </div>

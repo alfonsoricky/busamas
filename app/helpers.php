@@ -175,6 +175,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-operational') {
         $result = run_database_operational_seed();
         $counts = database_table_counts();
+    } elseif ($action === 'generate-invoice-data') {
+        $result = run_invoice_data_generation();
+        $counts = database_table_counts();
     }
 
     return [
@@ -184,6 +187,51 @@ function fetch_database_maintenance(?string $action = null): array
         'database_connected' => db() !== null,
         'result' => $result,
     ];
+}
+
+function run_invoice_data_generation(): array
+{
+    $scriptPath = dirname(__DIR__) . '/scripts/generate-invoice-data.php';
+
+    if (! is_readable($scriptPath)) {
+        return [
+            'ok' => false,
+            'message' => 'Script scripts/generate-invoice-data.php tidak ditemukan.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    if (! function_exists('shell_exec')) {
+        return [
+            'ok' => false,
+            'message' => 'Fungsi shell_exec tidak aktif di server, jadi script generate invoice belum bisa dijalankan dari tombol web.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    $phpBinary = PHP_BINARY ?: 'php';
+    $command = escapeshellarg($phpBinary) . ' ' . escapeshellarg($scriptPath) . ' 2>&1';
+    $output = trim((string) shell_exec($command));
+    $ok = str_contains($output, 'Invoice CSV:') && str_contains($output, 'Detail CSV:');
+
+    return [
+        'ok' => $ok,
+        'message' => $ok ? 'Generate invoice data berhasil dijalankan.' : 'Generate invoice data gagal: ' . ($output ?: 'Tidak ada output dari script.'),
+        'statements' => extract_invoice_generate_count($output),
+        'counts' => database_table_counts(),
+        'output' => $output,
+    ];
+}
+
+function extract_invoice_generate_count(string $output): int
+{
+    if (preg_match('/Invoice unik:\s*(\d+)/', $output, $match) === 1) {
+        return (int) $match[1];
+    }
+
+    return 0;
 }
 
 function run_database_operational_seed(): array

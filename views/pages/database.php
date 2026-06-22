@@ -64,6 +64,25 @@
                     </button>
                 </form>
             </div>
+
+            <!-- Generate Invoice Data -->
+            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+                <h2 class="text-lg font-bold text-ink">Generate Invoice Data</h2>
+                <p class="mt-3 text-sm leading-6 text-stone-600">
+                    Tombol ini menjalankan <span class="font-semibold text-ink">scripts/generate-invoice-data.php</span> untuk membuat ulang CSV invoice dan detail invoice di folder <span class="font-semibold text-ink">storage/generated</span>.
+                </p>
+
+                <div class="mt-5 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900">
+                    File CSV invoice akan dibuat ulang dari cache extract dan master alias yang tersedia.
+                </div>
+
+                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
+                    <input type="hidden" name="action" value="generate-invoice-data">
+                    <button class="rounded-lg bg-sky-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-800">
+                        Jalankan Generate Invoice Data
+                    </button>
+                </form>
+            </div>
         </div>
 
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
@@ -91,6 +110,13 @@
             </dl>
         </div>
     </div>
+
+    <?php if (is_array($result) && isset($result['output'])): ?>
+        <div class="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+            <h2 class="text-lg font-bold text-ink">Output Script</h2>
+            <pre class="mt-4 overflow-x-auto rounded-lg bg-stone-950 p-4 text-xs leading-6 text-stone-100"><?= e((string) $result['output']) ?></pre>
+        </div>
+    <?php endif; ?>
 
     <div class="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
         <h2 class="text-lg font-bold text-ink">Jumlah Data Saat Ini</h2>

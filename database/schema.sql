@@ -81,6 +81,8 @@ CREATE TABLE IF NOT EXISTS `invoices` (
     `discount_persen` DECIMAL(8,4) NOT NULL DEFAULT 0,
     `discount_amount` DECIMAL(15,2) NOT NULL DEFAULT 0,
     `total_harga_jual` DECIMAL(15,2) NOT NULL DEFAULT 0,
+    `status_pembayaran` VARCHAR(20) NOT NULL DEFAULT 'Lunas',
+    `tanggal_pembayaran` DATE NULL,
     `pph_final_terbayar` DECIMAL(15,2) NOT NULL DEFAULT 0,
     `pph_final_belum_terbayar` DECIMAL(15,2) NOT NULL DEFAULT 0,
     `komisi_admin_terbayar` DECIMAL(15,2) NOT NULL DEFAULT 0,
@@ -150,4 +152,3 @@ CREATE TABLE IF NOT EXISTS `operational_expenses` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
-

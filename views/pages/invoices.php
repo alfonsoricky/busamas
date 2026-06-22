@@ -193,7 +193,8 @@
                             </tr>
                             <?php foreach ($group['items'] as $invoice): ?>
                                 <?php
-                                    $isUnpaid = (float) ($invoice['total_utang_pembelian_barang'] ?? 0) > 0;
+                                    $paymentStatus = (string) ($invoice['status_pembayaran'] ?? 'Belum Lunas');
+                                    $isUnpaid = strcasecmp($paymentStatus, 'Lunas') !== 0;
                                     $rowClass = $isUnpaid ? 'bg-red-50 hover:bg-red-100/70' : 'bg-teal-50/70 hover:bg-teal-100/70';
                                     $statusClass = $isUnpaid ? 'bg-red-100 text-red-800 ring-red-200' : 'bg-teal-100 text-teal-800 ring-teal-200';
                                     $statusLabel = $isUnpaid ? 'Belum Lunas' : 'Lunas';

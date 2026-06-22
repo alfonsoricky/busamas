@@ -138,13 +138,13 @@
                         <span class="mb-2 block text-sm font-semibold text-stone-700">Status Pembayaran</span>
                         <select name="status_pembayaran" id="status-pembayaran" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             <?php foreach ($invoiceForm['payment_statuses'] as $status): ?>
-                                <option value="<?= e($status) ?>"><?= e($status) ?></option>
+                                <option value="<?= e($status) ?>" <?= (string) ($editInvoice['status_pembayaran'] ?? '') === $status ? 'selected' : '' ?>><?= e($status) ?></option>
                             <?php endforeach; ?>
                         </select>
                     </label>
                     <label class="block" data-payment-paid-field>
                         <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Pembayaran</span>
-                        <input type="date" name="tanggal_pembayaran" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                        <input type="date" name="tanggal_pembayaran" value="<?= e((string) ($editInvoice['tanggal_pembayaran'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                     </label>
                     <label class="block" data-payment-unpaid-field>
                         <span class="mb-2 block text-sm font-semibold text-stone-700">Jumlah Terutang (Piutang)</span>

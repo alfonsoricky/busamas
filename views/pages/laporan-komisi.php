@@ -236,13 +236,14 @@ $months = [
                         </tbody>
                     </table>
 
-                <?php elseif ($tab === 'sales'): ?>
+                 <?php elseif ($tab === 'sales'): ?>
                     <!-- KOMISI SALES TABLE -->
                     <table class="min-w-full divide-y divide-stone-200 text-left text-xs">
                         <thead class="bg-teal-50 text-teal-900 uppercase font-semibold">
                             <tr>
                                 <th class="px-4 py-3 whitespace-nowrap">Invoice</th>
                                 <th class="px-4 py-3 whitespace-nowrap">Tanggal</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Customer / Laundry</th>
                                 <th class="px-4 py-3 whitespace-nowrap">Sales Agent</th>
                                 <th class="px-4 py-3 text-right whitespace-nowrap">Subtotal</th>
                                 <th class="px-4 py-3 text-center whitespace-nowrap">Rate Komisi</th>
@@ -281,6 +282,7 @@ $months = [
                                         <a href="<?= e(url('/invoice-create?code=' . ($inv['nomor_invoice'] ?? ''))) ?>"><?= e($inv['nomor_invoice'] ?? '') ?></a>
                                     </td>
                                     <td class="px-4 py-3 whitespace-nowrap text-stone-600"><?= e($inv['tanggal_invoice'] ?? '') ?></td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-stone-900"><?= e($inv['nama_customer'] ?? '') ?></td>
                                     <td class="px-4 py-3 whitespace-nowrap text-stone-900"><?= e($agentText) ?></td>
                                     <td class="px-4 py-3 text-right whitespace-nowrap text-stone-600"><?= rupiah($inv['total_harga_jual'] ?? 0) ?></td>
                                     <td class="px-4 py-3 text-center whitespace-nowrap text-stone-600 font-semibold"><?= e($rateText) ?></td>

@@ -15,7 +15,7 @@ $months = [
 ];
 ?>
 
-<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+<section class="mx-auto max-w-[90rem] px-4 py-10 sm:px-6 lg:px-8">
     <!-- Breadcrumbs -->
     <div class="mb-4">
         <a href="<?= e(url('/laporan')) ?>" class="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline">

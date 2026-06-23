@@ -24,6 +24,25 @@ $routes = [
             'dashboardData' => fetch_dashboard_summary($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
         ],
     ],
+    '/debug-errors' => [
+        'view' => 'pages/home',
+        'title' => 'Debug Errors',
+        'data' => function (): array {
+            ini_set('display_errors', 1);
+            ini_set('display_startup_errors', 1);
+            error_reporting(E_ALL);
+            echo "<h1>Debug PHP Error</h1>";
+            require_once dirname(__DIR__) . '/app/helpers.php';
+            echo "<p style='color:green'>app/helpers.php loaded successfully!</p>";
+            $pdo = db();
+            if ($pdo) {
+                echo "<p style='color:green'>Database connected successfully!</p>";
+            } else {
+                echo "<p style='color:red'>Database connection failed.</p>";
+            }
+            exit;
+        }
+    ],
     '/about' => [
         'view' => 'pages/about',
         'title' => 'Tentang',

@@ -3,6 +3,7 @@
 /.env
 /storage/*.json
 /storage/*.xlsx
+!/storage/template_invoice.xlsx
 /storage/generated/
 /storage/drive/
 *.log

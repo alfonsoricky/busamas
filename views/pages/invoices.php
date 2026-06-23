@@ -12,6 +12,21 @@
         </a>
     </div>
 
+    <?php if (!empty($_SESSION['google_sync_warnings'])): ?>
+        <div class="mb-6 rounded-lg border border-rose-200 bg-rose-50 p-5 text-sm leading-6 text-rose-950 shadow-sm">
+            <p class="font-bold text-base flex items-center gap-2 text-rose-900">
+                <span>⚠️ Gagal Sinkronisasi Google Drive / Google Sheets</span>
+            </p>
+            <ul class="list-disc pl-5 mt-2 space-y-1">
+                <?php foreach ($_SESSION['google_sync_warnings'] as $warning): ?>
+                    <li><?= e($warning) ?></li>
+                <?php endforeach; ?>
+            </ul>
+            <p class="mt-3 text-xs text-rose-700 italic">Catatan: Data invoice Anda tetap berhasil disimpan di database lokal, namun unggahan file XLSX ke Google Drive atau baris data di Google Sheets gagal/tertunda. Silakan periksa koneksi internet atau kredensial Google API.</p>
+        </div>
+        <?php unset($_SESSION['google_sync_warnings']); ?>
+    <?php endif; ?>
+
     <?php if (! ($invoiceMapping['ok'] ?? false)): ?>
         <div class="rounded-lg border border-orange-200 bg-orange-50 p-5 text-sm leading-6 text-orange-900">
             <p class="font-semibold">Invoice mapping belum bisa dibaca.</p>

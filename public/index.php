@@ -1,4 +1,7 @@
 <?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 require dirname(__DIR__) . '/app/helpers.php';
 
@@ -104,7 +107,6 @@ $routes = [
                     $googleSync = sync_invoice_to_google($result['kode_invoice'], $isUpdate);
                     if (!empty($googleSync['errors'])) {
                         // Redirect tetap tapi dengan flash peringatan via session
-                        session_start();
                         $_SESSION['google_sync_warnings'] = $googleSync['errors'];
                     }
                     header('Location: ' . url('/invoices'));

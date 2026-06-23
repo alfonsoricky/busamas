@@ -31,7 +31,7 @@ $routes = [
             ini_set('display_errors', 1);
             ini_set('display_startup_errors', 1);
             error_reporting(E_ALL);
-            echo "<h1>Debug PHP Error</h1>";
+            echo "<h1>Debug PHP Error & Schema Sync</h1>";
             require_once dirname(__DIR__) . '/app/helpers.php';
             echo "<p style='color:green'>app/helpers.php loaded successfully!</p>";
             $pdo = db();
@@ -40,6 +40,39 @@ $routes = [
             } else {
                 echo "<p style='color:red'>Database connection failed.</p>";
                 exit;
+            }
+
+            // Self-healing schema sync: Alter tables if missing columns
+            echo "<h2>Running schema synchronization...</h2>";
+            $fieldsToEnsure = [
+                'google_drive_file_id' => 'VARCHAR(200) NULL',
+                'file_invoice' => 'VARCHAR(255) NULL'
+            ];
+
+            foreach ($fieldsToEnsure as $col => $type) {
+                try {
+                    $q = $pdo->query("SHOW COLUMNS FROM invoices LIKE '$col'");
+                    if (!$q->fetch()) {
+                        $pdo->exec("ALTER TABLE invoices ADD COLUMN `$col` $type");
+                        echo "<p style='color:green'>Success: Added column `$col` to invoices table.</p>";
+                    } else {
+                        echo "<p style='color:green'>Column `$col` already exists in invoices table.</p>";
+                    }
+                } catch (Throwable $e) {
+                    echo "<p style='color:red'>Error ensuring column `$col`: " . htmlspecialchars($e->getMessage()) . "</p>";
+                }
+            }
+
+            try {
+                $q = $pdo->query("SHOW COLUMNS FROM invoice_items LIKE 'file_invoice'");
+                if (!$q->fetch()) {
+                    $pdo->exec("ALTER TABLE invoice_items ADD COLUMN `file_invoice` VARCHAR(255) NULL");
+                    echo "<p style='color:green'>Success: Added column `file_invoice` to invoice_items table.</p>";
+                } else {
+                    echo "<p style='color:green'>Column `file_invoice` already exists in invoice_items table.</p>";
+                }
+            } catch (Throwable $e) {
+                echo "<p style='color:red'>Error ensuring column `file_invoice` in invoice_items: " . htmlspecialchars($e->getMessage()) . "</p>";
             }
 
             if (isset($_GET['test_submit'])) {

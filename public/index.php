@@ -23,6 +23,7 @@ $routes = [
         'data' => fn (): array => [
             'dashboardData' => fetch_dashboard_summary($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
         ],
+    ],
     '/about' => [
         'view' => 'pages/about',
         'title' => 'Tentang',

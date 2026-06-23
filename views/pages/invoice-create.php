@@ -35,11 +35,11 @@
                 <h2 class="mb-4 text-lg font-bold text-ink">Data Invoice</h2>
                 <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                     <label class="block">
-                        <span class="mb-2 block text-sm font-semibold text-stone-700">Nomor Invoice</span>
+                        <span class="mb-2 block text-sm font-semibold text-stone-700">Nomor Invoice <span class="text-rose-500">*</span></span>
                         <input name="nomor_invoice" value="<?= e((string) ($editInvoice['nomor_invoice'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                     </label>
                     <label class="block">
-                        <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Invoice</span>
+                        <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Invoice <span class="text-rose-500">*</span></span>
                         <input type="date" name="tanggal_invoice" value="<?= e((string) ($editInvoice['tanggal_invoice_input'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                     </label>
                     <label class="block">
@@ -61,7 +61,7 @@
                 <h2 class="mb-4 text-lg font-bold text-ink">Master Customer & Sales</h2>
                 <div class="grid gap-4 lg:grid-cols-2">
                     <label class="block">
-                        <span class="mb-2 block text-sm font-semibold text-stone-700">Nama Laundry</span>
+                        <span class="mb-2 block text-sm font-semibold text-stone-700">Nama Laundry <span class="text-rose-500">*</span></span>
                         <select name="kode_customer" id="customer-select" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             <option value="">Pilih customer</option>
                             <?php foreach ($invoiceForm['customers'] as $customer): ?>
@@ -92,7 +92,7 @@
                         <input name="alamat" id="customer-address" value="<?= e((string) ($editInvoice['alamat'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                     </label>
                     <label class="block">
-                        <span class="mb-2 block text-sm font-semibold text-stone-700">Nama Sales 1</span>
+                        <span class="mb-2 block text-sm font-semibold text-stone-700">Nama Sales 1 <span class="text-rose-500">*</span></span>
                         <select name="kode_sales_1" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             <option value="">Pilih sales</option>
                             <?php foreach ($invoiceForm['sales'] as $sales): ?>
@@ -123,11 +123,11 @@
                     <table class="min-w-full divide-y divide-stone-200 text-left text-sm">
                         <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
                             <tr>
-                                <th class="px-3 py-3 font-semibold">Barang</th>
+                                <th class="px-3 py-3 font-semibold">Barang <span class="text-rose-500">*</span></th>
                                 <th class="px-3 py-3 font-semibold">Isi</th>
-                                <th class="px-3 py-3 font-semibold">Jumlah</th>
+                                <th class="px-3 py-3 font-semibold">Jumlah <span class="text-rose-500">*</span></th>
                                 <th class="px-3 py-3 font-semibold">Satuan</th>
-                                <th class="px-3 py-3 font-semibold">Harga</th>
+                                <th class="px-3 py-3 font-semibold">Harga <span class="text-rose-500">*</span></th>
                                 <th class="px-3 py-3 font-semibold">Total</th>
                                 <th class="px-3 py-3 font-semibold"></th>
                             </tr>

@@ -1353,6 +1353,9 @@ function save_invoice_form(array $postData): array
 
     // Get customer info
     $kodeCustomer = $cleanString($postData['kode_customer'] ?? '');
+    if ($kodeCustomer === '') {
+        return ['ok' => false, 'message' => 'Customer/Nama Laundry tidak boleh kosong.'];
+    }
     $namaCustomerMaster = '';
     $namaLaundryInvoice = '';
     $namaCustomerInvoice = $cleanString($postData['nama_customer'] ?? '');
@@ -1367,17 +1370,36 @@ function save_invoice_form(array $postData): array
     }
 
     $tanggalInvoiceRaw = $cleanString($postData['tanggal_invoice'] ?? '');
+    if ($tanggalInvoiceRaw === '') {
+        return ['ok' => false, 'message' => 'Tanggal invoice tidak boleh kosong.'];
+    }
     $tanggalInvoice = $formatDateToIndonesian($tanggalInvoiceRaw);
 
     // Calculate totals from items
     $items = $postData['items'] ?? [];
+    if (empty($items)) {
+        return ['ok' => false, 'message' => 'Detail barang tidak boleh kosong. Minimal masukkan 1 barang.'];
+    }
+
     $totalItem = count($items);
     $totalQty = 0.0;
     $subtotal = 0.0;
 
-    foreach ($items as $item) {
-        $totalQty += (float) ($item['jumlah'] ?? 0);
-        $subtotal += $cleanFloat($item['total'] ?? 0);
+    foreach ($items as $idx => $item) {
+        $kodeBarang = trim((string)($item['kode_barang'] ?? ''));
+        if ($kodeBarang === '') {
+            return ['ok' => false, 'message' => 'Barang pada baris ' . ($idx + 1) . ' tidak boleh kosong.'];
+        }
+        $qty = (float)($item['jumlah'] ?? 0);
+        if ($qty <= 0) {
+            return ['ok' => false, 'message' => 'Jumlah barang pada baris ' . ($idx + 1) . ' harus lebih besar dari 0.'];
+        }
+        $harga = clean_money_value($item['harga'] ?? 0);
+        if ($harga <= 0) {
+            return ['ok' => false, 'message' => 'Harga barang pada baris ' . ($idx + 1) . ' harus lebih besar dari 0.'];
+        }
+        $totalQty += $qty;
+        $subtotal += clean_money_value($item['total'] ?? 0);
     }
 
     // Form inputs mapped to DB
@@ -1388,6 +1410,9 @@ function save_invoice_form(array $postData): array
     $alamat = $cleanString($postData['alamat'] ?? '');
 
     $kodeSales1 = $cleanString($postData['kode_sales_1'] ?? '');
+    if ($kodeSales1 === '') {
+        return ['ok' => false, 'message' => 'Sales Agent 1 tidak boleh kosong.'];
+    }
     $namaSales1 = $getSalesName($pdo, $kodeSales1);
     $kodeSales2 = $cleanString($postData['kode_sales_2'] ?? '');
     $namaSales2 = $getSalesName($pdo, $kodeSales2);

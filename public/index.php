@@ -115,6 +115,51 @@ $routes = [
             $invoiceForm = fetch_invoice_form_options($_GET['code'] ?? $_POST['kode_invoice'] ?? '');
             if ($error !== null) {
                 $invoiceForm['error'] = $error;
+                
+                // Preserve POST data in form fields
+                $invoiceForm['edit'] = [
+                    'mode' => !empty($_POST['kode_invoice']) ? 'update' : 'create',
+                    'invoice' => [
+                        'kode_invoice' => $_POST['kode_invoice'] ?? '',
+                        'nomor_invoice' => $_POST['nomor_invoice'] ?? '',
+                        'tanggal_invoice_input' => $_POST['tanggal_invoice'] ?? '',
+                        'nomor_surat_jalan' => $_POST['nomor_surat_jalan'] ?? '',
+                        'tanggal_surat_jalan_input' => $_POST['tanggal_surat_jalan'] ?? '',
+                        'po_number' => $_POST['po_number'] ?? '',
+                        'kode_customer' => $_POST['kode_customer'] ?? '',
+                        'nama_customer_invoice' => $_POST['nama_customer'] ?? '',
+                        'nama_laundry_invoice' => $_POST['nama_customer'] ?? '',
+                        'no_telepon' => $_POST['no_telepon'] ?? '',
+                        'alamat' => $_POST['alamat'] ?? '',
+                        'kode_sales_1' => $_POST['kode_sales_1'] ?? '',
+                        'kode_sales_2' => $_POST['kode_sales_2'] ?? '',
+                        'status_pembayaran' => $_POST['status_pembayaran'] ?? 'Belum Lunas',
+                        'tanggal_pembayaran' => $_POST['tanggal_pembayaran'] ?? '',
+                        'jumlah_terbayar_pendapatan' => $_POST['jumlah_terbayar_pendapatan'] ?? '',
+                        'discount_persen' => $_POST['discount'] ?? '',
+                        'komisi_sales_1_persen' => $_POST['komisi_sales_1_persen'] ?? '',
+                        'komisi_sales_2_persen' => $_POST['komisi_sales_2_persen'] ?? '',
+                        'komisi_sales_terbayar' => $_POST['komisi_sales_terbayar'] ?? '',
+                        'status_pembayaran_komisi_sales' => $_POST['status_pembayaran_sales'] ?? 'Belum TF',
+                        'tanggal_transfer_komisi_sales' => $_POST['tanggal_transfer_komisi_sales'] ?? '',
+                        'komisi_manager_terbayar' => $_POST['komisi_manager_terbayar'] ?? '',
+                        'komisi_manager_utang' => $_POST['komisi_manager_utang'] ?? '',
+                        'tanggal_transfer_komisi_manager' => $_POST['tanggal_transfer_manager'] ?? '',
+                        'biaya_kirim' => $_POST['biaya_kirim'] ?? '',
+                        'biaya_admin_bank' => $_POST['biaya_admin_bank'] ?? '',
+                        'total_pembelian_barang' => $_POST['pembelian_barang'] ?? '',
+                        'total_utang_pembelian_barang' => $_POST['jumlah_utang_pembelian_barang'] ?? '',
+                        'tanggal_transfer_pembelian_barang' => $_POST['tanggal_transfer_pembelian_barang'] ?? '',
+                    ],
+                    'items' => is_array($_POST['items'] ?? null) ? array_map(static fn($it) => [
+                        'kode_barang' => $it['kode_barang'] ?? '',
+                        'isi' => $it['isi'] ?? '',
+                        'jumlah' => (float)($it['jumlah'] ?? 0),
+                        'satuan' => $it['satuan'] ?? '',
+                        'harga' => (float)($it['harga'] ?? 0),
+                        'total' => (float)($it['total'] ?? 0),
+                    ], $_POST['items']) : [],
+                ];
             }
             return [
                 'invoiceForm' => $invoiceForm,

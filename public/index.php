@@ -95,9 +95,18 @@ $routes = [
         'title' => 'Buat Invoice',
         'data' => function (): array {
             $error = null;
+            $googleWarnings = [];
             if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+                $isUpdate = !empty($_POST['kode_invoice']);
                 $result = save_invoice_form($_POST);
                 if ($result['ok']) {
+                    // Sync ke Google Drive & Sheets (best-effort, tidak block redirect)
+                    $googleSync = sync_invoice_to_google($result['kode_invoice'], $isUpdate);
+                    if (!empty($googleSync['errors'])) {
+                        // Redirect tetap tapi dengan flash peringatan via session
+                        session_start();
+                        $_SESSION['google_sync_warnings'] = $googleSync['errors'];
+                    }
                     header('Location: ' . url('/invoices'));
                     exit;
                 }
@@ -164,6 +173,27 @@ $routes = [
         'data' => fn (): array => [
             'reportData' => fetch_laporan_komisi($_GET['month'] ?? '', $_GET['year'] ?? date('Y'), $_GET['status'] ?? ''),
         ],
+    ],
+    '/invoice-delete' => [
+        'view'  => 'pages/invoice-delete-result',
+        'title' => 'Hapus Invoice',
+        'data'  => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/invoices'));
+                exit;
+            }
+            $kodeInvoice = trim($_POST['kode_invoice'] ?? '');
+            if ($kodeInvoice === '') {
+                header('Location: ' . url('/invoices'));
+                exit;
+            }
+            $result = delete_invoice($kodeInvoice);
+            if ($result['ok']) {
+                header('Location: ' . url('/invoices'));
+                exit;
+            }
+            return ['deleteResult' => $result];
+        },
     ],
 ];
 

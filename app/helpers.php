@@ -2255,8 +2255,8 @@ function google_service_account_access_token(): array
     $claim = base64_url_encode(json_encode([
         'iss' => $credentials['client_email'],
         'scope' => implode(' ', [
-            'https://www.googleapis.com/auth/spreadsheets.readonly',
-            'https://www.googleapis.com/auth/drive.readonly',
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive',
         ]),
         'aud' => $tokenUri,
         'iat' => $issuedAt,
@@ -3743,3 +3743,665 @@ function update_invoice_purchase_data_from_excel(PDO $pdo, string $excelPath): i
     $pdo->commit();
     return $count;
 }
+
+// ============================================================
+// GOOGLE DRIVE & SHEETS — WRITE OPERATIONS
+// ============================================================
+
+/**
+ * Buat nama file invoice di Google Drive berdasarkan data invoice.
+ * Format: {nomor_seq}_{kode_bulan}_{laundry_name}.xlsx
+ * Contoh: 453_BM-INV_VI_2026 ZCLEAN LAUNDRY.xlsx
+ */
+function invoice_drive_filename(string $nomorInvoice, string $namaLaundry): string
+{
+    // Normalize nomor invoice: 453/BM-INV/VI/2026 → 453_BM-INV_VI_2026
+    $base = str_replace('/', '_', $nomorInvoice);
+    $laundry = strtoupper(trim($namaLaundry));
+    return $base . ' ' . $laundry . '.xlsx';
+}
+
+/**
+ * Cari file ID di Google Drive berdasarkan nama file di folder invoice.
+ */
+function google_drive_find_invoice_file(string $fileName): ?string
+{
+    $token = google_service_account_access_token();
+    if (!$token['ok']) return null;
+
+    $folderId = google_drive_config('folder_id');
+    $query = sprintf("'%s' in parents and name = '%s' and trashed = false",
+        str_replace("'", "\\'", $folderId),
+        str_replace("'", "\\'", $fileName)
+    );
+    $params = http_build_query([
+        'q' => $query,
+        'fields' => 'files(id,name)',
+        'supportsAllDrives' => 'true',
+        'includeItemsFromAllDrives' => 'true',
+    ]);
+    $response = http_get('https://www.googleapis.com/drive/v3/files?' . $params, [
+        'Authorization: Bearer ' . $token['access_token'],
+    ]);
+    if (!$response['ok']) return null;
+
+    $data = json_decode($response['body'], true);
+    $files = $data['files'] ?? [];
+    return $files[0]['id'] ?? null;
+}
+
+/**
+ * Upload atau replace file XLSX invoice ke Google Drive.
+ * Jika $existingFileId tidak null, lakukan PATCH (update), 
+ * jika null lakukan POST (create baru).
+ * Kembalikan file ID baru atau null jika gagal.
+ */
+function google_drive_upload_invoice(string $fileName, string $xlsxBinary, ?string $existingFileId = null): ?string
+{
+    $token = google_service_account_access_token();
+    if (!$token['ok']) return null;
+
+    $folderId = google_drive_config('folder_id');
+    $mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    $boundary = 'busamas_boundary_' . uniqid();
+
+    // Multipart body: metadata + file binary
+    $metadata = json_encode([
+        'name' => $fileName,
+        'mimeType' => $mimeType,
+        'parents' => $existingFileId ? [] : [$folderId],
+    ]);
+    if ($existingFileId) {
+        // Remove parents from metadata for update
+        $metadata = json_encode(['name' => $fileName, 'mimeType' => $mimeType]);
+    }
+
+    $body  = "--{$boundary}\r\n";
+    $body .= "Content-Type: application/json; charset=UTF-8\r\n\r\n";
+    $body .= $metadata . "\r\n";
+    $body .= "--{$boundary}\r\n";
+    $body .= "Content-Type: {$mimeType}\r\n\r\n";
+    $body .= $xlsxBinary . "\r\n";
+    $body .= "--{$boundary}--";
+
+    $headers = [
+        'Authorization: Bearer ' . $token['access_token'],
+        'Content-Type: multipart/related; boundary=' . $boundary,
+        'Content-Length: ' . strlen($body),
+    ];
+
+    if ($existingFileId) {
+        $url = 'https://www.googleapis.com/upload/drive/v3/files/' . urlencode($existingFileId)
+             . '?uploadType=multipart&supportsAllDrives=true';
+        $method = 'PATCH';
+    } else {
+        $url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&includeItemsFromAllDrives=true';
+        $method = 'POST';
+    }
+
+    if (!function_exists('curl_init')) return null;
+
+    $curl = curl_init($url);
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 60,
+        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_POSTFIELDS => $body,
+        CURLOPT_CUSTOMREQUEST => $method,
+    ]);
+    $responseBody = curl_exec($curl);
+    $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    curl_close($curl);
+
+    if ($responseBody === false || $statusCode >= 400) return null;
+
+    $data = json_decode((string) $responseBody, true);
+    return $data['id'] ?? null;
+}
+
+/**
+ * Hapus file dari Google Drive berdasarkan file ID.
+ */
+function google_drive_delete_file(string $fileId): bool
+{
+    $token = google_service_account_access_token();
+    if (!$token['ok']) return false;
+
+    if (!function_exists('curl_init')) return false;
+
+    $curl = curl_init('https://www.googleapis.com/drive/v3/files/' . urlencode($fileId) . '?supportsAllDrives=true');
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_CUSTOMREQUEST => 'DELETE',
+        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token['access_token']],
+    ]);
+    curl_exec($curl);
+    $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    curl_close($curl);
+
+    return $statusCode === 204 || $statusCode === 200;
+}
+
+/**
+ * Cari baris di Google Sheets berdasarkan nilai di kolom A (nomor invoice).
+ * Kembalikan 1-based row index atau null jika tidak ditemukan.
+ */
+function sheets_find_invoice_row(string $nomorInvoice): ?int
+{
+    $token = google_service_account_access_token();
+    if (!$token['ok']) return null;
+
+    $spreadsheetId = google_sheet_config('spreadsheet_id');
+    $sheetName = google_sheet_config('penjualan_sheet_name', 'Penjualan');
+    $range = urlencode($sheetName . '!A:A');
+
+    $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$range}";
+    $response = http_get($url, ['Authorization: Bearer ' . $token['access_token']]);
+
+    if (!$response['ok']) return null;
+
+    $data = json_decode($response['body'], true);
+    $values = $data['values'] ?? [];
+
+    foreach ($values as $rowIdx => $rowData) {
+        $cellVal = trim((string) ($rowData[0] ?? ''));
+        if ($cellVal === $nomorInvoice) {
+            return $rowIdx + 1; // 1-based
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Bangun array baris untuk Google Sheets berdasarkan data invoice.
+ * Kolom mengikuti urutan PENJUALAN-2026.xlsx: A (nomor_invoice), B (tgl_invoice),
+ * C (nomor_sj), D (tgl_sj), E (kode_customer/nama), ... dst.
+ */
+function build_sheets_invoice_row(array $invoice): array
+{
+    $fmt = static fn($v) => $v !== null ? (string) $v : '';
+    $fmtNum = static fn($v) => $v !== null ? number_format((float) $v, 0, ',', '.') : '0';
+
+    return [
+        $fmt($invoice['nomor_invoice']),      // A
+        $fmt($invoice['tanggal_invoice']),    // B
+        $fmt($invoice['nomor_surat_jalan']),  // C
+        $fmt($invoice['tanggal_surat_jalan']),// D
+        $fmt($invoice['nama_laundry_invoice'] ?: $invoice['nama_customer_invoice']), // E
+        $fmt($invoice['alamat']),             // F
+        $fmt($invoice['no_telepon']),         // G
+        '',                                   // H (reserved)
+        $fmtNum($invoice['subtotal']),        // I
+        $fmt($invoice['discount_persen']),    // J
+        $fmtNum($invoice['discount_amount']), // K
+        $fmtNum($invoice['total_harga_jual']),// L
+        $fmt($invoice['status_pembayaran']),  // M
+        $fmt($invoice['tanggal_pembayaran']), // N
+        $fmt($invoice['nama_sales_1']),       // O
+        $fmt($invoice['komisi_sales_1_persen']), // P
+        $fmt($invoice['nama_sales_2']),       // Q
+        $fmt($invoice['komisi_sales_2_persen']), // R
+        $fmtNum($invoice['komisi_sales_terbayar']),      // S
+        $fmtNum($invoice['komisi_sales_belum_terbayar']),// T
+        $fmt($invoice['status_pembayaran_komisi_sales']),// U
+        $fmt($invoice['tanggal_transfer_komisi_sales']), // V
+        $fmtNum($invoice['komisi_manager_terbayar']),    // W
+        $fmtNum($invoice['komisi_manager_utang']),       // X
+        $fmt($invoice['tanggal_transfer_komisi_manager']),// Y
+        $fmtNum($invoice['pph_final_terbayar']),         // Z
+        $fmtNum($invoice['pph_final_belum_terbayar']),   // AA
+        $fmtNum($invoice['komisi_admin_terbayar']),      // AB
+        $fmtNum($invoice['komisi_admin_belum_terbayar']),// AC
+        $fmt($invoice['tanggal_transfer_komisi_admin']), // AD
+        $fmtNum($invoice['biaya_kirim']),     // AE
+        $fmtNum($invoice['biaya_admin_bank']),// AF
+        $fmtNum($invoice['total_pembelian_barang']),     // AG
+        $fmtNum($invoice['total_utang_pembelian_barang']),// AH
+        $fmt($invoice['tanggal_transfer_pembelian_barang']),// AI
+        $fmt($invoice['po_number']),          // AJ
+    ];
+}
+
+/**
+ * Append baris invoice baru ke Google Sheets (INSERT).
+ */
+function sheets_append_invoice_row(array $invoice): bool
+{
+    $token = google_service_account_access_token();
+    if (!$token['ok']) return false;
+
+    $spreadsheetId = google_sheet_config('spreadsheet_id');
+    $sheetName = google_sheet_config('penjualan_sheet_name', 'Penjualan');
+    $range = urlencode($sheetName . '!A:AJ');
+
+    $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$range}:append"
+         . '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS';
+
+    $row = build_sheets_invoice_row($invoice);
+    $body = json_encode(['values' => [$row]]);
+
+    return http_post_json($url, $body, [
+        'Authorization: Bearer ' . $token['access_token'],
+    ]);
+}
+
+/**
+ * Update baris invoice yang sudah ada di Google Sheets (UPDATE).
+ * Cari baris berdasarkan nomor_invoice, lalu PATCH dengan data baru.
+ */
+function sheets_update_invoice_row(array $invoice): bool
+{
+    $token = google_service_account_access_token();
+    if (!$token['ok']) return false;
+
+    $rowIndex = sheets_find_invoice_row($invoice['nomor_invoice'] ?? '');
+    if ($rowIndex === null) {
+        // Tidak ditemukan — coba append sebagai baris baru
+        return sheets_append_invoice_row($invoice);
+    }
+
+    $spreadsheetId = google_sheet_config('spreadsheet_id');
+    $sheetName = google_sheet_config('penjualan_sheet_name', 'Penjualan');
+    $cellRange = urlencode("{$sheetName}!A{$rowIndex}:AJ{$rowIndex}");
+    $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$cellRange}"
+         . '?valueInputOption=USER_ENTERED';
+
+    $row = build_sheets_invoice_row($invoice);
+    $body = json_encode(['range' => "{$sheetName}!A{$rowIndex}:AJ{$rowIndex}", 'values' => [$row]]);
+
+    return http_put_json($url, $body, [
+        'Authorization: Bearer ' . $token['access_token'],
+    ]);
+}
+
+/**
+ * Hapus baris invoice dari Google Sheets menggunakan batchUpdate deleteRange.
+ */
+function sheets_delete_invoice_row(string $nomorInvoice): bool
+{
+    $token = google_service_account_access_token();
+    if (!$token['ok']) return false;
+
+    $rowIndex = sheets_find_invoice_row($nomorInvoice);
+    if ($rowIndex === null) return true; // Sudah tidak ada
+
+    $spreadsheetId = google_sheet_config('spreadsheet_id');
+
+    // Perlu sheet ID (gid) untuk deleteRange
+    $sheetGid = (int) google_sheet_config('gid', '0');
+
+    // Cari sheetId dari nama sheet
+    $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}?fields=sheets(properties)";
+    $metaResp = http_get($url, ['Authorization: Bearer ' . $token['access_token']]);
+    if ($metaResp['ok']) {
+        $meta = json_decode($metaResp['body'], true);
+        $sheetName = google_sheet_config('penjualan_sheet_name', 'Penjualan');
+        foreach ($meta['sheets'] ?? [] as $s) {
+            if (($s['properties']['title'] ?? '') === $sheetName) {
+                $sheetGid = (int) $s['properties']['sheetId'];
+                break;
+            }
+        }
+    }
+
+    $batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}:batchUpdate";
+    $payload = json_encode([
+        'requests' => [[
+            'deleteDimension' => [
+                'range' => [
+                    'sheetId'    => $sheetGid,
+                    'dimension'  => 'ROWS',
+                    'startIndex' => $rowIndex - 1, // 0-based
+                    'endIndex'   => $rowIndex,
+                ],
+            ],
+        ]],
+    ]);
+
+    return http_post_json($batchUrl, $payload, [
+        'Authorization: Bearer ' . $token['access_token'],
+    ]);
+}
+
+/**
+ * HTTP POST dengan body JSON. Kembalikan true jika berhasil.
+ */
+function http_post_json(string $url, string $jsonBody, array $headers = []): bool
+{
+    if (!function_exists('curl_init')) return false;
+
+    $allHeaders = array_merge($headers, ['Content-Type: application/json', 'Content-Length: ' . strlen($jsonBody)]);
+    $curl = curl_init($url);
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $jsonBody,
+        CURLOPT_HTTPHEADER => $allHeaders,
+    ]);
+    curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    curl_close($curl);
+
+    return $status >= 200 && $status < 300;
+}
+
+/**
+ * HTTP PUT dengan body JSON. Kembalikan true jika berhasil.
+ */
+function http_put_json(string $url, string $jsonBody, array $headers = []): bool
+{
+    if (!function_exists('curl_init')) return false;
+
+    $allHeaders = array_merge($headers, ['Content-Type: application/json', 'Content-Length: ' . strlen($jsonBody)]);
+    $curl = curl_init($url);
+    curl_setopt_array($curl, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_CUSTOMREQUEST => 'PUT',
+        CURLOPT_POSTFIELDS => $jsonBody,
+        CURLOPT_HTTPHEADER => $allHeaders,
+    ]);
+    curl_exec($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    curl_close($curl);
+
+    return $status >= 200 && $status < 300;
+}
+
+/**
+ * Buat file XLSX minimal untuk invoice berdasarkan template yang ada.
+ * Menggunakan file template dari storage/ yang sudah ada, lalu isi datanya.
+ * Kembalikan binary content XLSX atau null jika gagal.
+ */
+function generate_invoice_xlsx_binary(array $invoice, array $items): ?string
+{
+    if (!class_exists('ZipArchive')) return null;
+
+    // Cari template dari file storage yang paling mirip
+    $templates = glob(dirname(__DIR__) . '/storage/*.xlsx') ?: [];
+    // Filter out PENJUALAN-2026.xlsx
+    $templates = array_filter($templates, static fn($f) => stripos(basename($f), 'PENJUALAN') === false);
+
+    if (empty($templates)) return null;
+
+    // Gunakan template pertama yang tersedia
+    $templatePath = array_values($templates)[0];
+    $templateBinary = file_get_contents($templatePath);
+    if ($templateBinary === false) return null;
+
+    // Tulis ke temp file, lalu modifikasi menggunakan ZipArchive
+    $tmpFile = sys_get_temp_dir() . '/busamas_inv_' . uniqid() . '.xlsx';
+    file_put_contents($tmpFile, $templateBinary);
+
+    $zip = new ZipArchive();
+    if ($zip->open($tmpFile) !== true) return null;
+
+    try {
+        $sharedStrings = build_invoice_xlsx_shared_strings($invoice, $items);
+        $sheet = build_invoice_xlsx_sheet($invoice, $items, $sharedStrings);
+
+        $zip->addFromString('xl/sharedStrings.xml', $sharedStrings['xml']);
+        $zip->addFromString('xl/worksheets/sheet1.xml', $sheet);
+        $zip->close();
+
+        $binary = file_get_contents($tmpFile);
+        @unlink($tmpFile);
+
+        return $binary !== false ? $binary : null;
+    } catch (Throwable) {
+        $zip->close();
+        @unlink($tmpFile);
+        return null;
+    }
+}
+
+/**
+ * Bangun daftar shared strings dan XML untuk XLSX invoice.
+ * Kembalikan ['strings' => [...], 'xml' => '...'].
+ */
+function build_invoice_xlsx_shared_strings(array $invoice, array $items): array
+{
+    $strings = [];
+    $addStr = static function (string $val) use (&$strings): int {
+        $key = array_search($val, $strings, true);
+        if ($key !== false) return (int) $key;
+        $strings[] = $val;
+        return count($strings) - 1;
+    };
+
+    // Pre-load semua string yang dibutuhkan
+    $addStr($invoice['nomor_invoice'] ?? '');
+    $addStr($invoice['tanggal_invoice'] ?? '');
+    $addStr($invoice['nomor_surat_jalan'] ?? '');
+    $addStr($invoice['tanggal_surat_jalan'] ?? '');
+    $addStr($invoice['nama_laundry_invoice'] ?? $invoice['nama_customer_invoice'] ?? '');
+    $addStr($invoice['alamat'] ?? '');
+    $addStr($invoice['no_telepon'] ?? '');
+    $addStr($invoice['po_number'] ?? '');
+    $addStr($invoice['status_pembayaran'] ?? '');
+
+    foreach ($items as $item) {
+        $addStr((string) ($item['nama_barang_invoice'] ?? $item['nama_barang_master'] ?? ''));
+        $addStr((string) ($item['isi_invoice'] ?? ''));
+        $addStr((string) ($item['satuan'] ?? ''));
+    }
+
+    $xmlParts = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+                 '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' . count($strings) . '" uniqueCount="' . count($strings) . '">'];
+    foreach ($strings as $s) {
+        $xmlParts[] = '<si><t xml:space="preserve">' . htmlspecialchars((string) $s, ENT_XML1, 'UTF-8') . '</t></si>';
+    }
+    $xmlParts[] = '</sst>';
+
+    return ['strings' => $strings, 'xml' => implode('', $xmlParts), 'addStr' => $addStr];
+}
+
+/**
+ * Bangun XML sheet1.xml untuk XLSX invoice (simplified).
+ */
+function build_invoice_xlsx_sheet(array $invoice, array $items, array $sharedStrings): string
+{
+    $strings = $sharedStrings['strings'];
+    $strIdx = static fn(string $val): int => (int) array_search($val, $strings, true);
+    $sc = static fn(string $col, int $row, string $val): string =>
+        '<c r="' . $col . $row . '" t="s"><v>' . $strIdx($val) . '</v></c>';
+    $nc = static fn(string $col, int $row, float $val): string =>
+        '<c r="' . $col . $row . '"><v>' . $val . '</v></c>';
+
+    $rows = [];
+    // Header rows
+    $rows[] = '<row r="1"><c r="B1" t="s"><v>' . $strIdx($invoice['nomor_invoice'] ?? '') . '</v></c>'
+            . '<c r="D1" t="s"><v>' . $strIdx($invoice['tanggal_invoice'] ?? '') . '</v></c></row>';
+    $rows[] = '<row r="3"><c r="B3" t="s"><v>' . $strIdx($invoice['nama_laundry_invoice'] ?? $invoice['nama_customer_invoice'] ?? '') . '</v></c></row>';
+    $rows[] = '<row r="4"><c r="B4" t="s"><v>' . $strIdx($invoice['alamat'] ?? '') . '</v></c></row>';
+    $rows[] = '<row r="5"><c r="B5" t="s"><v>' . $strIdx($invoice['no_telepon'] ?? '') . '</v></c>'
+            . '<c r="F5" t="s"><v>' . $strIdx($invoice['nomor_surat_jalan'] ?? '') . '</v></c></row>';
+
+    // Item rows starting at row 23
+    $itemRow = 23;
+    foreach ($items as $item) {
+        $namaBarang = (string) ($item['nama_barang_invoice'] ?? $item['nama_barang_master'] ?? '');
+        $isi = (string) ($item['isi_invoice'] ?? '');
+        $satuan = (string) ($item['satuan'] ?? '');
+        $jumlah = (float) ($item['jumlah'] ?? 0);
+        $harga = (float) ($item['harga'] ?? 0);
+        $total = (float) ($item['total'] ?? 0);
+
+        $rows[] = '<row r="' . $itemRow . '">'
+            . '<c r="A' . $itemRow . '" t="s"><v>' . $strIdx($namaBarang) . '</v></c>'
+            . '<c r="B' . $itemRow . '" t="s"><v>' . $strIdx($isi) . '</v></c>'
+            . '<c r="C' . $itemRow . '"><v>' . $jumlah . '</v></c>'
+            . '<c r="D' . $itemRow . '" t="s"><v>' . $strIdx($satuan) . '</v></c>'
+            . '<c r="E' . $itemRow . '"><v>' . $harga . '</v></c>'
+            . '<c r="F' . $itemRow . '"><v>' . $total . '</v></c>'
+            . '</row>';
+        $itemRow += 2;
+    }
+
+    // Total row
+    $totalRow = $itemRow + 2;
+    $rows[] = '<row r="' . $totalRow . '">'
+        . '<c r="F' . $totalRow . '"><v>' . ((float) ($invoice['subtotal'] ?? 0)) . '</v></c></row>';
+
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        . '<sheetData>' . implode('', $rows) . '</sheetData></worksheet>';
+}
+
+/**
+ * Sync invoice ke Google Drive dan Google Sheets setelah disimpan/diperbarui.
+ * Dipanggil setelah save_invoice_form() berhasil.
+ *
+ * @param string $kodeInvoice   Kode invoice yang baru disimpan
+ * @param bool   $isUpdate      true = edit, false = baru
+ * @return array ['drive_ok', 'sheets_ok', 'drive_file_id', 'errors']
+ */
+function sync_invoice_to_google(string $kodeInvoice, bool $isUpdate): array
+{
+    $pdo = db();
+    if ($pdo === null) return ['drive_ok' => false, 'sheets_ok' => false, 'drive_file_id' => null, 'errors' => ['DB not connected']];
+
+    // Ambil data invoice dari database
+    $invoice = $pdo->prepare('SELECT * FROM invoices WHERE kode_invoice = ?');
+    $invoice->execute([$kodeInvoice]);
+    $invoiceData = $invoice->fetch(PDO::FETCH_ASSOC);
+
+    if (!$invoiceData) return ['drive_ok' => false, 'sheets_ok' => false, 'drive_file_id' => null, 'errors' => ['Invoice not found']];
+
+    $items = $pdo->prepare('SELECT * FROM invoice_items WHERE kode_invoice = ? ORDER BY baris');
+    $items->execute([$kodeInvoice]);
+    $itemsData = $items->fetchAll(PDO::FETCH_ASSOC);
+
+    $errors = [];
+    $driveFileId = null;
+    $driveOk = false;
+    $sheetsOk = false;
+
+    // ── 1. Generate XLSX & upload ke Drive ──────────────────────
+    $fileName = invoice_drive_filename(
+        $invoiceData['nomor_invoice'],
+        $invoiceData['nama_laundry_invoice'] ?: $invoiceData['nama_customer_invoice'] ?: ''
+    );
+
+    $xlsxBinary = generate_invoice_xlsx_binary($invoiceData, $itemsData);
+
+    if ($xlsxBinary !== null) {
+        // Cari existing file ID: pakai yg tersimpan di DB atau cari dari Drive
+        $existingFileId = $invoiceData['google_drive_file_id'] ?: google_drive_find_invoice_file($fileName);
+
+        $newFileId = google_drive_upload_invoice($fileName, $xlsxBinary, $existingFileId);
+
+        if ($newFileId !== null) {
+            $driveFileId = $newFileId;
+            $driveOk = true;
+            // Simpan file ID ke database
+            $pdo->prepare('UPDATE invoices SET google_drive_file_id = ? WHERE kode_invoice = ?')
+                ->execute([$newFileId, $kodeInvoice]);
+        } else {
+            $errors[] = 'Upload ke Google Drive gagal.';
+        }
+    } else {
+        $errors[] = 'Generate XLSX gagal (ZipArchive tidak aktif atau template tidak ditemukan).';
+    }
+
+    // ── 2. Update / Append di Google Sheets ──────────────────────
+    if ($isUpdate) {
+        $sheetsOk = sheets_update_invoice_row($invoiceData);
+    } else {
+        $sheetsOk = sheets_append_invoice_row($invoiceData);
+    }
+
+    if (!$sheetsOk) {
+        $errors[] = 'Sinkronisasi ke Google Sheets gagal.';
+    }
+
+    return [
+        'drive_ok'      => $driveOk,
+        'sheets_ok'     => $sheetsOk,
+        'drive_file_id' => $driveFileId,
+        'errors'        => $errors,
+    ];
+}
+
+/**
+ * Hapus invoice dari Google Drive dan Google Sheets.
+ * Dipanggil sebelum menghapus record dari database.
+ */
+function delete_invoice_from_google(string $kodeInvoice): array
+{
+    $pdo = db();
+    if ($pdo === null) return ['drive_ok' => false, 'sheets_ok' => false];
+
+    $invoice = $pdo->prepare('SELECT nomor_invoice, nama_laundry_invoice, nama_customer_invoice, google_drive_file_id FROM invoices WHERE kode_invoice = ?');
+    $invoice->execute([$kodeInvoice]);
+    $invoiceData = $invoice->fetch(PDO::FETCH_ASSOC);
+
+    if (!$invoiceData) return ['drive_ok' => true, 'sheets_ok' => true]; // Sudah tidak ada
+
+    $driveOk = true;
+    $sheetsOk = true;
+
+    // Hapus dari Drive
+    $fileId = $invoiceData['google_drive_file_id'];
+    if (!$fileId) {
+        // Coba cari dari Drive berdasarkan nama file
+        $fileName = invoice_drive_filename(
+            $invoiceData['nomor_invoice'],
+            $invoiceData['nama_laundry_invoice'] ?: $invoiceData['nama_customer_invoice'] ?: ''
+        );
+        $fileId = google_drive_find_invoice_file($fileName);
+    }
+
+    if ($fileId) {
+        $driveOk = google_drive_delete_file($fileId);
+    }
+
+    // Hapus dari Sheets
+    $sheetsOk = sheets_delete_invoice_row($invoiceData['nomor_invoice']);
+
+    return ['drive_ok' => $driveOk, 'sheets_ok' => $sheetsOk];
+}
+
+/**
+ * Hapus invoice beserta item-itemnya dari database.
+ */
+function delete_invoice(string $kodeInvoice): array
+{
+    $pdo = db();
+    if ($pdo === null) return ['ok' => false, 'message' => 'Koneksi database gagal.'];
+
+    // Cek invoice ada
+    $check = $pdo->prepare('SELECT nomor_invoice FROM invoices WHERE kode_invoice = ?');
+    $check->execute([$kodeInvoice]);
+    $inv = $check->fetch(PDO::FETCH_ASSOC);
+
+    if (!$inv) return ['ok' => false, 'message' => 'Invoice tidak ditemukan.'];
+
+    try {
+        // Hapus dari Google Drive & Sheets dulu
+        $googleResult = delete_invoice_from_google($kodeInvoice);
+
+        $pdo->beginTransaction();
+        $pdo->prepare('DELETE FROM invoice_items WHERE kode_invoice = ?')->execute([$kodeInvoice]);
+        $pdo->prepare('DELETE FROM invoices WHERE kode_invoice = ?')->execute([$kodeInvoice]);
+        $pdo->commit();
+
+        $warnings = [];
+        if (!$googleResult['drive_ok']) $warnings[] = 'Gagal hapus dari Google Drive.';
+        if (!$googleResult['sheets_ok']) $warnings[] = 'Gagal hapus dari Google Sheets.';
+
+        return [
+            'ok' => true,
+            'message' => 'Invoice ' . $inv['nomor_invoice'] . ' berhasil dihapus.',
+            'warnings' => $warnings,
+        ];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        return ['ok' => false, 'message' => 'Gagal menghapus invoice: ' . $e->getMessage()];
+    }
+}
+

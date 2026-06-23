@@ -209,10 +209,10 @@
                                             <?= e($statusLabel) ?>
                                         </span>
                                     </td>
-                                    <td class="whitespace-nowrap px-4 py-3">
+                                    <td class="whitespace-nowrap px-4 py-3 flex items-center gap-2">
                                         <a
                                             href="<?= e(url('/invoice-view') . '?' . http_build_query(['code' => $invoice['kode_invoice'] ?? ''])) ?>"
-                                            class="mr-2 inline-flex items-center rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-brand transition hover:border-brand hover:bg-teal-50"
+                                            class="inline-flex items-center rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-brand transition hover:border-brand hover:bg-teal-50"
                                             title="Lihat invoice"
                                             aria-label="Lihat invoice"
                                         >Lihat</a>
@@ -222,6 +222,10 @@
                                             title="Update invoice"
                                             aria-label="Update invoice"
                                         >Update</a>
+                                        <form action="<?= e(url('/invoice-delete')) ?>" method="POST" class="inline" onsubmit="return confirm('Apakah Anda yakin ingin menghapus invoice ini?')">
+                                            <input type="hidden" name="kode_invoice" value="<?= e($invoice['kode_invoice'] ?? '') ?>">
+                                            <button type="submit" class="inline-flex items-center rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-800" title="Hapus invoice" aria-label="Hapus invoice">Hapus</button>
+                                        </form>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

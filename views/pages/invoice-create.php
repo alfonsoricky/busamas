@@ -380,6 +380,11 @@
             </div>
 
             <div class="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <?php if ($isUpdate): ?>
+                    <button type="button" onclick="if(confirm('Apakah Anda yakin ingin menghapus invoice ini?')) document.getElementById('delete-invoice-form').submit();" class="inline-flex items-center justify-center rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-800">
+                        Hapus Invoice
+                    </button>
+                <?php endif; ?>
                 <a href="<?= e(url('/invoices')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
                     Batal
                 </a>
@@ -388,6 +393,12 @@
                 </button>
             </div>
         </form>
+
+        <?php if ($isUpdate): ?>
+            <form id="delete-invoice-form" action="<?= e(url('/invoice-delete')) ?>" method="POST" class="hidden">
+                <input type="hidden" name="kode_invoice" value="<?= e((string) ($editInvoice['kode_invoice'] ?? '')) ?>">
+            </form>
+        <?php endif; ?>
 
         <script>
             const barangOptions = <?= json_encode($invoiceForm['barang'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;

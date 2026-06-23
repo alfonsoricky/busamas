@@ -1540,12 +1540,18 @@ function save_invoice_form(array $postData): array
             $stmt->execute([$kodeInvoice]);
         } else {
             // Generate next code
-            $maxCode = $pdo->query("SELECT MAX(kode_invoice) FROM invoices")->fetchColumn();
-            if ($maxCode && preg_match('/^INV-(\d+)$/', $maxCode, $matches)) {
-                $nextNum = (int)$matches[1] + 1;
-            } else {
-                $nextNum = 1;
+            $stmt = $pdo->query("SELECT kode_invoice FROM invoices WHERE kode_invoice LIKE 'INV-%'");
+            $codes = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            $maxNum = 0;
+            foreach ($codes as $code) {
+                if (preg_match('/^INV-(\d+)$/', $code, $matches)) {
+                    $num = (int)$matches[1];
+                    if ($num > $maxNum) {
+                        $maxNum = $num;
+                    }
+                }
             }
+            $nextNum = $maxNum + 1;
             $kodeInvoice = 'INV-' . str_pad((string)$nextNum, 5, '0', STR_PAD_LEFT);
             $fileInvoice = null;
 
@@ -4633,12 +4639,18 @@ function run_create_test_data(): array
     }
 
     // Generate unique code sequence
-    $maxTestCode = $pdo->query("SELECT MAX(kode_invoice) FROM invoices WHERE kode_invoice LIKE 'INV-TEST-%'")->fetchColumn();
-    if ($maxTestCode && preg_match('/^INV-TEST-(\d+)$/', $maxTestCode, $matches)) {
-        $nextNum = (int)$matches[1] + 1;
-    } else {
-        $nextNum = 1;
+    $stmt = $pdo->query("SELECT kode_invoice FROM invoices WHERE kode_invoice LIKE 'INV-TEST-%'");
+    $codes = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    $maxNum = 0;
+    foreach ($codes as $code) {
+        if (preg_match('/^INV-TEST-(\d+)$/', $code, $matches)) {
+            $num = (int)$matches[1];
+            if ($num > $maxNum) {
+                $maxNum = $num;
+            }
+        }
     }
+    $nextNum = $maxNum + 1;
     
     $kodeInvoice = 'INV-TEST-' . str_pad((string)$nextNum, 3, '0', STR_PAD_LEFT);
     $nomorInvoice = '999/BM-INV/TEST-' . $nextNum . '/2026';

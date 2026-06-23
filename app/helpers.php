@@ -2252,6 +2252,18 @@ function human_file_size(mixed $bytes): string
     return rtrim(rtrim(number_format($bytes, 2), '0'), '.') . ' ' . $units[$unitIndex];
 }
 
+function set_google_api_error(string $message): void
+{
+    global $google_api_last_error;
+    $google_api_last_error = $message;
+}
+
+function get_google_api_error(): ?string
+{
+    global $google_api_last_error;
+    return $google_api_last_error ?? null;
+}
+
 function google_service_account_access_token(): array
 {
     static $cachedToken = null;
@@ -2276,21 +2288,25 @@ function google_service_account_access_token(): array
         ]);
 
         if (!$response['ok']) {
+            $err = 'Gagal mendapatkan access token menggunakan refresh token: ' . $response['error'];
+            set_google_api_error($err);
             return [
                 'ok' => false,
                 'access_token' => null,
                 'expires_at' => 0,
-                'error' => 'Gagal mendapatkan access token menggunakan refresh token: ' . $response['error'],
+                'error' => $err,
             ];
         }
 
         $payload = json_decode($response['body'], true);
         if (!is_array($payload) || empty($payload['access_token'])) {
+            $err = 'Response OAuth token Google tidak valid.';
+            set_google_api_error($err);
             return [
                 'ok' => false,
                 'access_token' => null,
                 'expires_at' => 0,
-                'error' => 'Response OAuth token Google tidak valid.',
+                'error' => $err,
             ];
         }
 
@@ -2307,22 +2323,26 @@ function google_service_account_access_token(): array
     $credentialPath = google_service_account_path();
 
     if (! is_string($credentialPath) || ! is_readable($credentialPath)) {
+        $err = 'File service account JSON belum tersedia atau tidak bisa dibaca: ' . $credentialPath;
+        set_google_api_error($err);
         return [
             'ok' => false,
             'access_token' => null,
             'expires_at' => 0,
-            'error' => 'File service account JSON belum tersedia atau tidak bisa dibaca: ' . $credentialPath,
+            'error' => $err,
         ];
     }
 
     $credentials = json_decode((string) file_get_contents($credentialPath), true);
 
     if (! is_array($credentials) || empty($credentials['client_email']) || empty($credentials['private_key'])) {
+        $err = 'Format service account JSON tidak valid.';
+        set_google_api_error($err);
         return [
             'ok' => false,
             'access_token' => null,
             'expires_at' => 0,
-            'error' => 'Format service account JSON tidak valid.',
+            'error' => $err,
         ];
     }
 
@@ -3933,9 +3953,16 @@ function google_drive_upload_invoice(string $fileName, string $xlsxBinary, ?stri
     ]);
     $responseBody = curl_exec($curl);
     $statusCode = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    $curlErr = curl_error($curl);
     curl_close($curl);
 
-    if ($responseBody === false || $statusCode >= 400) return null;
+    if ($responseBody === false || $statusCode >= 400) {
+        $msg = "Upload Google Drive gagal. HTTP Status: {$statusCode}.";
+        if ($curlErr) $msg .= " Curl Error: {$curlErr}.";
+        if ($responseBody) $msg .= " Response: " . substr($responseBody, 0, 500);
+        set_google_api_error($msg);
+        return null;
+    }
 
     $data = json_decode((string) $responseBody, true);
     return $data['id'] ?? null;
@@ -4152,7 +4179,10 @@ function sheets_delete_invoice_row(string $nomorInvoice): bool
  */
 function http_post_json(string $url, string $jsonBody, array $headers = []): bool
 {
-    if (!function_exists('curl_init')) return false;
+    if (!function_exists('curl_init')) {
+        set_google_api_error('cURL PHP extension is not enabled on this server.');
+        return false;
+    }
 
     $allHeaders = array_merge($headers, ['Content-Type: application/json', 'Content-Length: ' . strlen($jsonBody)]);
     $curl = curl_init($url);
@@ -4163,11 +4193,20 @@ function http_post_json(string $url, string $jsonBody, array $headers = []): boo
         CURLOPT_POSTFIELDS => $jsonBody,
         CURLOPT_HTTPHEADER => $allHeaders,
     ]);
-    curl_exec($curl);
+    $response = curl_exec($curl);
     $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    $curlErr = curl_error($curl);
     curl_close($curl);
 
-    return $status >= 200 && $status < 300;
+    if ($response === false || $status < 200 || $status >= 300) {
+        $msg = "HTTP POST ke Google Sheets gagal. HTTP Status: {$status}.";
+        if ($curlErr) $msg .= " Curl Error: {$curlErr}.";
+        if ($response) $msg .= " Response: " . substr($response, 0, 500);
+        set_google_api_error($msg);
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -4175,7 +4214,10 @@ function http_post_json(string $url, string $jsonBody, array $headers = []): boo
  */
 function http_put_json(string $url, string $jsonBody, array $headers = []): bool
 {
-    if (!function_exists('curl_init')) return false;
+    if (!function_exists('curl_init')) {
+        set_google_api_error('cURL PHP extension is not enabled on this server.');
+        return false;
+    }
 
     $allHeaders = array_merge($headers, ['Content-Type: application/json', 'Content-Length: ' . strlen($jsonBody)]);
     $curl = curl_init($url);
@@ -4186,11 +4228,20 @@ function http_put_json(string $url, string $jsonBody, array $headers = []): bool
         CURLOPT_POSTFIELDS => $jsonBody,
         CURLOPT_HTTPHEADER => $allHeaders,
     ]);
-    curl_exec($curl);
+    $response = curl_exec($curl);
     $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    $curlErr = curl_error($curl);
     curl_close($curl);
 
-    return $status >= 200 && $status < 300;
+    if ($response === false || $status < 200 || $status >= 300) {
+        $msg = "HTTP PUT ke Google Sheets gagal. HTTP Status: {$status}.";
+        if ($curlErr) $msg .= " Curl Error: {$curlErr}.";
+        if ($response) $msg .= " Response: " . substr($response, 0, 500);
+        set_google_api_error($msg);
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -4200,14 +4251,20 @@ function http_put_json(string $url, string $jsonBody, array $headers = []): bool
  */
 function generate_invoice_xlsx_binary(array $invoice, array $items): ?string
 {
-    if (!class_exists('ZipArchive')) return null;
+    if (!class_exists('ZipArchive')) {
+        set_google_api_error('ZipArchive PHP extension is not enabled on this server.');
+        return null;
+    }
 
     // Cari template dari file storage yang paling mirip
     $templates = glob(dirname(__DIR__) . '/storage/*.xlsx') ?: [];
     // Filter out PENJUALAN-2026.xlsx
     $templates = array_filter($templates, static fn($f) => stripos(basename($f), 'PENJUALAN') === false);
 
-    if (empty($templates)) return null;
+    if (empty($templates)) {
+        set_google_api_error('Template file Excel tidak ditemukan di folder storage.');
+        return null;
+    }
 
     // Gunakan template pertama yang tersedia
     $templatePath = array_values($templates)[0];
@@ -4473,6 +4530,9 @@ function sync_invoice_to_google(string $kodeInvoice, bool $isUpdate): array
     $pdo = db();
     if ($pdo === null) return ['drive_ok' => false, 'sheets_ok' => false, 'drive_file_id' => null, 'errors' => ['DB not connected']];
 
+    // Clear last error
+    set_google_api_error('');
+
     // Ambil data invoice dari database
     $invoice = $pdo->prepare('SELECT * FROM invoices WHERE kode_invoice = ?');
     $invoice->execute([$kodeInvoice]);
@@ -4510,11 +4570,14 @@ function sync_invoice_to_google(string $kodeInvoice, bool $isUpdate): array
             $pdo->prepare('UPDATE invoices SET google_drive_file_id = ? WHERE kode_invoice = ?')
                 ->execute([$newFileId, $kodeInvoice]);
         } else {
-            $errors[] = 'Upload ke Google Drive gagal.';
+            $errors[] = 'Upload ke Google Drive gagal: ' . (get_google_api_error() ?: 'Unknown Drive API error');
         }
     } else {
-        $errors[] = 'Generate XLSX gagal (ZipArchive tidak aktif atau template tidak ditemukan).';
+        $errors[] = 'Generate XLSX gagal: ' . (get_google_api_error() ?: 'ZipArchive tidak aktif atau template tidak ditemukan');
     }
+
+    // Clear last error before sheets operation to isolate sheets failure message
+    set_google_api_error('');
 
     // ── 2. Update / Append di Google Sheets ──────────────────────
     if ($isUpdate) {
@@ -4524,7 +4587,7 @@ function sync_invoice_to_google(string $kodeInvoice, bool $isUpdate): array
     }
 
     if (!$sheetsOk) {
-        $errors[] = 'Sinkronisasi ke Google Sheets gagal.';
+        $errors[] = 'Sinkronisasi ke Google Sheets gagal: ' . (get_google_api_error() ?: 'Unknown Sheets API error');
     }
 
     return [

@@ -4185,18 +4185,145 @@ function generate_invoice_xlsx_binary(array $invoice, array $items): ?string
     if ($zip->open($tmpFile) !== true) return null;
 
     try {
-        $sharedStrings = build_invoice_xlsx_shared_strings($invoice, $items);
-        $sheet = build_invoice_xlsx_sheet($invoice, $items, $sharedStrings);
+        $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
+        if ($sheetXml === false) {
+            $zip->close();
+            @unlink($tmpFile);
+            return null;
+        }
 
-        $zip->addFromString('xl/sharedStrings.xml', $sharedStrings['xml']);
-        $zip->addFromString('xl/worksheets/sheet1.xml', $sheet);
+        $sheet = simplexml_load_string($sheetXml);
+
+        $set_cell = static function ($sheet, $ref, $val, $type = 'n') {
+            preg_match('/^([A-Z]+)(\d+)$/', $ref, $m);
+            if (!$m) return;
+            $rowNum = $m[2];
+
+            // Find row
+            $rowEl = null;
+            foreach ($sheet->sheetData->row as $r) {
+                if ((string) $r['r'] === $rowNum) {
+                    $rowEl = $r;
+                    break;
+                }
+            }
+            if (!$rowEl) return;
+
+            // Find cell
+            $cellEl = null;
+            foreach ($rowEl->c as $c) {
+                if ((string) $c['r'] === $ref) {
+                    $cellEl = $c;
+                    break;
+                }
+            }
+            if (!$cellEl) {
+                $cellEl = $rowEl->addChild('c');
+                $cellEl['r'] = $ref;
+            }
+
+            // Clear value
+            unset($cellEl->v);
+            unset($cellEl->is);
+
+            if ($val === null || $val === '') {
+                unset($cellEl['t']);
+                return;
+            }
+
+            if ($type === 'inlineStr') {
+                $cellEl['t'] = 'inlineStr';
+                $is = $cellEl->addChild('is');
+                $is->addChild('t', htmlspecialchars((string) $val, ENT_XML1, 'UTF-8'));
+            } else {
+                unset($cellEl['t']);
+                $cellEl->addChild('v', (string) $val);
+            }
+        };
+
+        // Header details
+        $laundry = (string) ($invoice['nama_laundry_invoice'] ?: $invoice['nama_customer_invoice'] ?: '');
+        $tanggal = (string) ($invoice['tanggal_invoice'] ?? '');
+        $noInvoice = (string) ($invoice['nomor_invoice'] ?? '');
+        $poNumber = (string) ($invoice['po_number'] ?? '');
+        $up = (string) ($invoice['nama_customer_master'] ?: $invoice['nama_customer_invoice'] ?: '');
+        $phone = (string) ($invoice['no_telepon'] ?? '');
+
+        $alamat = (string) ($invoice['alamat'] ?? '');
+        $alamat1 = $alamat;
+        $alamat2 = '';
+        if (strpos($alamat, "\n") !== false) {
+            [$alamat1, $alamat2] = explode("\n", $alamat, 2);
+        } elseif (strlen($alamat) > 40) {
+            $pos = strrpos(substr($alamat, 0, 40), ' ');
+            if ($pos !== false) {
+                $alamat1 = substr($alamat, 0, $pos);
+                $alamat2 = substr($alamat, $pos + 1);
+            }
+        }
+
+        $set_cell($sheet, 'B12', $laundry, 'inlineStr');
+        $set_cell($sheet, 'F12', ': ' . $tanggal, 'inlineStr');
+        $set_cell($sheet, 'B13', $alamat1, 'inlineStr');
+        $set_cell($sheet, 'B14', $alamat2, 'inlineStr');
+        $set_cell($sheet, 'F14', ': ' . $noInvoice, 'inlineStr');
+        $set_cell($sheet, 'F16', ': ' . $poNumber, 'inlineStr');
+        $set_cell($sheet, 'B17', $up, 'inlineStr');
+        $set_cell($sheet, 'B18', $phone !== '' ? 'hp : ' . $phone : '', 'inlineStr');
+
+        // Fill item details (up to 7 items: row 23, 25, 27, 29, 31, 33, 35)
+        $itemRows = [23, 25, 27, 29, 31, 33, 35];
+        $totalItems = count($items);
+
+        foreach ($itemRows as $index => $rNum) {
+            if ($index < $totalItems) {
+                $item = $items[$index];
+                $name = (string) ($item['nama_barang_invoice'] ?? $item['nama_barang_master'] ?? '');
+                $isi = (string) ($item['isi_invoice'] ?? '');
+                $qty = (float) ($item['jumlah'] ?? 0);
+                $satuan = (string) ($item['satuan'] ?? '');
+                $harga = (float) ($item['harga'] ?? 0);
+                $total = (float) ($item['total'] ?? 0);
+
+                $set_cell($sheet, 'A' . $rNum, $index + 1);
+                $set_cell($sheet, 'B' . $rNum, $name, 'inlineStr');
+                $set_cell($sheet, 'C' . $rNum, $isi, 'inlineStr');
+                $set_cell($sheet, 'D' . $rNum, $qty);
+                $set_cell($sheet, 'E' . $rNum, $satuan, 'inlineStr');
+                $set_cell($sheet, 'F' . $rNum, $harga);
+                $set_cell($sheet, 'G' . $rNum, $total);
+            } else {
+                // Clear unused item slots
+                $set_cell($sheet, 'A' . $rNum, '');
+                $set_cell($sheet, 'B' . $rNum, '');
+                $set_cell($sheet, 'C' . $rNum, '');
+                $set_cell($sheet, 'D' . $rNum, '');
+                $set_cell($sheet, 'E' . $rNum, '');
+                $set_cell($sheet, 'F' . $rNum, '');
+                $set_cell($sheet, 'G' . $rNum, '');
+            }
+        }
+
+        // Subtotal / Total
+        $finalTotal = (float) ($invoice['total_harga_jual'] ?? 0);
+        $set_cell($sheet, 'G36', $finalTotal);
+
+        // Date footer
+        $set_cell($sheet, 'F42', '     Denpasar, ' . $tanggal, 'inlineStr');
+
+        // Sales Signature
+        $salesName = (string) ($invoice['nama_sales_1'] ?? '');
+        $set_cell($sheet, 'F47', $salesName !== '' ? '( ' . $salesName . ' )' : '', 'inlineStr');
+
+        $newSheetXml = $sheet->asXML();
+        $zip->addFromString('xl/worksheets/sheet1.xml', $newSheetXml);
         $zip->close();
 
         $binary = file_get_contents($tmpFile);
         @unlink($tmpFile);
 
         return $binary !== false ? $binary : null;
-    } catch (Throwable) {
+    } catch (Throwable $e) {
         $zip->close();
         @unlink($tmpFile);
         return null;

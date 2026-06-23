@@ -39,6 +39,63 @@ $routes = [
                 echo "<p style='color:green'>Database connected successfully!</p>";
             } else {
                 echo "<p style='color:red'>Database connection failed.</p>";
+                exit;
+            }
+
+            if (isset($_GET['test_submit'])) {
+                try {
+                    echo "<h2>Running mock invoice submission test...</h2>";
+                    $postData = [
+                        'nomor_invoice' => 'INV-DEBUG-TEST-1',
+                        'tanggal_invoice' => date('Y-m-d'),
+                        'kode_customer' => '',
+                        'nama_customer' => 'Debug Customer Name',
+                        'no_telepon' => '0899999999',
+                        'alamat' => 'Debug Alamat Street 12',
+                        'kode_sales_1' => '',
+                        'status_pembayaran' => 'Belum Lunas',
+                        'items' => [
+                            [
+                                'kode_barang' => '',
+                                'isi' => '10',
+                                'jumlah' => '2',
+                                'satuan' => 'Btl',
+                                'harga' => '25000',
+                                'total' => '50000',
+                            ]
+                        ]
+                    ];
+
+                    $cust = $pdo->query("SELECT kode_customer FROM master_customers LIMIT 1")->fetchColumn();
+                    $sales = $pdo->query("SELECT kode_sales FROM master_sales LIMIT 1")->fetchColumn();
+                    $barang = $pdo->query("SELECT kode_barang FROM master_barang LIMIT 1")->fetchColumn();
+
+                    if ($cust) $postData['kode_customer'] = $cust;
+                    if ($sales) $postData['kode_sales_1'] = $sales;
+                    if ($barang) $postData['items'][0]['kode_barang'] = $barang;
+
+                    echo "<p>Mock Data: Customer = {$postData['kode_customer']}, Sales = {$postData['kode_sales_1']}, Barang = {$postData['items'][0]['kode_barang']}</p>";
+
+                    $result = save_invoice_form($postData);
+                    echo "<p style='color:blue'>save_invoice_form() completed. Output:</p>";
+                    echo "<pre>" . print_r($result, true) . "</pre>";
+
+                    if ($result['ok']) {
+                        echo "<p>Attempting Google Sync...</p>";
+                        $syncResult = sync_invoice_to_google($result['kode_invoice'], false);
+                        echo "<p style='color:blue'>sync_invoice_to_google() completed. Output:</p>";
+                        echo "<pre>" . print_r($syncResult, true) . "</pre>";
+
+                        // Cleanup created invoice to prevent cluttering db
+                        $pdo->prepare("DELETE FROM invoice_items WHERE kode_invoice = ?")->execute([$result['kode_invoice']]);
+                        $pdo->prepare("DELETE FROM invoices WHERE kode_invoice = ?")->execute([$result['kode_invoice']]);
+                        echo "<p style='color:green'>Cleaned up test invoice record.</p>";
+                    }
+                } catch (Throwable $e) {
+                    echo "<p style='color:red'>Exception caught: " . htmlspecialchars($e->getMessage()) . "</p>";
+                    echo "<pre>" . htmlspecialchars($e->getTraceAsString()) . "</pre>";
+                }
+                exit;
             }
             exit;
         }

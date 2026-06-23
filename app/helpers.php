@@ -1410,10 +1410,7 @@ function save_invoice_form(array $postData): array
     $alamat = $cleanString($postData['alamat'] ?? '');
 
     $kodeSales1 = $cleanString($postData['kode_sales_1'] ?? '');
-    if ($kodeSales1 === '') {
-        return ['ok' => false, 'message' => 'Sales Agent 1 tidak boleh kosong.'];
-    }
-    $namaSales1 = $getSalesName($pdo, $kodeSales1);
+    $namaSales1 = $kodeSales1 !== '' ? $getSalesName($pdo, $kodeSales1) : '';
     $kodeSales2 = $cleanString($postData['kode_sales_2'] ?? '');
     $namaSales2 = $getSalesName($pdo, $kodeSales2);
 
@@ -3856,8 +3853,7 @@ function update_invoice_purchase_data_from_excel(PDO $pdo, string $excelPath): i
  */
 function invoice_drive_filename(string $nomorInvoice, string $namaLaundry): string
 {
-    // Normalize nomor invoice: 453/BM-INV/VI/2026 → 453_BM-INV_VI_2026
-    $base = str_replace('/', '_', $nomorInvoice);
+    $base = trim($nomorInvoice);
     $laundry = strtoupper(trim($namaLaundry));
     return $base . ' ' . $laundry . '.xlsx';
 }

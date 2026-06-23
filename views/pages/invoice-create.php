@@ -92,7 +92,7 @@
                         <input name="alamat" id="customer-address" value="<?= e((string) ($editInvoice['alamat'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                     </label>
                     <label class="block">
-                        <span class="mb-2 block text-sm font-semibold text-stone-700">Nama Sales 1 <span class="text-rose-500">*</span></span>
+                        <span class="mb-2 block text-sm font-semibold text-stone-700">Nama Sales 1</span>
                         <select name="kode_sales_1" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             <option value="">Pilih sales</option>
                             <?php foreach ($invoiceForm['sales'] as $sales): ?>

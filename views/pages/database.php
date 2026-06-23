@@ -74,6 +74,35 @@
                     </button>
                 </form>
             </div>
+
+            <!-- Uji Coba & Hapus Data Test -->
+            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
+                        <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+                    </div>
+                    <h2 class="text-lg font-bold text-ink">Uji Coba & Hapus Data Test</h2>
+                </div>
+                <p class="mt-3 text-sm leading-6 text-stone-600">
+                    Gunakan alat ini untuk membuat data invoice test baru langsung di database hosting dan menyinkronkannya ke Google Drive & Sheets, serta membersihkannya kembali setelah selesai pengujian.
+                </p>
+
+                <div class="mt-5 flex flex-wrap gap-4">
+                    <form method="post" action="<?= e(url('/db-maintenance')) ?>">
+                        <input type="hidden" name="action" value="create-test-data">
+                        <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
+                            Buat Data Test Baru
+                        </button>
+                    </form>
+
+                    <form method="post" action="<?= e(url('/db-maintenance')) ?>" onsubmit="return confirm('Yakin ingin menghapus semua invoice uji coba/test dari database, Google Drive, dan Google Sheets?')">
+                        <input type="hidden" name="action" value="delete-test-data">
+                        <button class="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700">
+                            Hapus Semua Data Test
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
 
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">

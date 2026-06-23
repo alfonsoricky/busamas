@@ -190,6 +190,12 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'generate-invoice-data') {
         $result = run_invoice_data_generation();
         $counts = database_table_counts();
+    } elseif ($action === 'create-test-data') {
+        $result = run_create_test_data();
+        $counts = database_table_counts();
+    } elseif ($action === 'delete-test-data') {
+        $result = run_delete_test_data();
+        $counts = database_table_counts();
     }
 
     return [
@@ -4573,6 +4579,207 @@ function delete_invoice(string $kodeInvoice): array
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         return ['ok' => false, 'message' => 'Gagal menghapus invoice: ' . $e->getMessage()];
+    }
+}
+
+function run_create_test_data(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    // Fetch a real customer and barang code
+    $kodeCustomer = $pdo->query("SELECT kode_customer FROM master_customers LIMIT 1")->fetchColumn();
+    $kodeBarang = $pdo->query("SELECT kode_barang FROM master_barang LIMIT 1")->fetchColumn();
+
+    if (!$kodeCustomer || !$kodeBarang) {
+        return [
+            'ok' => false,
+            'message' => 'Data master customer atau barang kosong di database. Silakan jalankan seeder terlebih dahulu.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    // Generate unique code sequence
+    $maxTestCode = $pdo->query("SELECT MAX(kode_invoice) FROM invoices WHERE kode_invoice LIKE 'INV-TEST-%'")->fetchColumn();
+    if ($maxTestCode && preg_match('/^INV-TEST-(\d+)$/', $maxTestCode, $matches)) {
+        $nextNum = (int)$matches[1] + 1;
+    } else {
+        $nextNum = 1;
+    }
+    
+    $kodeInvoice = 'INV-TEST-' . str_pad((string)$nextNum, 3, '0', STR_PAD_LEFT);
+    $nomorInvoice = '999/BM-INV/TEST-' . $nextNum . '/2026';
+    $namaLaundry = 'LAUNDRY TEST ' . $nextNum;
+
+    $months = [
+        1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+        5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+        9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'
+    ];
+    $todayStr = date('d') . ' ' . $months[(int)date('m')] . ' ' . date('Y');
+
+    try {
+        $pdo->beginTransaction();
+
+        // Clean up first if exists (just in case)
+        $pdo->prepare("DELETE FROM invoice_items WHERE kode_invoice = ?")->execute([$kodeInvoice]);
+        $pdo->prepare("DELETE FROM invoices WHERE kode_invoice = ?")->execute([$kodeInvoice]);
+
+        // Insert invoice
+        $stmt = $pdo->prepare('
+            INSERT INTO invoices (
+                kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan, po_number,
+                kode_customer, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat,
+                total_item, total_qty, subtotal, discount_persen, discount_amount, total_harga_jual,
+                status_pembayaran, tanggal_pembayaran,
+                komisi_sales_1_persen, komisi_sales_2_persen, komisi_sales_terbayar, komisi_sales_belum_terbayar,
+                status_pembayaran_komisi_sales, tanggal_transfer_komisi_sales,
+                komisi_manager_terbayar, komisi_manager_utang, tanggal_transfer_komisi_manager,
+                pph_final_terbayar, pph_final_belum_terbayar,
+                komisi_admin_terbayar, komisi_admin_belum_terbayar, tanggal_transfer_komisi_admin,
+                biaya_kirim, biaya_admin_bank,
+                total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, tanggal_transfer_pembelian_barang
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?,
+                ?, ?,
+                ?, ?, ?, ?,
+                ?, ?,
+                ?, ?, ?,
+                ?, ?,
+                ?, ?, ?,
+                ?, ?,
+                ?, ?, ?, ?
+            )
+        ');
+
+        $stmt->execute([
+            $kodeInvoice, $nomorInvoice, $todayStr, 'SJ-77777', $todayStr, 'PO-77777',
+            $kodeCustomer, 'Test Client', $namaLaundry, '08987654321', 'Jl. Sukses Selalu No. 77',
+            1, 5, 500000, 0, 0, 500000,
+            'Belum Lunas', null,
+            10, 0, 0, 50000,
+            'Belum TF', null,
+            0, 0, null,
+            0, 2500,
+            0, 25000, null,
+            10000, 0,
+            250000, 250000, 'Utang', null
+        ]);
+
+        // Insert item
+        $stmt = $pdo->prepare('
+            INSERT INTO invoice_items (
+                kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, kode_barang,
+                nama_barang_master, ukuran_master, nama_barang_invoice, isi_invoice,
+                jumlah, satuan, harga, total, baris
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ');
+        $stmt->execute([
+            $kodeInvoice, $nomorInvoice, $todayStr, $kodeCustomer, $kodeBarang,
+            'Barang Test', '20 Liter', 'Barang Test', 'Isi Test',
+            5, 'Pail', 100000, 500000, 23
+        ]);
+
+        $pdo->commit();
+
+        // Sync ke Google Drive & Sheets (seperti flow di /invoice-create)
+        $syncResult = sync_invoice_to_google($kodeInvoice, false);
+
+        $msg = 'Berhasil membuat invoice test ' . $nomorInvoice . ' di database.';
+        if (!empty($syncResult['errors'])) {
+            $msg .= ' Sinkronisasi Google Drive/Sheets menemui masalah: ' . implode(', ', $syncResult['errors']);
+        } else {
+            $msg .= ' Berhasil disinkronisasikan ke Google Drive & Sheets.';
+        }
+
+        return [
+            'ok' => true,
+            'message' => $msg,
+            'statements' => 1,
+            'counts' => database_table_counts(),
+        ];
+
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        return [
+            'ok' => false,
+            'message' => 'Gagal menyimpan invoice test ke database: ' . $e->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
+function run_delete_test_data(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    try {
+        // Cari semua invoice test
+        $stmt = $pdo->query("SELECT kode_invoice, nomor_invoice FROM invoices WHERE kode_invoice LIKE 'INV-TEST-%' OR nomor_invoice LIKE '%TEST%'");
+        $testInvoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $deletedCount = 0;
+        $errors = [];
+
+        foreach ($testInvoices as $inv) {
+            $kode = $inv['kode_invoice'];
+            $no = $inv['nomor_invoice'];
+            
+            // Hapus dari Google Drive & Sheets dan database lokal
+            $delResult = delete_invoice($kode);
+            if ($delResult['ok']) {
+                $deletedCount++;
+                if (!empty($delResult['warnings'])) {
+                    $errors = array_merge($errors, $delResult['warnings']);
+                }
+            } else {
+                $errors[] = 'Gagal menghapus ' . $no . ': ' . $delResult['message'];
+            }
+        }
+
+        // Clean up orphaned invoice items just in case
+        $pdo->exec("DELETE FROM invoice_items WHERE kode_invoice LIKE 'INV-TEST-%'");
+
+        $msg = 'Berhasil menghapus ' . $deletedCount . ' data test.';
+        if (!empty($errors)) {
+            $msg .= ' Peringatan selama penghapusan: ' . implode(' | ', array_unique($errors));
+        }
+
+        return [
+            'ok' => true,
+            'message' => $msg,
+            'statements' => $deletedCount,
+            'counts' => database_table_counts(),
+        ];
+
+    } catch (Throwable $e) {
+        return [
+            'ok' => false,
+            'message' => 'Gagal membersihkan data test: ' . $e->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
     }
 }
 

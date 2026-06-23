@@ -2223,6 +2223,50 @@ function google_service_account_access_token(): array
         return $cachedToken;
     }
 
+    // Check if OAuth 2.0 Client credentials and Refresh Token are defined in .env
+    require_once dirname(__DIR__) . '/config/env.php';
+    $clientId = busamas_env('GOOGLE_CLIENT_ID');
+    $clientSecret = busamas_env('GOOGLE_CLIENT_SECRET');
+    $refreshToken = busamas_env('GOOGLE_REFRESH_TOKEN');
+
+    if (!empty($clientId) && !empty($clientSecret) && !empty($refreshToken)) {
+        $tokenUri = 'https://oauth2.googleapis.com/token';
+        $response = http_post_form($tokenUri, [
+            'client_id' => $clientId,
+            'client_secret' => $clientSecret,
+            'refresh_token' => $refreshToken,
+            'grant_type' => 'refresh_token',
+        ]);
+
+        if (!$response['ok']) {
+            return [
+                'ok' => false,
+                'access_token' => null,
+                'expires_at' => 0,
+                'error' => 'Gagal mendapatkan access token menggunakan refresh token: ' . $response['error'],
+            ];
+        }
+
+        $payload = json_decode($response['body'], true);
+        if (!is_array($payload) || empty($payload['access_token'])) {
+            return [
+                'ok' => false,
+                'access_token' => null,
+                'expires_at' => 0,
+                'error' => 'Response OAuth token Google tidak valid.',
+            ];
+        }
+
+        $cachedToken = [
+            'ok' => true,
+            'access_token' => $payload['access_token'],
+            'expires_at' => time() + (int) ($payload['expires_in'] ?? 3600),
+            'error' => null,
+        ];
+
+        return $cachedToken;
+    }
+
     $credentialPath = google_service_account_path();
 
     if (! is_string($credentialPath) || ! is_readable($credentialPath)) {

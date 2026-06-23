@@ -4594,11 +4594,11 @@ function run_create_test_data(): array
         ];
     }
 
-    // Fetch a real customer and barang code
-    $kodeCustomer = $pdo->query("SELECT kode_customer FROM master_customers LIMIT 1")->fetchColumn();
-    $kodeBarang = $pdo->query("SELECT kode_barang FROM master_barang LIMIT 1")->fetchColumn();
+    // Fetch a real customer and barang row from master tables
+    $customer = $pdo->query("SELECT kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default FROM master_customers LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    $barang = $pdo->query("SELECT kode_barang, nama_barang, ukuran, harga_default, satuan_default FROM master_barang LIMIT 1")->fetch(PDO::FETCH_ASSOC);
 
-    if (!$kodeCustomer || !$kodeBarang) {
+    if (!$customer || !$barang) {
         return [
             'ok' => false,
             'message' => 'Data master customer atau barang kosong di database. Silakan jalankan seeder terlebih dahulu.',
@@ -4617,7 +4617,6 @@ function run_create_test_data(): array
     
     $kodeInvoice = 'INV-TEST-' . str_pad((string)$nextNum, 3, '0', STR_PAD_LEFT);
     $nomorInvoice = '999/BM-INV/TEST-' . $nextNum . '/2026';
-    $namaLaundry = 'LAUNDRY TEST ' . $nextNum;
 
     $months = [
         1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
@@ -4625,6 +4624,11 @@ function run_create_test_data(): array
         9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'
     ];
     $todayStr = date('d') . ' ' . $months[(int)date('m')] . ' ' . date('Y');
+
+    // Calculate totals using actual price from master
+    $hargaBarang = (float)($barang['harga_default'] ?: 100000);
+    $jumlahQty = 5.0;
+    $subtotal = $hargaBarang * $jumlahQty;
 
     try {
         $pdo->beginTransaction();
@@ -4663,17 +4667,17 @@ function run_create_test_data(): array
         ');
 
         $stmt->execute([
-            $kodeInvoice, $nomorInvoice, $todayStr, 'SJ-77777', $todayStr, 'PO-77777',
-            $kodeCustomer, 'Test Client', $namaLaundry, '08987654321', 'Jl. Sukses Selalu No. 77',
-            1, 5, 500000, 0, 0, 500000,
+            $kodeInvoice, $nomorInvoice, $todayStr, 'SJ-TEST-' . $nextNum, $todayStr, 'PO-TEST-' . $nextNum,
+            $customer['kode_customer'], $customer['nama_customer'], $customer['nama_laundry'], $customer['no_telepon'], $customer['alamat_default'],
+            1, $jumlahQty, $subtotal, 0, 0, $subtotal,
             'Belum Lunas', null,
-            10, 0, 0, 50000,
+            10, 0, 0, $subtotal * 0.1,
             'Belum TF', null,
             0, 0, null,
-            0, 2500,
-            0, 25000, null,
+            0, $subtotal * 0.005,
+            0, $subtotal * 0.05, null,
             10000, 0,
-            250000, 250000, 'Utang', null
+            $subtotal * 0.5, $subtotal * 0.5, 'Utang', null
         ]);
 
         // Insert item
@@ -4685,9 +4689,9 @@ function run_create_test_data(): array
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ');
         $stmt->execute([
-            $kodeInvoice, $nomorInvoice, $todayStr, $kodeCustomer, $kodeBarang,
-            'Barang Test', '20 Liter', 'Barang Test', 'Isi Test',
-            5, 'Pail', 100000, 500000, 23
+            $kodeInvoice, $nomorInvoice, $todayStr, $customer['kode_customer'], $barang['kode_barang'],
+            $barang['nama_barang'], $barang['ukuran'], $barang['nama_barang'], 'Ukuran ' . $barang['ukuran'],
+            $jumlahQty, $barang['satuan_default'] ?: 'Pail', $hargaBarang, $subtotal, 23
         ]);
 
         $pdo->commit();

@@ -179,6 +179,9 @@ function fetch_database_maintenance(?string $action = null): array
     if ($action === 'update-hosting') {
         $result = run_hosting_update();
         $counts = database_table_counts();
+    } elseif ($action === 'update-hosting-latest') {
+        $result = run_hosting_latest_data_update();
+        $counts = database_table_counts();
     } elseif ($action === 'update-latest') {
         $result = run_latest_update();
         $counts = database_table_counts();
@@ -855,8 +858,7 @@ function accounting_add_line(array &$lines, int $accountId, float $debit, float 
 
 function accounting_replace_journal(PDO $pdo, string $sourceType, string $sourceId, string $entryDate, string $description, array $lines): int
 {
-    $delete = $pdo->prepare('DELETE FROM journal_entries WHERE source_type = ? AND source_id = ?');
-    $delete->execute([$sourceType, $sourceId]);
+    delete_accounting_journal_source($pdo, $sourceType, $sourceId);
 
     if ($lines === []) {
         return 0;
@@ -891,6 +893,26 @@ function accounting_replace_journal(PDO $pdo, string $sourceType, string $source
     }
 
     return count($lines);
+}
+
+function delete_accounting_journal_source(PDO $pdo, string $sourceType, string $sourceId): void
+{
+    if (! accounting_tables_ready($pdo)) {
+        return;
+    }
+
+    $delete = $pdo->prepare('DELETE FROM journal_entries WHERE source_type = ? AND source_id = ?');
+    $delete->execute([$sourceType, $sourceId]);
+}
+
+function delete_invoice_accounting_journal(PDO $pdo, string $kodeInvoice): void
+{
+    delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+}
+
+function post_invoice_accounting_journal(PDO $pdo, string $kodeInvoice): int
+{
+    return generate_invoice_journal($pdo, $kodeInvoice);
 }
 
 function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
@@ -2353,7 +2375,7 @@ function save_invoice_form(array $postData): array
             $baris += 2;
         }
 
-        generate_invoice_journal($pdo, $kodeInvoice);
+        post_invoice_accounting_journal($pdo, $kodeInvoice);
 
         $pdo->commit();
         return ['ok' => true, 'kode_invoice' => $kodeInvoice];
@@ -3152,14 +3174,14 @@ function http_get(string $url, array $headers = []): array
     if (function_exists('curl_init')) {
         $lastError = null;
 
-        for ($attempt = 1; $attempt <= 3; $attempt++) {
+        for ($attempt = 1; $attempt <= 1; $attempt++) {
             $curl = curl_init($url);
 
             curl_setopt_array($curl, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_TIMEOUT => 25,
-                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_TIMEOUT => 8,
+                CURLOPT_CONNECTTIMEOUT => 3,
                 CURLOPT_DNS_CACHE_TIMEOUT => 120,
                 CURLOPT_USERAGENT => app_config('name') . '/1.0',
                 CURLOPT_HTTPHEADER => $headers,
@@ -3254,8 +3276,8 @@ function http_post_form(string $url, array $data): array
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => http_build_query($data),
-        CURLOPT_TIMEOUT => 20,
-        CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_TIMEOUT => 8,
+                CURLOPT_CONNECTTIMEOUT => 3,
         CURLOPT_HTTPHEADER => [
             'Content-Type: application/x-www-form-urlencoded',
             'Accept: application/json',
@@ -4561,6 +4583,310 @@ function run_2025_latest_update(): array
     }
 }
 
+function run_hosting_latest_data_update(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok'         => false,
+            'message'    => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    $baseDir = dirname(__DIR__);
+    $excel2026 = $baseDir . '/storage/PENJUALAN-2026.xlsx';
+    $excel2025 = $baseDir . '/storage/PENJUALAN-2025.xlsx';
+    $drive25 = $baseDir . '/storage/drive25';
+    $importScript = $baseDir . '/scripts/import-drive25-invoices.php';
+
+    foreach ([$excel2026, $excel2025] as $path) {
+        if (! is_readable($path)) {
+            return [
+                'ok'         => false,
+                'message'    => 'File wajib tidak ditemukan: ' . str_replace($baseDir . '/', '', $path),
+                'statements' => 0,
+                'counts'     => database_table_counts(),
+            ];
+        }
+    }
+
+    if (! is_dir($drive25)) {
+        return [
+            'ok'         => false,
+            'message'    => 'Folder wajib tidak ditemukan: storage/drive25.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    if (! is_readable($importScript)) {
+        return [
+            'ok'         => false,
+            'message'    => 'Script wajib tidak ditemukan: scripts/import-drive25-invoices.php.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    if (! class_exists('ZipArchive')) {
+        return [
+            'ok'         => false,
+            'message'    => 'Ekstensi PHP "zip" (ZipArchive) tidak aktif. Aktifkan extension=zip pada server hosting.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    try {
+        $outputLogs = [];
+        $statements = 0;
+
+        $sync2026 = update_2026_invoice_fields_from_excel($pdo, $excel2026);
+        $statements += $sync2026['matched'];
+        $outputLogs[] = "1. Sinkronisasi Invoice 2026 dari Excel: {$sync2026['matched']} invoice diperbarui, {$sync2026['unmatched']} tidak ditemukan";
+        if (! empty($sync2026['unmatched_examples'])) {
+            $outputLogs[] = '   Tidak ditemukan 2026: ' . implode(', ', $sync2026['unmatched_examples']);
+        }
+
+        $op2026 = update_year_operational_from_excel($pdo, $excel2026, 2026);
+        $statements += $op2026['inserted'];
+        $outputLogs[] = "2. Sinkronisasi Operational 2026: {$op2026['deleted']} data lama dihapus, {$op2026['inserted']} data dimasukkan";
+
+        $pdo->exec("DELETE FROM operational_expenses WHERE kategori = 'bonus' AND tahun_pnl = 2026");
+        $bonusCount = seed_bonus_expenses($pdo);
+        $statements += $bonusCount;
+        $outputLogs[] = "3. Sinkronisasi Bonus 2026: $bonusCount data dimasukkan";
+
+        $sync2025 = update_2025_invoice_fields_from_excel($pdo, $excel2025);
+        $statements += $sync2025['matched'];
+        $outputLogs[] = "4. Sinkronisasi Invoice 2025 dari Excel: {$sync2025['matched']} invoice diperbarui, {$sync2025['unmatched']} tidak ditemukan";
+        if (! empty($sync2025['unmatched_examples'])) {
+            $outputLogs[] = '   Tidak ditemukan 2025: ' . implode(', ', $sync2025['unmatched_examples']);
+        }
+
+        $op2025 = update_2025_operational_from_excel($pdo, $excel2025);
+        $statements += $op2025['inserted'];
+        $outputLogs[] = "5. Sinkronisasi Operational 2025: {$op2025['deleted']} data lama dihapus, {$op2025['inserted']} data dimasukkan";
+
+        require_once $importScript;
+        $importResult = import_drive25_invoices($pdo, $drive25, $excel2026);
+        $statements += $importResult['processed'] + $importResult['items'];
+        $outputLogs[] = "6. Import Invoice 453-462: {$importResult['created']} dibuat, {$importResult['updated']} diupdate, {$importResult['items']} item";
+        if (! empty($importResult['warnings'])) {
+            $outputLogs[] = '   Peringatan import: ' . implode(' | ', $importResult['warnings']);
+        }
+
+        $fix328 = apply_invoice_328_commission_fix($pdo);
+        $statements += $fix328;
+        $outputLogs[] = "7. Koreksi Komisi Invoice 328: $fix328 baris diperbarui";
+
+        ensure_invoice_google_sync_columns($pdo);
+        $outputLogs[] = '8. Migrasi Kolom Google Sync: Selesai';
+
+        $journalResult = regenerate_all_accounting_journals($pdo);
+        $statements += $journalResult['lines'];
+        $outputLogs[] = "9. Posting Ulang Jurnal Akuntansi: {$journalResult['entries']} jurnal, {$journalResult['lines']} baris";
+
+        return [
+            'ok'         => true,
+            'message'    => 'Update Paket Hosting Berhasil! Data 2025, 2026, invoice 453-462, koreksi komisi, dan jurnal telah disinkronisasi.',
+            'statements' => $statements,
+            'counts'     => database_table_counts(),
+            'output'     => implode("\n", $outputLogs),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok'         => false,
+            'message'    => 'Update paket hosting gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+}
+
+function update_2026_invoice_fields_from_excel(PDO $pdo, string $excelPath): array
+{
+    $rows = read_xlsx_sheet_rows_internal($excelPath, 'Penjualan');
+    $existingInvoices = [];
+
+    foreach ($pdo->query('SELECT nomor_invoice FROM invoices')->fetchAll(PDO::FETCH_COLUMN) ?: [] as $invoiceNumber) {
+        $existingInvoices[invoice_number_key_2025((string) $invoiceNumber)] = (string) $invoiceNumber;
+    }
+
+    $salesMap = fetch_sales_map_2025($pdo);
+    $statement = $pdo->prepare('
+        UPDATE invoices
+        SET kode_sales_1 = :kode_sales_1,
+            nama_sales_1 = :nama_sales_1,
+            kode_sales_2 = :kode_sales_2,
+            nama_sales_2 = :nama_sales_2,
+            harga_normal_pricelist = :harga_normal_pricelist,
+            discount_persen = :discount_persen,
+            discount_amount = :discount_amount,
+            total_harga_jual = :total_harga_jual,
+            status_pembayaran = :status_pembayaran,
+            tanggal_pembayaran = :tanggal_pembayaran,
+            komisi_sales_1_persen = :komisi_sales_1_persen,
+            komisi_sales_2_persen = :komisi_sales_2_persen,
+            komisi_sales_terbayar = :komisi_sales_terbayar,
+            komisi_sales_belum_terbayar = :komisi_sales_belum_terbayar,
+            status_pembayaran_komisi_sales = :status_pembayaran_komisi_sales,
+            tanggal_transfer_komisi_sales = :tanggal_transfer_komisi_sales,
+            komisi_manager_terbayar = :komisi_manager_terbayar,
+            komisi_manager_utang = :komisi_manager_utang,
+            tanggal_transfer_komisi_manager = :tanggal_transfer_komisi_manager,
+            pph_final_terbayar = :pph_final_terbayar,
+            pph_final_belum_terbayar = :pph_final_belum_terbayar,
+            komisi_admin_terbayar = :komisi_admin_terbayar,
+            komisi_admin_belum_terbayar = :komisi_admin_belum_terbayar,
+            tanggal_transfer_komisi_admin = :tanggal_transfer_komisi_admin,
+            biaya_kirim = :biaya_kirim,
+            biaya_admin_bank = :biaya_admin_bank,
+            total_pembelian_barang = :total_pembelian_barang,
+            total_utang_pembelian_barang = :total_utang_pembelian_barang,
+            status_pembelian_barang = :status_pembelian_barang,
+            tanggal_transfer_pembelian_barang = :tanggal_transfer_pembelian_barang
+        WHERE nomor_invoice = :nomor_invoice
+    ');
+
+    $records = 0;
+    $matched = 0;
+    $unmatched = [];
+
+    foreach ($rows as $row) {
+        $invoiceNumber = normalize_spaces((string) ($row['A'] ?? ''));
+        if ($invoiceNumber === '' || invoice_year($invoiceNumber) !== '2026') {
+            continue;
+        }
+
+        $records++;
+        $invoiceKey = invoice_number_key_2025($invoiceNumber);
+        if (! isset($existingInvoices[$invoiceKey])) {
+            $unmatched[] = $invoiceNumber;
+            continue;
+        }
+
+        $sales1 = resolve_sales_2025($pdo, $salesMap, (string) ($row['F'] ?? ''));
+        $sales2 = resolve_sales_2025($pdo, $salesMap, (string) ($row['G'] ?? ''));
+        $purchaseDebt = (float) parse_number_internal($row['AH'] ?? 0);
+        $purchaseTransferDate = excel_date_2025($row['AI'] ?? '');
+
+        $statement->execute([
+            'nomor_invoice' => $existingInvoices[$invoiceKey],
+            'kode_sales_1' => $sales1['kode_sales'],
+            'nama_sales_1' => $sales1['nama_sales'],
+            'kode_sales_2' => $sales2['kode_sales'],
+            'nama_sales_2' => $sales2['nama_sales'],
+            'harga_normal_pricelist' => (float) parse_number_internal($row['H'] ?? 0),
+            'discount_persen' => parse_percent_2025($row['I'] ?? ''),
+            'discount_amount' => (float) parse_number_internal($row['J'] ?? 0),
+            'total_harga_jual' => (float) parse_number_internal($row['K'] ?? 0),
+            'status_pembayaran' => normalize_payment_status_2025((string) ($row['L'] ?? '')),
+            'tanggal_pembayaran' => excel_date_2025($row['M'] ?? ''),
+            'komisi_sales_1_persen' => parse_percent_2025($row['P'] ?? ''),
+            'komisi_sales_2_persen' => parse_percent_2025($row['Q'] ?? ''),
+            'komisi_sales_terbayar' => (float) parse_number_internal($row['S'] ?? 0),
+            'komisi_sales_belum_terbayar' => (float) parse_number_internal($row['T'] ?? 0),
+            'status_pembayaran_komisi_sales' => normalize_spaces((string) ($row['U'] ?? '')) ?: null,
+            'tanggal_transfer_komisi_sales' => excel_date_2025($row['V'] ?? ''),
+            'komisi_manager_terbayar' => (float) parse_number_internal($row['W'] ?? 0),
+            'komisi_manager_utang' => (float) parse_number_internal($row['X'] ?? 0),
+            'tanggal_transfer_komisi_manager' => excel_date_2025($row['Y'] ?? ''),
+            'pph_final_terbayar' => (float) parse_number_internal($row['Z'] ?? 0),
+            'pph_final_belum_terbayar' => (float) parse_number_internal($row['AA'] ?? 0),
+            'komisi_admin_terbayar' => (float) parse_number_internal($row['AB'] ?? 0),
+            'komisi_admin_belum_terbayar' => (float) parse_number_internal($row['AC'] ?? 0),
+            'tanggal_transfer_komisi_admin' => excel_date_2025($row['AD'] ?? ''),
+            'biaya_kirim' => (float) parse_number_internal($row['AE'] ?? 0),
+            'biaya_admin_bank' => (float) parse_number_internal($row['AF'] ?? 0),
+            'total_pembelian_barang' => (float) parse_number_internal($row['AG'] ?? 0),
+            'total_utang_pembelian_barang' => $purchaseDebt,
+            'status_pembelian_barang' => $purchaseTransferDate !== null ? 'Lunas' : ($purchaseDebt > 0 ? 'Utang' : 'Lunas'),
+            'tanggal_transfer_pembelian_barang' => $purchaseTransferDate,
+        ]);
+        $matched++;
+    }
+
+    return [
+        'records' => $records,
+        'matched' => $matched,
+        'unmatched' => count($unmatched),
+        'unmatched_examples' => array_slice($unmatched, 0, 10),
+    ];
+}
+
+function update_year_operational_from_excel(PDO $pdo, string $excelPath, int $year): array
+{
+    $expenses = read_operational_from_workbook_internal($excelPath);
+    $filtered = [];
+
+    foreach ($expenses as $expense) {
+        $tanggal = $expense['tanggal'] ?? null;
+        if ($tanggal === null || (int) date('Y', strtotime((string) $tanggal)) !== $year) {
+            continue;
+        }
+
+        $expense['bulan_pnl'] = (int) date('n', strtotime((string) $tanggal));
+        $expense['tahun_pnl'] = $year;
+        $expense['kategori'] = 'operational';
+        $filtered[] = $expense;
+    }
+
+    $pdo->exec("DELETE FROM journal_entries WHERE source_type = 'operational_expense'");
+    $deleted = $pdo->prepare("DELETE FROM operational_expenses WHERE kategori = 'operational' AND YEAR(tanggal) = ?");
+    $deleted->execute([$year]);
+
+    $statement = $pdo->prepare('
+        INSERT INTO operational_expenses (tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran, keterangan)
+        VALUES (:tanggal, :bulan_pnl, :tahun_pnl, :kategori, :nama_pengeluaran, :jumlah, :status_pembayaran, :tanggal_pembayaran, :keterangan)
+    ');
+
+    $inserted = 0;
+    foreach ($filtered as $expense) {
+        $statement->execute([
+            'tanggal' => $expense['tanggal'],
+            'bulan_pnl' => $expense['bulan_pnl'],
+            'tahun_pnl' => $expense['tahun_pnl'],
+            'kategori' => $expense['kategori'],
+            'nama_pengeluaran' => $expense['nama_pengeluaran'],
+            'jumlah' => $expense['jumlah'],
+            'status_pembayaran' => $expense['status_pembayaran'],
+            'tanggal_pembayaran' => $expense['tanggal_pembayaran'],
+            'keterangan' => $expense['keterangan'],
+        ]);
+        $inserted++;
+    }
+
+    return [
+        'deleted' => $deleted->rowCount(),
+        'inserted' => $inserted,
+    ];
+}
+
+function apply_invoice_328_commission_fix(PDO $pdo): int
+{
+    $stmt = $pdo->prepare('
+        UPDATE invoices
+        SET komisi_sales_belum_terbayar = 99000,
+            status_pembayaran_komisi_sales = :status
+        WHERE nomor_invoice = :nomor_invoice
+          AND (komisi_sales_belum_terbayar <> 99000 OR status_pembayaran_komisi_sales <> :status_check OR status_pembayaran_komisi_sales IS NULL)
+    ');
+    $stmt->execute([
+        'status' => 'Belum TF',
+        'status_check' => 'Belum TF',
+        'nomor_invoice' => '328/BM-INV/III/2026',
+    ]);
+
+    return $stmt->rowCount();
+}
+
 function update_2025_invoice_fields_from_excel(PDO $pdo, string $excelPath): array
 {
     $rows = read_xlsx_sheet_rows_internal($excelPath, 'Penjualan-2025');
@@ -5033,8 +5359,8 @@ function google_drive_upload_invoice(string $fileName, string $xlsxBinary, ?stri
     $curl = curl_init($url);
     curl_setopt_array($curl, [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 60,
-        CURLOPT_CONNECTTIMEOUT => 15,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_CONNECTTIMEOUT => 5,
         CURLOPT_HTTPHEADER => $headers,
         CURLOPT_POSTFIELDS => $body,
         CURLOPT_CUSTOMREQUEST => $method,
@@ -5069,7 +5395,8 @@ function google_drive_delete_file(string $fileId): bool
     $curl = curl_init('https://www.googleapis.com/drive/v3/files/' . urlencode($fileId) . '?supportsAllDrives=true');
     curl_setopt_array($curl, [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30,
+        CURLOPT_TIMEOUT => 8,
+        CURLOPT_CONNECTTIMEOUT => 3,
         CURLOPT_CUSTOMREQUEST => 'DELETE',
         CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token['access_token']],
     ]);
@@ -5276,7 +5603,8 @@ function http_post_json(string $url, string $jsonBody, array $headers = []): boo
     $curl = curl_init($url);
     curl_setopt_array($curl, [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_CONNECTTIMEOUT => 4,
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $jsonBody,
         CURLOPT_HTTPHEADER => $allHeaders,
@@ -5311,7 +5639,8 @@ function http_put_json(string $url, string $jsonBody, array $headers = []): bool
     $curl = curl_init($url);
     curl_setopt_array($curl, [
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 30,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_CONNECTTIMEOUT => 4,
         CURLOPT_CUSTOMREQUEST => 'PUT',
         CURLOPT_POSTFIELDS => $jsonBody,
         CURLOPT_HTTPHEADER => $allHeaders,
@@ -5605,6 +5934,55 @@ function build_invoice_xlsx_sheet(array $invoice, array $items, array $sharedStr
         . '<sheetData>' . implode('', $rows) . '</sheetData></worksheet>';
 }
 
+function ensure_invoice_google_sync_columns(PDO $pdo): void
+{
+    $stmt = $pdo->query("SHOW COLUMNS FROM invoices LIKE 'google_drive_file_id'");
+    if ($stmt !== false && $stmt->fetch(PDO::FETCH_ASSOC)) {
+        return;
+    }
+
+    $pdo->exec('ALTER TABLE invoices ADD COLUMN google_drive_file_id VARCHAR(200) NULL AFTER file_invoice');
+}
+
+function queue_invoice_google_sync(string $kodeInvoice, bool $isUpdate): array
+{
+    $scriptPath = dirname(__DIR__) . '/scripts/sync-invoice-google.php';
+    if (!is_file($scriptPath)) {
+        return [
+            'queued' => false,
+            'errors' => ['Invoice tersimpan, tapi script sync Google tidak ditemukan.'],
+        ];
+    }
+
+    if (!function_exists('exec')) {
+        return [
+            'queued' => false,
+            'errors' => ['Invoice tersimpan, tapi fungsi exec tidak aktif untuk menjalankan sync Google di background.'],
+        ];
+    }
+
+    $logDir = dirname(__DIR__) . '/storage/logs';
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
+    }
+
+    $php = PHP_BINARY ?: 'php';
+    $logPath = $logDir . '/google-sync.log';
+    $command = escapeshellarg($php)
+        . ' ' . escapeshellarg($scriptPath)
+        . ' ' . escapeshellarg($kodeInvoice)
+        . ' ' . ($isUpdate ? '1' : '0')
+        . ' >> ' . escapeshellarg($logPath)
+        . ' 2>&1 &';
+
+    exec($command);
+
+    return [
+        'queued' => true,
+        'errors' => [],
+    ];
+}
+
 /**
  * Sync invoice ke Google Drive dan Google Sheets setelah disimpan/diperbarui.
  * Dipanggil setelah save_invoice_form() berhasil.
@@ -5617,6 +5995,8 @@ function sync_invoice_to_google(string $kodeInvoice, bool $isUpdate): array
 {
     $pdo = db();
     if ($pdo === null) return ['drive_ok' => false, 'sheets_ok' => false, 'drive_file_id' => null, 'errors' => ['DB not connected']];
+
+    ensure_invoice_google_sync_columns($pdo);
 
     // Clear last error
     set_google_api_error('');
@@ -5647,7 +6027,7 @@ function sync_invoice_to_google(string $kodeInvoice, bool $isUpdate): array
 
     if ($xlsxBinary !== null) {
         // Cari existing file ID: pakai yg tersimpan di DB atau cari dari Drive
-        $existingFileId = $invoiceData['google_drive_file_id'] ?: google_drive_find_invoice_file($fileName);
+        $existingFileId = ($invoiceData['google_drive_file_id'] ?? '') ?: google_drive_find_invoice_file($fileName);
 
         $newFileId = google_drive_upload_invoice($fileName, $xlsxBinary, $existingFileId);
 
@@ -5694,6 +6074,8 @@ function delete_invoice_from_google(string $kodeInvoice): array
 {
     $pdo = db();
     if ($pdo === null) return ['drive_ok' => false, 'sheets_ok' => false];
+
+    ensure_invoice_google_sync_columns($pdo);
 
     $invoice = $pdo->prepare('SELECT nomor_invoice, nama_laundry_invoice, nama_customer_invoice, google_drive_file_id FROM invoices WHERE kode_invoice = ?');
     $invoice->execute([$kodeInvoice]);
@@ -5745,9 +6127,7 @@ function delete_invoice(string $kodeInvoice): array
         $googleResult = delete_invoice_from_google($kodeInvoice);
 
         $pdo->beginTransaction();
-        if (accounting_tables_ready($pdo)) {
-            $pdo->prepare('DELETE FROM journal_entries WHERE source_type = ? AND source_id = ?')->execute(['invoice', $kodeInvoice]);
-        }
+        delete_invoice_accounting_journal($pdo, $kodeInvoice);
         $pdo->prepare('DELETE FROM invoice_items WHERE kode_invoice = ?')->execute([$kodeInvoice]);
         $pdo->prepare('DELETE FROM invoices WHERE kode_invoice = ?')->execute([$kodeInvoice]);
         $pdo->commit();
@@ -5825,6 +6205,7 @@ function run_create_test_data(): array
         $pdo->beginTransaction();
 
         // Clean up first if exists (just in case)
+        delete_invoice_accounting_journal($pdo, $kodeInvoice);
         $pdo->prepare("DELETE FROM invoice_items WHERE kode_invoice = ?")->execute([$kodeInvoice]);
         $pdo->prepare("DELETE FROM invoices WHERE kode_invoice = ?")->execute([$kodeInvoice]);
 
@@ -5884,6 +6265,8 @@ function run_create_test_data(): array
             $barang['nama_barang'], $barang['ukuran'], $barang['nama_barang'], 'Ukuran ' . $barang['ukuran'],
             $jumlahQty, $barang['satuan_default'] ?: 'Pail', $hargaBarang, $subtotal, 23
         ]);
+
+        post_invoice_accounting_journal($pdo, $kodeInvoice);
 
         $pdo->commit();
 
@@ -5953,7 +6336,8 @@ function run_delete_test_data(): array
             }
         }
 
-        // Clean up orphaned invoice items just in case
+        // Clean up orphaned test records just in case
+        $pdo->exec("DELETE FROM journal_entries WHERE source_type = 'invoice' AND source_id LIKE 'INV-TEST-%'");
         $pdo->exec("DELETE FROM invoice_items WHERE kode_invoice LIKE 'INV-TEST-%'");
 
         $msg = 'Berhasil menghapus ' . $deletedCount . ' data test.';

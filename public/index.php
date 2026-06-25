@@ -103,10 +103,8 @@ $routes = [
                 $isUpdate = !empty($_POST['kode_invoice']);
                 $result = save_invoice_form($_POST);
                 if ($result['ok']) {
-                    // Sync ke Google Drive & Sheets (best-effort, tidak block redirect)
-                    $googleSync = sync_invoice_to_google($result['kode_invoice'], $isUpdate);
+                    $googleSync = queue_invoice_google_sync($result['kode_invoice'], $isUpdate);
                     if (!empty($googleSync['errors'])) {
-                        // Redirect tetap tapi dengan flash peringatan via session
                         $_SESSION['google_sync_warnings'] = $googleSync['errors'];
                     }
                     header('Location: ' . url('/invoices'));

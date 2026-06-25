@@ -388,11 +388,19 @@
                 <a href="<?= e(url('/invoices')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
                     Batal
                 </a>
-                <button type="submit" class="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800">
-                    Simpan Invoice
+                <button type="submit" id="invoice-submit-button" class="inline-flex min-w-36 items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-wait disabled:bg-teal-800 disabled:opacity-80">
+                    <span data-submit-spinner class="hidden h-4 w-4 rounded-full border-2 border-white/40 border-t-white motion-safe:animate-spin"></span>
+                    <span data-submit-label><?= e($isUpdate ? 'Update Invoice' : 'Simpan Invoice') ?></span>
                 </button>
             </div>
         </form>
+
+        <div id="invoice-submit-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-stone-950/35 px-4 backdrop-blur-[1px]">
+            <div class="flex w-full max-w-xs items-center gap-3 rounded-lg bg-white p-4 text-sm font-semibold text-ink shadow-xl">
+                <span class="h-5 w-5 shrink-0 rounded-full border-2 border-brand/25 border-t-brand motion-safe:animate-spin"></span>
+                <span><?= e($isUpdate ? 'Mengupdate invoice...' : 'Menyimpan invoice...') ?></span>
+            </div>
+        </div>
 
         <?php if ($isUpdate): ?>
             <form id="delete-invoice-form" action="<?= e(url('/invoice-delete')) ?>" method="POST" class="hidden">
@@ -447,6 +455,10 @@
             const purchasePanel = document.querySelector('#purchase-price-panel');
             const purchaseRows = document.querySelector('#purchase-price-rows');
             const togglePurchasePanelButton = document.querySelector('#toggle-purchase-panel');
+            const invoiceSubmitButton = document.querySelector('#invoice-submit-button');
+            const invoiceSubmitSpinner = document.querySelector('[data-submit-spinner]');
+            const invoiceSubmitLabel = document.querySelector('[data-submit-label]');
+            const invoiceSubmitOverlay = document.querySelector('#invoice-submit-overlay');
 
             function moneyValue(input) {
                 if (!input) {
@@ -857,6 +869,11 @@
 
             const form = document.querySelector('#invoice-form');
             form.addEventListener('submit', (event) => {
+                if (form.dataset.submitting === 'true') {
+                    event.preventDefault();
+                    return;
+                }
+
                 // 1. Assign proper indices to items input names
                 const rows = itemRows.querySelectorAll('tr');
                 rows.forEach((row, index) => {
@@ -872,6 +889,14 @@
                     const val = moneyValue(input);
                     input.value = val;
                 });
+
+                form.dataset.submitting = 'true';
+                invoiceSubmitButton.disabled = true;
+                invoiceSubmitButton.setAttribute('aria-busy', 'true');
+                invoiceSubmitSpinner.classList.remove('hidden');
+                invoiceSubmitLabel.textContent = <?= json_encode($isUpdate ? 'Mengupdate...' : 'Menyimpan...', JSON_UNESCAPED_UNICODE) ?>;
+                invoiceSubmitOverlay.classList.remove('hidden');
+                invoiceSubmitOverlay.classList.add('flex');
             });
 
             prepareMoneyFields();

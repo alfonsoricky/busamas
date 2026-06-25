@@ -71,6 +71,30 @@
                 </form>
             </div>
 
+            <!-- Paket Update Hosting Terakhir -->
+            <div class="rounded-lg border border-sky-200 bg-white p-5 shadow-sm">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100">
+                        <svg class="h-5 w-5 text-sky-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l-3 3m3-3l3 3M6.75 19.5h10.5A2.25 2.25 0 0019.5 17.25V6.75A2.25 2.25 0 0017.25 4.5H6.75A2.25 2.25 0 004.5 6.75v10.5A2.25 2.25 0 006.75 19.5z"/></svg>
+                    </div>
+                    <h2 class="text-lg font-bold text-ink">Update Paket Hosting Terakhir</h2>
+                </div>
+                <p class="mt-3 text-sm leading-6 text-stone-600">
+                    Jalankan seluruh update data terakhir tanpa reset database: sinkronisasi invoice 2025/2026 dari Excel, operational, bonus, import invoice 453-462 dari <strong class="text-ink">storage/drive25</strong>, koreksi komisi invoice 328, dan posting ulang jurnal akuntansi.
+                </p>
+
+                <div class="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900">
+                    Pastikan <strong>storage/PENJUALAN-2025.xlsx</strong>, <strong>storage/PENJUALAN-2026.xlsx</strong>, dan folder <strong>storage/drive25</strong> sudah ikut ter-upload di hosting.
+                </div>
+
+                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Jalankan paket update hosting terakhir sekarang?')">
+                    <input type="hidden" name="action" value="update-hosting-latest">
+                    <button class="rounded-lg bg-sky-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700">
+                        Jalankan Paket Update Hosting
+                    </button>
+                </form>
+            </div>
+
             <!-- Reset & Update Hosting (Truncate + Seed Ulang) -->
             <div class="rounded-lg border border-orange-200 bg-white p-5 shadow-sm">
                 <div class="flex items-center gap-3">

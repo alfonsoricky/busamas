@@ -19,10 +19,14 @@ declare(strict_types=1);
 $baseDir = dirname(__DIR__);
 require_once $baseDir . '/app/helpers.php';
 
-$excelPath = $baseDir . '/storage/PENJUALAN-2026.xlsx';
+$excelFile = $argv[1] ?? 'storage/PENJUALAN-2026.xlsx';
+$sheetName = $argv[2] ?? 'Penjualan';
+$excelPath = str_starts_with($excelFile, '/')
+    ? $excelFile
+    : $baseDir . '/' . ltrim($excelFile, '/');
 
 if (! is_readable($excelPath)) {
-    fwrite(STDERR, 'File tidak ditemukan: storage/PENJUALAN-2026.xlsx' . PHP_EOL);
+    fwrite(STDERR, 'File tidak ditemukan: ' . $excelFile . PHP_EOL);
     exit(1);
 }
 
@@ -33,14 +37,14 @@ if ($pdo === null) {
 }
 
 try {
-    $count = update_invoice_commission_data($pdo, $excelPath);
+    $count = update_invoice_commission_data($pdo, $excelPath, $sheetName);
     echo 'invoices updated (komisi sales + manager + admin): ' . $count . ' rows updated successfully.' . PHP_EOL;
 } catch (Throwable $exception) {
     fwrite(STDERR, 'Update komisi gagal: ' . $exception->getMessage() . PHP_EOL);
     exit(1);
 }
 
-function update_invoice_commission_data(PDO $pdo, string $excelPath): int
+function update_invoice_commission_data(PDO $pdo, string $excelPath, string $sheetName): int
 {
     // Pastikan semua kolom baru sudah ada
     $cols         = $pdo->query('DESCRIBE invoices')->fetchAll(PDO::FETCH_COLUMN);
@@ -62,7 +66,7 @@ function update_invoice_commission_data(PDO $pdo, string $excelPath): int
         }
     }
 
-    $rows = read_xlsx_sheet_rows_internal($excelPath, 'Penjualan');
+    $rows = read_xlsx_sheet_rows_internal($excelPath, $sheetName);
 
     $statement = $pdo->prepare('
         UPDATE invoices

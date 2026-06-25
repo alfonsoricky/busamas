@@ -4,17 +4,21 @@ declare(strict_types=1);
 
 $baseDir = dirname(__DIR__);
 $config = require $baseDir . '/config/database.php';
-$excelPath = $baseDir . '/storage/PENJUALAN-2026.xlsx';
+$excelFile = $argv[1] ?? 'storage/PENJUALAN-2026.xlsx';
+$sheetName = $argv[2] ?? 'Penjualan';
+$excelPath = str_starts_with($excelFile, '/')
+    ? $excelFile
+    : $baseDir . '/' . ltrim($excelFile, '/');
 
 if (! is_readable($excelPath)) {
-    fwrite(STDERR, 'File tidak ditemukan: storage/PENJUALAN-2026.xlsx' . PHP_EOL);
+    fwrite(STDERR, 'File tidak ditemukan: ' . $excelFile . PHP_EOL);
     exit(1);
 }
 
 $pdo = connect_database($config);
 ensure_invoice_payment_columns($pdo);
 
-$records = read_payment_records($excelPath, 'Penjualan');
+$records = read_payment_records($excelPath, $sheetName);
 $existingInvoices = fetch_existing_invoice_numbers($pdo);
 $statement = $pdo->prepare('
     UPDATE invoices
@@ -27,7 +31,6 @@ $matched = 0;
 $unmatched = [];
 
 $pdo->beginTransaction();
-$pdo->exec("UPDATE invoices SET status_pembayaran = 'Lunas', tanggal_pembayaran = NULL");
 
 foreach ($records as $invoiceNumber => $record) {
     $invoiceKey = invoice_number_key($invoiceNumber);
@@ -48,7 +51,7 @@ foreach ($records as $invoiceNumber => $record) {
 
 $pdo->commit();
 
-echo 'Data status pembayaran dari Excel 2026: ' . count($records) . PHP_EOL;
+echo 'Data status pembayaran dari Excel: ' . count($records) . PHP_EOL;
 echo 'Invoice ditemukan dan disinkronkan: ' . $matched . PHP_EOL;
 echo 'Invoice tidak ditemukan: ' . count($unmatched) . PHP_EOL;
 

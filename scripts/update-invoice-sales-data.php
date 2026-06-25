@@ -4,17 +4,21 @@ declare(strict_types=1);
 
 $baseDir = dirname(__DIR__);
 $config = require $baseDir . '/config/database.php';
-$excelPath = $baseDir . '/storage/PENJUALAN-2026.xlsx';
+$excelFile = $argv[1] ?? 'storage/PENJUALAN-2026.xlsx';
+$sheetName = $argv[2] ?? 'Penjualan';
+$excelPath = str_starts_with($excelFile, '/')
+    ? $excelFile
+    : $baseDir . '/' . ltrim($excelFile, '/');
 
 if (! is_readable($excelPath)) {
-    fwrite(STDERR, 'File tidak ditemukan: storage/PENJUALAN-2026.xlsx' . PHP_EOL);
+    fwrite(STDERR, 'File tidak ditemukan: ' . $excelFile . PHP_EOL);
     exit(1);
 }
 
 $pdo = connect_database($config);
 ensure_invoice_sales_columns($pdo);
 
-$records = read_sales_records($excelPath);
+$records = read_sales_records($excelPath, $sheetName);
 $salesMap = fetch_sales_map($pdo);
 $existingInvoices = fetch_existing_invoice_numbers($pdo);
 $statement = $pdo->prepare('
@@ -186,9 +190,9 @@ function next_sales_code(PDO $pdo): string
     return sprintf('SLS-%04d', ((int) $match[1]) + 1);
 }
 
-function read_sales_records(string $path): array
+function read_sales_records(string $path, string $sheetName): array
 {
-    $rows = read_xlsx_sheet_rows($path, 'Penjualan');
+    $rows = read_xlsx_sheet_rows($path, $sheetName);
     $records = [];
 
     foreach ($rows as $row) {

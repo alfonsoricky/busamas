@@ -51,6 +51,26 @@
                 </form>
             </div>
 
+            <!-- Update Data 2025 -->
+            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
+                        <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    </div>
+                    <h2 class="text-lg font-bold text-ink">Update Data 2025</h2>
+                </div>
+                <p class="mt-3 text-sm leading-6 text-stone-600">
+                    Sinkronisasi seluruh data invoice dan operational tahun 2025 dari <strong class="text-ink">PENJUALAN-2025.xlsx</strong>, lalu posting ulang jurnal akuntansi.
+                </p>
+
+                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
+                    <input type="hidden" name="action" value="update-2025-latest">
+                    <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
+                        Jalankan Update Data 2025
+                    </button>
+                </form>
+            </div>
+
             <!-- Reset & Update Hosting (Truncate + Seed Ulang) -->
             <div class="rounded-lg border border-orange-200 bg-white p-5 shadow-sm">
                 <div class="flex items-center gap-3">

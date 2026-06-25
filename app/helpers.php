@@ -182,6 +182,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'update-latest') {
         $result = run_latest_update();
         $counts = database_table_counts();
+    } elseif ($action === 'update-2025-latest') {
+        $result = run_2025_latest_update();
+        $counts = database_table_counts();
     } elseif ($action === 'migrate-seed') {
         $result = run_database_migration_seed();
         $counts = database_table_counts();
@@ -4485,6 +4488,363 @@ function run_latest_update(): array
             'counts'     => database_table_counts(),
         ];
     }
+}
+
+function run_2025_latest_update(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok'         => false,
+            'message'    => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    $excelPath = dirname(__DIR__) . '/storage/PENJUALAN-2025.xlsx';
+    if (! is_readable($excelPath)) {
+        return [
+            'ok'         => false,
+            'message'    => 'File Excel storage/PENJUALAN-2025.xlsx tidak ditemukan.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    if (! class_exists('ZipArchive')) {
+        return [
+            'ok'         => false,
+            'message'    => 'Ekstensi PHP "zip" (ZipArchive) tidak aktif. Aktifkan extension=zip pada php.ini server.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    try {
+        $outputLogs = [];
+
+        $pdo->beginTransaction();
+        $invoiceResult = update_2025_invoice_fields_from_excel($pdo, $excelPath);
+        $operationalResult = update_2025_operational_from_excel($pdo, $excelPath);
+        $pdo->commit();
+
+        $outputLogs[] = "1. Sinkronisasi Invoice 2025: {$invoiceResult['matched']} invoice diperbarui, {$invoiceResult['unmatched']} tidak ditemukan";
+        if (! empty($invoiceResult['unmatched_examples'])) {
+            $outputLogs[] = '   Tidak ditemukan: ' . implode(', ', $invoiceResult['unmatched_examples']);
+        }
+        $outputLogs[] = "2. Sinkronisasi Operational 2025: {$operationalResult['deleted']} data lama dihapus, {$operationalResult['inserted']} data dimasukkan";
+
+        $pdo->beginTransaction();
+        $journalResult = regenerate_all_accounting_journals($pdo);
+        $pdo->commit();
+        $outputLogs[] = "3. Posting Ulang Jurnal Akuntansi: {$journalResult['entries']} jurnal, {$journalResult['lines']} baris";
+
+        return [
+            'ok'         => true,
+            'message'    => 'Update Data 2025 Berhasil! Invoice, operational, dan jurnal akuntansi telah disinkronisasi.',
+            'statements' => $invoiceResult['matched'] + $operationalResult['inserted'] + $journalResult['lines'],
+            'counts'     => database_table_counts(),
+            'output'     => implode("\n", $outputLogs),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok'         => false,
+            'message'    => 'Update data 2025 gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+}
+
+function update_2025_invoice_fields_from_excel(PDO $pdo, string $excelPath): array
+{
+    $rows = read_xlsx_sheet_rows_internal($excelPath, 'Penjualan-2025');
+    $existingInvoices = [];
+
+    foreach ($pdo->query('SELECT nomor_invoice FROM invoices')->fetchAll(PDO::FETCH_COLUMN) ?: [] as $invoiceNumber) {
+        $existingInvoices[invoice_number_key_2025((string) $invoiceNumber)] = (string) $invoiceNumber;
+    }
+
+    $salesMap = fetch_sales_map_2025($pdo);
+    $statement = $pdo->prepare('
+        UPDATE invoices
+        SET kode_sales_1 = :kode_sales_1,
+            nama_sales_1 = :nama_sales_1,
+            kode_sales_2 = :kode_sales_2,
+            nama_sales_2 = :nama_sales_2,
+            harga_normal_pricelist = :harga_normal_pricelist,
+            discount_persen = :discount_persen,
+            discount_amount = :discount_amount,
+            total_harga_jual = :total_harga_jual,
+            status_pembayaran = :status_pembayaran,
+            tanggal_pembayaran = :tanggal_pembayaran,
+            komisi_sales_1_persen = :komisi_sales_1_persen,
+            komisi_sales_2_persen = :komisi_sales_2_persen,
+            komisi_sales_terbayar = :komisi_sales_terbayar,
+            komisi_sales_belum_terbayar = :komisi_sales_belum_terbayar,
+            status_pembayaran_komisi_sales = :status_pembayaran_komisi_sales,
+            tanggal_transfer_komisi_sales = :tanggal_transfer_komisi_sales,
+            komisi_manager_terbayar = :komisi_manager_terbayar,
+            komisi_manager_utang = :komisi_manager_utang,
+            tanggal_transfer_komisi_manager = :tanggal_transfer_komisi_manager,
+            pph_final_terbayar = :pph_final_terbayar,
+            pph_final_belum_terbayar = :pph_final_belum_terbayar,
+            komisi_admin_terbayar = :komisi_admin_terbayar,
+            komisi_admin_belum_terbayar = :komisi_admin_belum_terbayar,
+            tanggal_transfer_komisi_admin = :tanggal_transfer_komisi_admin,
+            biaya_kirim = :biaya_kirim,
+            biaya_admin_bank = :biaya_admin_bank,
+            total_pembelian_barang = :total_pembelian_barang,
+            total_utang_pembelian_barang = :total_utang_pembelian_barang,
+            status_pembelian_barang = :status_pembelian_barang,
+            tanggal_transfer_pembelian_barang = :tanggal_transfer_pembelian_barang
+        WHERE nomor_invoice = :nomor_invoice
+    ');
+
+    $records = 0;
+    $matched = 0;
+    $unmatched = [];
+
+    foreach ($rows as $row) {
+        $invoiceNumber = normalize_spaces((string) ($row['A'] ?? ''));
+        if (! is_2025_invoice_number($invoiceNumber)) {
+            continue;
+        }
+
+        $records++;
+        $invoiceKey = invoice_number_key_2025($invoiceNumber);
+        if (! isset($existingInvoices[$invoiceKey])) {
+            $unmatched[] = $invoiceNumber;
+            continue;
+        }
+
+        $sales1 = resolve_sales_2025($pdo, $salesMap, (string) ($row['F'] ?? ''));
+        $sales2 = resolve_sales_2025($pdo, $salesMap, (string) ($row['G'] ?? ''));
+        $purchaseDebt = (float) parse_number_internal($row['AH'] ?? 0);
+        $purchaseTransferDate = excel_date_2025($row['AI'] ?? '');
+
+        $statement->execute([
+            'nomor_invoice' => $existingInvoices[$invoiceKey],
+            'kode_sales_1' => $sales1['kode_sales'],
+            'nama_sales_1' => $sales1['nama_sales'],
+            'kode_sales_2' => $sales2['kode_sales'],
+            'nama_sales_2' => $sales2['nama_sales'],
+            'harga_normal_pricelist' => (float) parse_number_internal($row['H'] ?? 0),
+            'discount_persen' => parse_percent_2025($row['I'] ?? ''),
+            'discount_amount' => (float) parse_number_internal($row['J'] ?? 0),
+            'total_harga_jual' => (float) parse_number_internal($row['K'] ?? 0),
+            'status_pembayaran' => normalize_payment_status_2025((string) ($row['L'] ?? '')),
+            'tanggal_pembayaran' => excel_date_2025($row['M'] ?? ''),
+            'komisi_sales_1_persen' => parse_percent_2025($row['P'] ?? ''),
+            'komisi_sales_2_persen' => parse_percent_2025($row['Q'] ?? ''),
+            'komisi_sales_terbayar' => (float) parse_number_internal($row['S'] ?? 0),
+            'komisi_sales_belum_terbayar' => (float) parse_number_internal($row['T'] ?? 0),
+            'status_pembayaran_komisi_sales' => normalize_spaces((string) ($row['U'] ?? '')) ?: null,
+            'tanggal_transfer_komisi_sales' => excel_date_2025($row['V'] ?? ''),
+            'komisi_manager_terbayar' => (float) parse_number_internal($row['W'] ?? 0),
+            'komisi_manager_utang' => (float) parse_number_internal($row['X'] ?? 0),
+            'tanggal_transfer_komisi_manager' => excel_date_2025($row['Y'] ?? ''),
+            'pph_final_terbayar' => (float) parse_number_internal($row['Z'] ?? 0),
+            'pph_final_belum_terbayar' => (float) parse_number_internal($row['AA'] ?? 0),
+            'komisi_admin_terbayar' => (float) parse_number_internal($row['AB'] ?? 0),
+            'komisi_admin_belum_terbayar' => (float) parse_number_internal($row['AC'] ?? 0),
+            'tanggal_transfer_komisi_admin' => excel_date_2025($row['AD'] ?? ''),
+            'biaya_kirim' => (float) parse_number_internal($row['AE'] ?? 0),
+            'biaya_admin_bank' => (float) parse_number_internal($row['AF'] ?? 0),
+            'total_pembelian_barang' => (float) parse_number_internal($row['AG'] ?? 0),
+            'total_utang_pembelian_barang' => $purchaseDebt,
+            'status_pembelian_barang' => $purchaseTransferDate !== null ? 'Lunas' : ($purchaseDebt > 0 ? 'Utang' : 'Lunas'),
+            'tanggal_transfer_pembelian_barang' => $purchaseTransferDate,
+        ]);
+        $matched++;
+    }
+
+    return [
+        'records' => $records,
+        'matched' => $matched,
+        'unmatched' => count($unmatched),
+        'unmatched_examples' => array_slice($unmatched, 0, 10),
+    ];
+}
+
+function update_2025_operational_from_excel(PDO $pdo, string $excelPath): array
+{
+    $expenses = read_operational_from_workbook_internal($excelPath);
+    $filtered = [];
+
+    foreach ($expenses as $expense) {
+        $tanggal = $expense['tanggal'] ?? null;
+        if ($tanggal === null || (int) date('Y', strtotime((string) $tanggal)) !== 2025) {
+            continue;
+        }
+
+        $expense['bulan_pnl'] = (int) date('n', strtotime((string) $tanggal));
+        $expense['tahun_pnl'] = 2025;
+        $expense['kategori'] = 'operational';
+        $filtered[] = $expense;
+    }
+
+    $pdo->exec("DELETE FROM journal_entries WHERE source_type = 'operational_expense'");
+    $deleted = $pdo->exec("DELETE FROM operational_expenses WHERE kategori = 'operational' AND YEAR(tanggal) = 2025");
+
+    $statement = $pdo->prepare('
+        INSERT INTO operational_expenses (tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran, keterangan)
+        VALUES (:tanggal, :bulan_pnl, :tahun_pnl, :kategori, :nama_pengeluaran, :jumlah, :status_pembayaran, :tanggal_pembayaran, :keterangan)
+    ');
+
+    $inserted = 0;
+    foreach ($filtered as $expense) {
+        $statement->execute([
+            'tanggal' => $expense['tanggal'],
+            'bulan_pnl' => $expense['bulan_pnl'],
+            'tahun_pnl' => $expense['tahun_pnl'],
+            'kategori' => $expense['kategori'],
+            'nama_pengeluaran' => $expense['nama_pengeluaran'],
+            'jumlah' => $expense['jumlah'],
+            'status_pembayaran' => $expense['status_pembayaran'],
+            'tanggal_pembayaran' => $expense['tanggal_pembayaran'],
+            'keterangan' => $expense['keterangan'],
+        ]);
+        $inserted++;
+    }
+
+    return [
+        'deleted' => (int) $deleted,
+        'inserted' => $inserted,
+    ];
+}
+
+function fetch_sales_map_2025(PDO $pdo): array
+{
+    $rows = $pdo->query('SELECT kode_sales, nama_sales FROM master_sales ORDER BY kode_sales')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $map = [];
+
+    foreach ($rows as $row) {
+        $map[sales_key_2025((string) $row['nama_sales'])] = [
+            'kode_sales' => (string) $row['kode_sales'],
+            'nama_sales' => (string) $row['nama_sales'],
+        ];
+    }
+
+    return $map;
+}
+
+function resolve_sales_2025(PDO $pdo, array &$salesMap, string $name): array
+{
+    $name = normalize_sales_name_2025($name);
+    if ($name === '') {
+        return ['kode_sales' => null, 'nama_sales' => null];
+    }
+
+    $key = sales_key_2025($name);
+    if (isset($salesMap[$key])) {
+        return $salesMap[$key];
+    }
+
+    $code = next_sales_code_2025($pdo);
+    $statement = $pdo->prepare('INSERT INTO master_sales (kode_sales, nama_sales) VALUES (:kode_sales, :nama_sales)');
+    $statement->execute(['kode_sales' => $code, 'nama_sales' => $name]);
+
+    $salesMap[$key] = ['kode_sales' => $code, 'nama_sales' => $name];
+
+    return $salesMap[$key];
+}
+
+function next_sales_code_2025(PDO $pdo): string
+{
+    $lastCode = (string) $pdo->query('SELECT kode_sales FROM master_sales ORDER BY kode_sales DESC LIMIT 1')->fetchColumn();
+    if (preg_match('/SLS-(\d+)/', $lastCode, $match) !== 1) {
+        return 'SLS-0001';
+    }
+
+    return sprintf('SLS-%04d', ((int) $match[1]) + 1);
+}
+
+function normalize_sales_name_2025(string $name): string
+{
+    $name = normalize_spaces($name);
+    $key = strtolower($name);
+
+    return [
+        'pak adi' => 'Pak Adi',
+        'tim denis' => 'Denis Team',
+    ][$key] ?? $name;
+}
+
+function sales_key_2025(string $name): string
+{
+    return strtoupper(normalize_spaces($name));
+}
+
+function parse_percent_2025(mixed $value): float
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return 0.0;
+    }
+
+    $value = str_replace(',', '.', $value);
+    $clean = preg_replace('/[^0-9.\-Ee+]/', '', $value) ?? '';
+    if ($clean === '' || ! is_numeric($clean)) {
+        return 0.0;
+    }
+
+    $number = (float) $clean;
+
+    return abs($number) <= 1 ? $number * 100 : $number;
+}
+
+function excel_date_2025(mixed $value): ?string
+{
+    $value = trim((string) $value);
+    if ($value === '') {
+        return null;
+    }
+
+    if (! is_numeric($value)) {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) {
+            return $value;
+        }
+        $timestamp = strtotime($value);
+
+        return $timestamp === false ? null : date('Y-m-d', $timestamp);
+    }
+
+    $serial = (int) round((float) $value);
+    if ($serial <= 0) {
+        return null;
+    }
+    if ($serial >= 60) {
+        $serial--;
+    }
+
+    $unix = ($serial - 1) * 86400 + mktime(0, 0, 0, 1, 1, 1900);
+    $year = (int) date('Y', $unix);
+    if ($year < 2000 || $year > 2100) {
+        return null;
+    }
+
+    return date('Y-m-d', $unix);
+}
+
+function normalize_payment_status_2025(string $status): string
+{
+    return strtolower(normalize_spaces($status)) === 'lunas' ? 'Lunas' : 'Belum Lunas';
+}
+
+function invoice_number_key_2025(string $invoiceNumber): string
+{
+    return strtoupper(normalize_spaces($invoiceNumber));
+}
+
+function is_2025_invoice_number(string $value): bool
+{
+    return preg_match('~/BM-INV/[IVXLCDM]+/2025$~i', $value) === 1;
 }
 
 function update_invoice_purchase_data_from_excel(PDO $pdo, string $excelPath): int

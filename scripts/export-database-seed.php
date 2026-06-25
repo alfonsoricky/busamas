@@ -9,6 +9,7 @@ $outputPath = $baseDir . '/database/seed-data.sql';
 $pdo = connect_database($config);
 $tables = [
     'master_barang' => [
+        'id',
         'kode_barang',
         'nama_barang',
         'ukuran',
@@ -19,8 +20,11 @@ $tables = [
         'jumlah_transaksi',
         'jumlah_invoice',
         'alias',
+        'created_at',
+        'updated_at',
     ],
     'master_customers' => [
+        'id',
         'kode_customer',
         'nama_customer',
         'nama_laundry',
@@ -30,12 +34,18 @@ $tables = [
         'jumlah_invoice',
         'alias',
         'alamat_lain',
+        'created_at',
+        'updated_at',
     ],
     'master_sales' => [
+        'id',
         'kode_sales',
         'nama_sales',
+        'created_at',
+        'updated_at',
     ],
     'invoices' => [
+        'id',
         'kode_invoice',
         'nomor_invoice',
         'tanggal_invoice',
@@ -81,9 +91,13 @@ $tables = [
         'total_utang_pembelian_barang',
         'status_pembelian_barang',
         'tanggal_transfer_pembelian_barang',
+        'google_drive_file_id',
         'file_invoice',
+        'created_at',
+        'updated_at',
     ],
     'invoice_items' => [
+        'id',
         'kode_invoice',
         'nomor_invoice',
         'tanggal_invoice',
@@ -99,6 +113,52 @@ $tables = [
         'total',
         'file_invoice',
         'baris',
+        'created_at',
+        'updated_at',
+    ],
+    'operational_expenses' => [
+        'id',
+        'tanggal',
+        'bulan_pnl',
+        'tahun_pnl',
+        'kategori',
+        'nama_pengeluaran',
+        'jumlah',
+        'status_pembayaran',
+        'tanggal_pembayaran',
+        'keterangan',
+        'created_at',
+        'updated_at',
+    ],
+    'chart_of_accounts' => [
+        'id',
+        'code',
+        'name',
+        'type',
+        'normal_balance',
+        'parent_id',
+        'is_active',
+        'created_at',
+        'updated_at',
+    ],
+    'journal_entries' => [
+        'id',
+        'entry_date',
+        'source_type',
+        'source_id',
+        'description',
+        'created_at',
+        'updated_at',
+    ],
+    'journal_lines' => [
+        'id',
+        'journal_entry_id',
+        'account_id',
+        'debit',
+        'credit',
+        'memo',
+        'created_at',
+        'updated_at',
     ],
 ];
 
@@ -106,8 +166,12 @@ $sql = [];
 $sql[] = '-- Busamas seed snapshot';
 $sql[] = '-- Generated at ' . date('Y-m-d H:i:s');
 $sql[] = 'SET FOREIGN_KEY_CHECKS = 0;';
+$sql[] = 'TRUNCATE TABLE `journal_lines`;';
+$sql[] = 'TRUNCATE TABLE `journal_entries`;';
+$sql[] = 'TRUNCATE TABLE `chart_of_accounts`;';
 $sql[] = 'TRUNCATE TABLE `invoice_items`;';
 $sql[] = 'TRUNCATE TABLE `invoices`;';
+$sql[] = 'TRUNCATE TABLE `operational_expenses`;';
 $sql[] = 'TRUNCATE TABLE `master_sales`;';
 $sql[] = 'TRUNCATE TABLE `master_barang`;';
 $sql[] = 'TRUNCATE TABLE `master_customers`;';
@@ -174,7 +238,11 @@ function fetch_table_rows(PDO $pdo, string $table, array $columns): array
         'master_customers' => 'kode_customer',
         'master_sales' => 'kode_sales',
         'invoices' => 'kode_invoice',
-        'invoice_items' => 'kode_invoice, baris',
+        'invoice_items' => 'kode_invoice, baris, id',
+        'operational_expenses' => 'id',
+        'chart_of_accounts' => 'id',
+        'journal_entries' => 'id',
+        'journal_lines' => 'id',
         default => 'id',
     };
 

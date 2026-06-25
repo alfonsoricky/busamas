@@ -3,7 +3,7 @@
         <p class="mb-3 text-sm font-semibold uppercase tracking-wide text-brand">Maintenance</p>
         <h1 class="text-3xl font-bold text-ink sm:text-4xl">Database</h1>
         <p class="mt-4 max-w-2xl leading-7 text-stone-600">
-            Jalankan migrasi schema terbaru dan isi ulang data seed dari snapshot database lokal.
+            Restore database hosting agar sama persis dengan snapshot database lokal yang tersimpan di <span class="font-semibold text-ink">database/seed-data.sql</span>.
         </p>
     </div>
 
@@ -12,7 +12,7 @@
     <?php if (! ($databaseMaintenance['database_connected'] ?? false)): ?>
         <div class="mb-6 rounded-lg border border-red-200 bg-red-50 p-5 text-sm leading-6 text-red-900">
             <p class="font-semibold">Database belum terkoneksi.</p>
-            <p class="mt-1">Buat file <span class="font-semibold">.env</span> di root project hosting, lalu isi DB_HOST, DB_DATABASE, DB_USERNAME, dan DB_PASSWORD sesuai database Hostinger.</p>
+            <p class="mt-1">Buat file <span class="font-semibold">.env</span> di root project hosting, lalu isi DB_HOST, DB_DATABASE, DB_USERNAME, dan DB_PASSWORD sesuai database hosting.</p>
         </div>
     <?php endif; ?>
 
@@ -25,150 +25,26 @@
         </div>
     <?php endif; ?>
 
-    <div class="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
-        <div class="space-y-6">
-            <!-- Update Terbaru (Aman) -->
-            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <div class="flex items-center gap-3">
-                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
-                        <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                    </div>
-                    <h2 class="text-lg font-bold text-ink">Update Terbaru</h2>
-                </div>
-                <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Sinkronisasi data komisi, PNL, pembelian barang, dan pengeluaran operasional dari file Excel terbaru. <strong class="text-ink">Invoice yang sudah ada di database tidak akan dihapus.</strong>
-                </p>
-
-                <div class="mt-4 rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm leading-6 text-teal-900">
-                    <strong>PENTING:</strong> Pastikan file <span class="font-semibold text-ink">PENJUALAN-2026.xlsx</span> terbaru sudah diunggah ke folder <span class="font-semibold text-ink">storage/</span> sebelum menjalankan update ini.
-                </div>
-
-                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
-                    <input type="hidden" name="action" value="update-latest">
-                    <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
-                        Jalankan Update Terbaru
-                    </button>
-                </form>
+    <div class="mb-6 rounded-lg border border-orange-200 bg-white p-5 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-100">
+                <svg class="h-5 w-5 text-orange-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
             </div>
-
-            <!-- Update Data 2025 -->
-            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <div class="flex items-center gap-3">
-                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
-                        <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                    </div>
-                    <h2 class="text-lg font-bold text-ink">Update Data 2025</h2>
-                </div>
-                <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Sinkronisasi seluruh data invoice dan operational tahun 2025 dari <strong class="text-ink">PENJUALAN-2025.xlsx</strong>, lalu posting ulang jurnal akuntansi.
-                </p>
-
-                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
-                    <input type="hidden" name="action" value="update-2025-latest">
-                    <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
-                        Jalankan Update Data 2025
-                    </button>
-                </form>
-            </div>
-
-            <!-- Paket Update Hosting Terakhir -->
-            <div class="rounded-lg border border-sky-200 bg-white p-5 shadow-sm">
-                <div class="flex items-center gap-3">
-                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100">
-                        <svg class="h-5 w-5 text-sky-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l-3 3m3-3l3 3M6.75 19.5h10.5A2.25 2.25 0 0019.5 17.25V6.75A2.25 2.25 0 0017.25 4.5H6.75A2.25 2.25 0 004.5 6.75v10.5A2.25 2.25 0 006.75 19.5z"/></svg>
-                    </div>
-                    <h2 class="text-lg font-bold text-ink">Update Paket Hosting Terakhir</h2>
-                </div>
-                <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Jalankan seluruh update data terakhir tanpa reset database: sinkronisasi invoice 2025/2026 dari Excel, operational, bonus, import invoice 453-462 dari <strong class="text-ink">storage/drive25</strong>, koreksi komisi invoice 328, dan posting ulang jurnal akuntansi.
-                </p>
-
-                <div class="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900">
-                    Pastikan <strong>storage/PENJUALAN-2025.xlsx</strong>, <strong>storage/PENJUALAN-2026.xlsx</strong>, dan folder <strong>storage/drive25</strong> sudah ikut ter-upload di hosting.
-                </div>
-
-                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Jalankan paket update hosting terakhir sekarang?')">
-                    <input type="hidden" name="action" value="update-hosting-latest">
-                    <button class="rounded-lg bg-sky-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700">
-                        Jalankan Paket Update Hosting
-                    </button>
-                </form>
-            </div>
-
-            <!-- Reset & Update Hosting (Truncate + Seed Ulang) -->
-            <div class="rounded-lg border border-orange-200 bg-white p-5 shadow-sm">
-                <div class="flex items-center gap-3">
-                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-100">
-                        <svg class="h-5 w-5 text-orange-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                    </div>
-                    <h2 class="text-lg font-bold text-ink">Reset & Update Hosting</h2>
-                </div>
-                <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Hapus semua tabel dan buat ulang dari seed snapshot terbaru, lalu sinkronisasi data dari Excel. <strong class="text-orange-700">Semua invoice yang dibuat langsung di hosting (di luar seed) akan terhapus.</strong>
-                </p>
-
-                <div class="mt-4 rounded-lg border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-orange-900">
-                    <strong>PERINGATAN:</strong> Gunakan ini hanya jika database hosting perlu di-reset total. Pastikan seed snapshot sudah diperbarui.
-                </div>
-
-                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Yakin ingin mereset database? Semua data yang belum di-seed akan hilang.')">
-                    <input type="hidden" name="action" value="update-hosting">
-                    <button class="rounded-lg bg-orange-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-700">
-                        Reset & Jalankan Ulang Database
-                    </button>
-                </form>
-            </div>
-
-            <!-- Uji Coba & Hapus Data Test -->
-            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <div class="flex items-center gap-3">
-                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
-                        <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
-                    </div>
-                    <h2 class="text-lg font-bold text-ink">Uji Coba & Hapus Data Test</h2>
-                </div>
-                <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Gunakan alat ini untuk membuat data invoice test baru langsung di database hosting dan menyinkronkannya ke Google Drive & Sheets, serta membersihkannya kembali setelah selesai pengujian.
-                </p>
-
-                <div class="mt-5 flex flex-wrap gap-4">
-                    <form method="post" action="<?= e(url('/db-maintenance')) ?>">
-                        <input type="hidden" name="action" value="create-test-data">
-                        <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
-                            Buat Data Test Baru
-                        </button>
-                    </form>
-
-                    <form method="post" action="<?= e(url('/db-maintenance')) ?>" onsubmit="return confirm('Yakin ingin menghapus semua invoice uji coba/test dari database, Google Drive, dan Google Sheets?')">
-                        <input type="hidden" name="action" value="delete-test-data">
-                        <button class="rounded-lg bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700">
-                            Hapus Semua Data Test
-                        </button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Akuntansi -->
-            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-                <div class="flex items-center gap-3">
-                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
-                        <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14.25l2.25 2.25L15 12m-9.75 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
-                    </div>
-                    <h2 class="text-lg font-bold text-ink">Akuntansi</h2>
-                </div>
-                <p class="mt-3 text-sm leading-6 text-stone-600">
-                    Buat ulang jurnal otomatis dari seluruh invoice dan pengeluaran operasional berdasarkan COA default.
-                </p>
-
-                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
-                    <input type="hidden" name="action" value="generate-accounting-journals">
-                    <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
-                        Generate Jurnal Akuntansi
-                    </button>
-                </form>
-            </div>
+            <h2 class="text-lg font-bold text-ink">Restore Snapshot Lokal</h2>
         </div>
+        <p class="mt-3 text-sm leading-6 text-stone-600">
+            Tombol ini akan drop dan buat ulang tabel hosting, lalu mengisi data dari snapshot lokal terbaru. Semua data hosting yang berbeda dari lokal akan tertimpa.
+        </p>
 
+        <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Yakin restore database hosting dari snapshot lokal? Semua data hosting saat ini akan tertimpa.')">
+            <input type="hidden" name="action" value="restore-local-snapshot">
+            <button class="rounded-lg bg-orange-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-700">
+                Restore Database dari Snapshot Lokal
+            </button>
+        </form>
+    </div>
+
+    <div class="grid gap-6 lg:grid-cols-[0.85fr_1fr]">
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
             <h2 class="text-lg font-bold text-ink">Seed Snapshot</h2>
             <?php $seed = $databaseMaintenance['seed_file'] ?? []; ?>
@@ -193,6 +69,22 @@
                 </div>
             </dl>
         </div>
+
+        <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+            <h2 class="text-lg font-bold text-ink">Jumlah Data Saat Ini</h2>
+            <?php if (empty($databaseMaintenance['table_counts'] ?? [])): ?>
+                <p class="mt-3 text-sm leading-6 text-stone-600">Jumlah data akan muncul setelah koneksi database berhasil.</p>
+            <?php else: ?>
+                <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                    <?php foreach (($databaseMaintenance['table_counts'] ?? []) as $table => $count): ?>
+                        <div class="rounded-lg border border-stone-200 bg-stone-50 p-4">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-stone-500"><?= e((string) $table) ?></p>
+                            <p class="mt-2 text-2xl font-bold text-ink"><?= $count === null ? '-' : e((string) $count) ?></p>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </div>
     </div>
 
     <?php if (is_array($result) && isset($result['output'])): ?>
@@ -201,20 +93,4 @@
             <pre class="mt-4 overflow-x-auto rounded-lg bg-stone-950 p-4 text-xs leading-6 text-stone-100"><?= e((string) $result['output']) ?></pre>
         </div>
     <?php endif; ?>
-
-    <div class="mt-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-        <h2 class="text-lg font-bold text-ink">Jumlah Data Saat Ini</h2>
-        <?php if (empty($databaseMaintenance['table_counts'] ?? [])): ?>
-            <p class="mt-3 text-sm leading-6 text-stone-600">Jumlah data akan muncul setelah koneksi database berhasil.</p>
-        <?php else: ?>
-            <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-                <?php foreach (($databaseMaintenance['table_counts'] ?? []) as $table => $count): ?>
-                    <div class="rounded-lg border border-stone-200 bg-stone-50 p-4">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-stone-500"><?= e((string) $table) ?></p>
-                        <p class="mt-2 text-2xl font-bold text-ink"><?= $count === null ? '-' : e((string) $count) ?></p>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        <?php endif; ?>
-    </div>
 </section>

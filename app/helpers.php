@@ -179,6 +179,9 @@ function fetch_database_maintenance(?string $action = null): array
     if ($action === 'update-hosting') {
         $result = run_hosting_update();
         $counts = database_table_counts();
+    } elseif ($action === 'restore-local-snapshot') {
+        $result = run_database_snapshot_restore();
+        $counts = database_table_counts();
     } elseif ($action === 'update-hosting-latest') {
         $result = run_hosting_latest_data_update();
         $counts = database_table_counts();
@@ -1488,6 +1491,65 @@ function run_database_migration_seed(): array
         return [
             'ok' => false,
             'message' => 'Migrate/seed gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
+function run_database_snapshot_restore(): array
+{
+    $pdo = db();
+
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi. Cek konfigurasi DB_HOST, DB_DATABASE, DB_USERNAME, dan DB_PASSWORD.',
+            'statements' => 0,
+            'counts' => [],
+        ];
+    }
+
+    $schemaPath = dirname(__DIR__) . '/database/schema.sql';
+    $seedPath = dirname(__DIR__) . '/database/seed-data.sql';
+
+    if (! is_readable($schemaPath) || ! is_readable($seedPath)) {
+        return [
+            'ok' => false,
+            'message' => 'File schema.sql atau seed-data.sql belum tersedia.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    try {
+        $statementCount = 0;
+        $statementCount += execute_sql_statements($pdo, [
+            'SET FOREIGN_KEY_CHECKS = 0',
+            'DROP TABLE IF EXISTS `journal_lines`',
+            'DROP TABLE IF EXISTS `journal_entries`',
+            'DROP TABLE IF EXISTS `chart_of_accounts`',
+            'DROP TABLE IF EXISTS `invoice_items`',
+            'DROP TABLE IF EXISTS `invoices`',
+            'DROP TABLE IF EXISTS `master_sales`',
+            'DROP TABLE IF EXISTS `master_barang`',
+            'DROP TABLE IF EXISTS `master_customers`',
+            'DROP TABLE IF EXISTS `operational_expenses`',
+            'SET FOREIGN_KEY_CHECKS = 1',
+        ]);
+        $statementCount += execute_sql_file($pdo, $schemaPath, true);
+        $statementCount += execute_sql_file($pdo, $seedPath, false);
+
+        return [
+            'ok' => true,
+            'message' => 'Restore snapshot lokal berhasil. Database hosting sudah disamakan dengan database lokal dari seed-data.sql.',
+            'statements' => $statementCount,
+            'counts' => database_table_counts(),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Restore snapshot lokal gagal: ' . $exception->getMessage(),
             'statements' => 0,
             'counts' => database_table_counts(),
         ];

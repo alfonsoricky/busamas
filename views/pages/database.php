@@ -25,6 +25,25 @@
         </div>
     <?php endif; ?>
 
+    <div class="mb-6 rounded-lg border border-teal-200 bg-white p-5 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
+                <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            </div>
+            <h2 class="text-lg font-bold text-ink">Update Operational 2026</h2>
+        </div>
+        <p class="mt-3 text-sm leading-6 text-stone-600">
+            Sinkronisasi ulang operational 2026 dari <strong class="text-ink">PENJUALAN-2026.xlsx</strong>. Bulan PNL akan mengikuti blok/subtotal operational di Excel, termasuk transaksi tanggal Februari yang berada di blok Januari.
+        </p>
+
+        <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Jalankan update operational 2026 dari Excel sekarang?')">
+            <input type="hidden" name="action" value="update-2026-operational-latest">
+            <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
+                Update Operational 2026
+            </button>
+        </form>
+    </div>
+
     <div class="mb-6 rounded-lg border border-orange-200 bg-white p-5 shadow-sm">
         <div class="flex items-center gap-3">
             <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-100">

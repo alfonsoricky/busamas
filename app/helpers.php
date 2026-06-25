@@ -191,6 +191,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'update-2025-latest') {
         $result = run_2025_latest_update();
         $counts = database_table_counts();
+    } elseif ($action === 'update-2026-operational-latest') {
+        $result = run_2026_operational_latest_update();
+        $counts = database_table_counts();
     } elseif ($action === 'migrate-seed') {
         $result = run_database_migration_seed();
         $counts = database_table_counts();
@@ -4169,6 +4172,8 @@ function read_operational_from_workbook_internal(string $path): array
     $expenses = [];
     $currentBulan = 0;
     $currentTahun = 2026;
+    $currentBlockTotal = 0.0;
+    $currentBlockSum = 0.0;
 
     foreach ($rows as $row) {
         $colA = trim((string) ($row['A'] ?? ''));
@@ -4178,6 +4183,8 @@ function read_operational_from_workbook_internal(string $path): array
         // Baris sub-total bulan: A kosong, B kosong, G berisi angka > 0
         if ($colA === '' && $colB === '' && is_numeric($colG) && (float)$colG > 0) {
             $currentBulan++;
+            $currentBlockTotal = (float) $colG;
+            $currentBlockSum = 0.0;
             continue; // skip baris total, jangan insert
         }
 
@@ -4199,6 +4206,10 @@ function read_operational_from_workbook_internal(string $path): array
             continue; // skip baris tanpa nilai
         }
 
+        if ($currentBlockTotal > 0 && $currentBlockSum >= $currentBlockTotal - 0.01) {
+            continue;
+        }
+
         $expenses[] = [
             'tanggal'          => $tanggal,
             'bulan_pnl'        => $currentBulan > 0 ? $currentBulan : null,
@@ -4210,6 +4221,7 @@ function read_operational_from_workbook_internal(string $path): array
             'tanggal_pembayaran'=> $tanggal_pembayar,
             'keterangan'       => $keterangan,
         ];
+        $currentBlockSum += $jumlah;
     }
 
     return $expenses;
@@ -4645,6 +4657,67 @@ function run_2025_latest_update(): array
     }
 }
 
+function run_2026_operational_latest_update(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok'         => false,
+            'message'    => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    $excelPath = dirname(__DIR__) . '/storage/PENJUALAN-2026.xlsx';
+    if (! is_readable($excelPath)) {
+        return [
+            'ok'         => false,
+            'message'    => 'File Excel storage/PENJUALAN-2026.xlsx tidak ditemukan.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    if (! class_exists('ZipArchive')) {
+        return [
+            'ok'         => false,
+            'message'    => 'Ekstensi PHP "zip" (ZipArchive) tidak aktif. Aktifkan extension=zip pada server.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    try {
+        $pdo->beginTransaction();
+        $operationalResult = update_year_operational_from_excel($pdo, $excelPath, 2026);
+        $journalResult = regenerate_all_accounting_journals($pdo);
+        $pdo->commit();
+
+        return [
+            'ok'         => true,
+            'message'    => 'Update Operational 2026 Berhasil! Bulan PNL sudah mengikuti blok operational di Excel.',
+            'statements' => $operationalResult['inserted'] + $journalResult['lines'],
+            'counts'     => database_table_counts(),
+            'output'     => implode("\n", [
+                "1. Operational 2026: {$operationalResult['deleted']} data lama dihapus, {$operationalResult['inserted']} data dimasukkan",
+                "2. Posting Ulang Jurnal Akuntansi: {$journalResult['entries']} jurnal, {$journalResult['lines']} baris",
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok'         => false,
+            'message'    => 'Update operational 2026 gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+}
+
 function run_hosting_latest_data_update(): array
 {
     $pdo = db();
@@ -4894,8 +4967,8 @@ function update_year_operational_from_excel(PDO $pdo, string $excelPath, int $ye
             continue;
         }
 
-        $expense['bulan_pnl'] = (int) date('n', strtotime((string) $tanggal));
-        $expense['tahun_pnl'] = $year;
+        $expense['bulan_pnl'] = $expense['bulan_pnl'] ?? (int) date('n', strtotime((string) $tanggal));
+        $expense['tahun_pnl'] = $expense['tahun_pnl'] ?? $year;
         $expense['kategori'] = 'operational';
         $filtered[] = $expense;
     }
@@ -5071,8 +5144,8 @@ function update_2025_operational_from_excel(PDO $pdo, string $excelPath): array
             continue;
         }
 
-        $expense['bulan_pnl'] = (int) date('n', strtotime((string) $tanggal));
-        $expense['tahun_pnl'] = 2025;
+        $expense['bulan_pnl'] = $expense['bulan_pnl'] ?? (int) date('n', strtotime((string) $tanggal));
+        $expense['tahun_pnl'] = $expense['tahun_pnl'] ?? 2025;
         $expense['kategori'] = 'operational';
         $filtered[] = $expense;
     }

@@ -3,6 +3,7 @@
 /.env
 /storage/*.json
 /storage/*.xlsx
+!/storage/PENJUALAN-2025.xlsx
 !/storage/template_invoice.xlsx
 /storage/generated/
 /storage/drive/

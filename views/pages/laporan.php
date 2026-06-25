@@ -123,4 +123,39 @@
             </div>
         </a>
     </div>
+
+    <div class="mt-10">
+        <div class="mb-5">
+            <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-brand">Akuntansi</p>
+            <h2 class="text-2xl font-bold text-ink">COA, Jurnal, dan Neraca</h2>
+        </div>
+
+        <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            <?php
+            $accountingReports = [
+                '/laporan/coa' => ['COA', 'Daftar akun default untuk mapping jurnal otomatis.'],
+                '/laporan/jurnal' => ['Jurnal Umum', 'Jurnal otomatis dari invoice dan operasional.'],
+                '/laporan/buku-besar' => ['Buku Besar', 'Mutasi debit kredit dan saldo berjalan per akun.'],
+                '/laporan/neraca' => ['Neraca', 'Posisi aset, kewajiban, dan ekuitas dari jurnal.'],
+            ];
+            ?>
+            <?php foreach ($accountingReports as $href => [$label, $description]): ?>
+                <a href="<?= e(url($href)) ?>" class="group block rounded-xl border border-stone-200 bg-white p-6 shadow-sm transition hover:border-brand hover:shadow-md">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-lg bg-teal-50 text-brand transition group-hover:bg-brand group-hover:text-white">
+                        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2.25 4.5H6.75A2.25 2.25 0 014.5 18.25V5.75A2.25 2.25 0 016.75 3.5h10.5a2.25 2.25 0 012.25 2.25v12.5a2.25 2.25 0 01-2.25 2.25z" />
+                        </svg>
+                    </div>
+                    <h3 class="mt-4 text-lg font-bold text-ink group-hover:text-brand"><?= e($label) ?></h3>
+                    <p class="mt-2 text-sm leading-6 text-stone-500"><?= e($description) ?></p>
+                    <div class="mt-4 flex items-center gap-1 text-sm font-semibold text-brand">
+                        Buka
+                        <svg class="h-4 w-4 transition group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                        </svg>
+                    </div>
+                </a>
+            <?php endforeach; ?>
+        </div>
+    </div>
 </section>

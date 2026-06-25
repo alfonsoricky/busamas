@@ -154,7 +154,14 @@ function route_is(string $path): bool
         $currentPath = substr($currentPath, strlen($basePath)) ?: '/';
     }
 
-    return rtrim($currentPath, '/') === rtrim($path, '/') || ($currentPath === '/' && $path === '/');
+    $currentPath = rtrim($currentPath, '/') ?: '/';
+    $targetPath = rtrim($path, '/') ?: '/';
+
+    if ($currentPath === $targetPath) {
+        return true;
+    }
+
+    return $targetPath !== '/' && str_starts_with($currentPath . '/', $targetPath . '/');
 }
 
 function view(string $name, array $data = []): void
@@ -189,6 +196,9 @@ function fetch_database_maintenance(?string $action = null): array
         $counts = database_table_counts();
     } elseif ($action === 'generate-invoice-data') {
         $result = run_invoice_data_generation();
+        $counts = database_table_counts();
+    } elseif ($action === 'generate-accounting-journals') {
+        $result = run_accounting_journal_generation();
         $counts = database_table_counts();
     } elseif ($action === 'create-test-data') {
         $result = run_create_test_data();
@@ -264,10 +274,13 @@ function run_update_manager_commission(): array
 
     try {
         $count = update_invoice_manager_commission_from_excel($pdo, $excelPath);
+        $journalResult = accounting_tables_ready($pdo)
+            ? regenerate_all_accounting_journals($pdo)
+            : ['lines' => 0];
         return [
             'ok'         => true,
             'message'    => 'Update komisi manager berhasil. ' . $count . ' invoice diperbarui.',
-            'statements' => $count,
+            'statements' => $count + $journalResult['lines'],
             'counts'     => database_table_counts(),
         ];
     } catch (Throwable $exception) {
@@ -418,10 +431,13 @@ function run_update_all_commission(): array
 
     try {
         $count = update_invoice_all_commission_from_excel($pdo, $excelPath);
+        $journalResult = accounting_tables_ready($pdo)
+            ? regenerate_all_accounting_journals($pdo)
+            : ['lines' => 0];
         return [
             'ok'         => true,
             'message'    => 'Update komisi berhasil. ' . $count . ' invoice diperbarui.',
-            'statements' => $count,
+            'statements' => $count + $journalResult['lines'],
             'counts'     => database_table_counts(),
         ];
     } catch (Throwable $exception) {
@@ -629,14 +645,20 @@ function run_database_operational_seed(): array
     }
 
     try {
+        if (accounting_tables_ready($pdo)) {
+            $pdo->exec("DELETE FROM journal_entries WHERE source_type = 'operational_expense'");
+        }
         $pdo->exec('TRUNCATE TABLE operational_expenses');
         $count = seed_operational_expenses_from_workbook($pdo, $excelPath);
         $bonusCount = seed_bonus_expenses($pdo);
+        $journalResult = accounting_tables_ready($pdo)
+            ? regenerate_all_accounting_journals($pdo)
+            : ['lines' => 0];
 
         return [
             'ok'       => true,
             'message'  => 'Seeder data operasional + bonus berhasil dijalankan.',
-            'statements' => $count + $bonusCount,
+            'statements' => $count + $bonusCount + $journalResult['lines'],
             'counts'   => database_table_counts(),
         ];
     } catch (Throwable $exception) {
@@ -671,7 +693,17 @@ function database_table_counts(): array
 
     $counts = [];
 
-    foreach (['master_barang', 'master_customers', 'master_sales', 'invoices', 'invoice_items', 'operational_expenses'] as $table) {
+    foreach ([
+        'master_barang',
+        'master_customers',
+        'master_sales',
+        'invoices',
+        'invoice_items',
+        'operational_expenses',
+        'chart_of_accounts',
+        'journal_entries',
+        'journal_lines',
+    ] as $table) {
         try {
             $counts[$table] = (int) $pdo->query('SELECT COUNT(*) FROM `' . $table . '`')->fetchColumn();
         } catch (Throwable) {
@@ -680,6 +712,682 @@ function database_table_counts(): array
     }
 
     return $counts;
+}
+
+function accounting_default_accounts(): array
+{
+    return [
+        'cash' => ['1100', 'Kas / Bank', 'asset', 'debit'],
+        'accounts_receivable' => ['1200', 'Piutang Usaha', 'asset', 'debit'],
+        'purchase_payable' => ['2100', 'Hutang Pembelian Barang', 'liability', 'credit'],
+        'operational_payable' => ['2110', 'Hutang Operasional', 'liability', 'credit'],
+        'sales_commission_payable' => ['2200', 'Hutang Komisi Sales', 'liability', 'credit'],
+        'manager_commission_payable' => ['2210', 'Hutang Komisi Manager', 'liability', 'credit'],
+        'admin_commission_payable' => ['2220', 'Hutang Komisi Admin', 'liability', 'credit'],
+        'tax_payable' => ['2300', 'Hutang PPh Final', 'liability', 'credit'],
+        'owner_capital' => ['3100', 'Modal Pemilik', 'equity', 'credit'],
+        'retained_earnings' => ['3200', 'Laba Ditahan', 'equity', 'credit'],
+        'current_year_earnings' => ['3300', 'Laba Tahun Berjalan', 'equity', 'credit'],
+        'sales_revenue' => ['4100', 'Pendapatan Penjualan', 'revenue', 'credit'],
+        'sales_discount' => ['4110', 'Diskon Penjualan', 'expense', 'debit'],
+        'cogs' => ['5100', 'HPP / Pembelian Barang', 'expense', 'debit'],
+        'sales_commission_expense' => ['6100', 'Beban Komisi Sales', 'expense', 'debit'],
+        'manager_commission_expense' => ['6110', 'Beban Komisi Manager', 'expense', 'debit'],
+        'admin_commission_expense' => ['6120', 'Beban Komisi Admin', 'expense', 'debit'],
+        'operational_expense' => ['6200', 'Beban Operasional', 'expense', 'debit'],
+        'bonus_expense' => ['6210', 'Beban Bonus', 'expense', 'debit'],
+        'delivery_expense' => ['6300', 'Biaya Kirim', 'expense', 'debit'],
+        'bank_admin_expense' => ['6400', 'Biaya Admin Bank', 'expense', 'debit'],
+        'tax_expense' => ['6500', 'Beban PPh Final', 'expense', 'debit'],
+    ];
+}
+
+function accounting_tables_ready(PDO $pdo): bool
+{
+    $stmt = $pdo->prepare('
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_name IN (?, ?, ?)
+    ');
+    $stmt->execute(['chart_of_accounts', 'journal_entries', 'journal_lines']);
+
+    return (int) $stmt->fetchColumn() === 3;
+}
+
+function database_table_exists(PDO $pdo, string $table): bool
+{
+    $stmt = $pdo->prepare('
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_name = ?
+    ');
+    $stmt->execute([$table]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function ensure_accounting_tables(PDO $pdo): void
+{
+    if (accounting_tables_ready($pdo)) {
+        return;
+    }
+
+    $schemaPath = dirname(__DIR__) . '/database/schema.sql';
+    if (is_readable($schemaPath)) {
+        execute_sql_file($pdo, $schemaPath, true);
+    }
+}
+
+function ensure_default_chart_of_accounts(PDO $pdo): void
+{
+    if (! accounting_tables_ready($pdo)) {
+        return;
+    }
+
+    $stmt = $pdo->prepare('
+        INSERT INTO chart_of_accounts (code, name, type, normal_balance, is_active)
+        VALUES (?, ?, ?, ?, 1)
+        ON DUPLICATE KEY UPDATE
+            name = VALUES(name),
+            type = VALUES(type),
+            normal_balance = VALUES(normal_balance),
+            is_active = 1
+    ');
+
+    foreach (accounting_default_accounts() as $account) {
+        $stmt->execute($account);
+    }
+}
+
+function accounting_account_ids(PDO $pdo): array
+{
+    ensure_default_chart_of_accounts($pdo);
+
+    $rows = $pdo->query('SELECT id, code FROM chart_of_accounts')->fetchAll(PDO::FETCH_ASSOC);
+    $byCode = [];
+    foreach ($rows as $row) {
+        $byCode[(string) $row['code']] = (int) $row['id'];
+    }
+
+    $ids = [];
+    foreach (accounting_default_accounts() as $key => $account) {
+        $ids[$key] = $byCode[$account[0]] ?? 0;
+    }
+
+    return $ids;
+}
+
+function accounting_entry_date(mixed $date, ?string $fallback = null): string
+{
+    $normalized = date_input_value((string) ($date ?? ''));
+    if ($normalized !== '') {
+        return $normalized;
+    }
+
+    if ($fallback !== null && preg_match('/^\d{4}-\d{2}-\d{2}$/', $fallback) === 1) {
+        return $fallback;
+    }
+
+    return date('Y-m-d');
+}
+
+function accounting_add_line(array &$lines, int $accountId, float $debit, float $credit, string $memo): void
+{
+    $debit = round($debit, 2);
+    $credit = round($credit, 2);
+
+    if ($accountId <= 0 || ($debit <= 0 && $credit <= 0)) {
+        return;
+    }
+
+    $lines[] = [
+        'account_id' => $accountId,
+        'debit' => $debit,
+        'credit' => $credit,
+        'memo' => $memo,
+    ];
+}
+
+function accounting_replace_journal(PDO $pdo, string $sourceType, string $sourceId, string $entryDate, string $description, array $lines): int
+{
+    $delete = $pdo->prepare('DELETE FROM journal_entries WHERE source_type = ? AND source_id = ?');
+    $delete->execute([$sourceType, $sourceId]);
+
+    if ($lines === []) {
+        return 0;
+    }
+
+    $debitTotal = round(array_sum(array_column($lines, 'debit')), 2);
+    $creditTotal = round(array_sum(array_column($lines, 'credit')), 2);
+    if (abs($debitTotal - $creditTotal) > 0.01) {
+        throw new RuntimeException('Jurnal tidak balance untuk ' . $sourceType . ' ' . $sourceId . '. Debit ' . $debitTotal . ', kredit ' . $creditTotal . '.');
+    }
+
+    $entryStmt = $pdo->prepare('
+        INSERT INTO journal_entries (entry_date, source_type, source_id, description)
+        VALUES (?, ?, ?, ?)
+    ');
+    $entryStmt->execute([$entryDate, $sourceType, $sourceId, $description]);
+    $entryId = (int) $pdo->lastInsertId();
+
+    $lineStmt = $pdo->prepare('
+        INSERT INTO journal_lines (journal_entry_id, account_id, debit, credit, memo)
+        VALUES (?, ?, ?, ?, ?)
+    ');
+
+    foreach ($lines as $line) {
+        $lineStmt->execute([
+            $entryId,
+            $line['account_id'],
+            $line['debit'],
+            $line['credit'],
+            $line['memo'],
+        ]);
+    }
+
+    return count($lines);
+}
+
+function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
+{
+    if (! accounting_tables_ready($pdo)) {
+        return 0;
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM invoices WHERE kode_invoice = ?');
+    $stmt->execute([$kodeInvoice]);
+    $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (! $invoice) {
+        return 0;
+    }
+
+    $a = accounting_account_ids($pdo);
+    $lines = [];
+    $nomor = (string) ($invoice['nomor_invoice'] ?? $kodeInvoice);
+    $entryDate = accounting_entry_date($invoice['tanggal_invoice'] ?? null, substr((string) ($invoice['created_at'] ?? ''), 0, 10));
+
+    $subtotal = round((float) ($invoice['subtotal'] ?? 0), 2);
+    $discount = round((float) ($invoice['discount_amount'] ?? 0), 2);
+    $storedNetSales = round((float) ($invoice['total_harga_jual'] ?? 0), 2);
+    $netSales = $subtotal > 0 ? max($subtotal - $discount, 0) : $storedNetSales;
+    if ($netSales <= 0 && $storedNetSales > 0) {
+        $netSales = $storedNetSales;
+    }
+
+    if ($subtotal > 0) {
+        $assetAccount = strtolower(trim((string) ($invoice['status_pembayaran'] ?? ''))) === 'lunas'
+            ? $a['cash']
+            : $a['accounts_receivable'];
+        accounting_add_line($lines, $assetAccount, $netSales, 0, 'Nilai invoice ' . $nomor);
+        accounting_add_line($lines, $a['sales_discount'], $discount, 0, 'Diskon invoice ' . $nomor);
+        accounting_add_line($lines, $a['sales_revenue'], 0, $subtotal, 'Pendapatan invoice ' . $nomor);
+    }
+
+    $purchasePaid = round((float) ($invoice['total_pembelian_barang'] ?? 0), 2);
+    $purchaseDebt = round((float) ($invoice['total_utang_pembelian_barang'] ?? 0), 2);
+    $purchaseTotal = $purchasePaid + $purchaseDebt;
+    if ($purchaseTotal > 0) {
+        accounting_add_line($lines, $a['cogs'], $purchaseTotal, 0, 'HPP invoice ' . $nomor);
+        accounting_add_line($lines, $a['cash'], 0, $purchasePaid, 'Pembelian barang dibayar ' . $nomor);
+        accounting_add_line($lines, $a['purchase_payable'], 0, $purchaseDebt, 'Hutang pembelian barang ' . $nomor);
+    }
+
+    $salesCommissionTotal = round($netSales * (((float) ($invoice['komisi_sales_1_persen'] ?? 0) + (float) ($invoice['komisi_sales_2_persen'] ?? 0)) / 100), 2);
+    $salesCommissionPaid = round((float) ($invoice['komisi_sales_terbayar'] ?? 0), 2);
+    $salesCommissionDebt = round((float) ($invoice['komisi_sales_belum_terbayar'] ?? 0), 2);
+    if ($salesCommissionPaid + $salesCommissionDebt > 0) {
+        $salesCommissionTotal = $salesCommissionPaid + $salesCommissionDebt;
+    } elseif ($salesCommissionTotal > 0) {
+        $salesCommissionDebt = max($salesCommissionTotal - $salesCommissionPaid, 0);
+    }
+    if ($salesCommissionTotal > 0) {
+        accounting_add_line($lines, $a['sales_commission_expense'], $salesCommissionTotal, 0, 'Beban komisi sales ' . $nomor);
+        accounting_add_line($lines, $a['cash'], 0, $salesCommissionPaid, 'Komisi sales dibayar ' . $nomor);
+        accounting_add_line($lines, $a['sales_commission_payable'], 0, $salesCommissionDebt, 'Hutang komisi sales ' . $nomor);
+    }
+
+    $managerPaid = round((float) ($invoice['komisi_manager_terbayar'] ?? 0), 2);
+    $managerDebt = round((float) ($invoice['komisi_manager_utang'] ?? 0), 2);
+    if ($managerPaid + $managerDebt > 0) {
+        accounting_add_line($lines, $a['manager_commission_expense'], $managerPaid + $managerDebt, 0, 'Beban komisi manager ' . $nomor);
+        accounting_add_line($lines, $a['cash'], 0, $managerPaid, 'Komisi manager dibayar ' . $nomor);
+        accounting_add_line($lines, $a['manager_commission_payable'], 0, $managerDebt, 'Hutang komisi manager ' . $nomor);
+    }
+
+    $adminPaid = round((float) ($invoice['komisi_admin_terbayar'] ?? 0), 2);
+    $adminDebt = round((float) ($invoice['komisi_admin_belum_terbayar'] ?? 0), 2);
+    if ($adminPaid + $adminDebt > 0) {
+        accounting_add_line($lines, $a['admin_commission_expense'], $adminPaid + $adminDebt, 0, 'Beban komisi admin ' . $nomor);
+        accounting_add_line($lines, $a['cash'], 0, $adminPaid, 'Komisi admin dibayar ' . $nomor);
+        accounting_add_line($lines, $a['admin_commission_payable'], 0, $adminDebt, 'Hutang komisi admin ' . $nomor);
+    }
+
+    $taxPaid = round((float) ($invoice['pph_final_terbayar'] ?? 0), 2);
+    $taxDebt = round((float) ($invoice['pph_final_belum_terbayar'] ?? 0), 2);
+    if ($taxPaid + $taxDebt > 0) {
+        accounting_add_line($lines, $a['tax_expense'], $taxPaid + $taxDebt, 0, 'Beban PPh final ' . $nomor);
+        accounting_add_line($lines, $a['cash'], 0, $taxPaid, 'PPh final dibayar ' . $nomor);
+        accounting_add_line($lines, $a['tax_payable'], 0, $taxDebt, 'Hutang PPh final ' . $nomor);
+    }
+
+    $delivery = round((float) ($invoice['biaya_kirim'] ?? 0), 2);
+    if ($delivery > 0) {
+        accounting_add_line($lines, $a['delivery_expense'], $delivery, 0, 'Biaya kirim ' . $nomor);
+        accounting_add_line($lines, $a['cash'], 0, $delivery, 'Biaya kirim dibayar ' . $nomor);
+    }
+
+    $bankAdmin = round((float) ($invoice['biaya_admin_bank'] ?? 0), 2);
+    if ($bankAdmin > 0) {
+        accounting_add_line($lines, $a['bank_admin_expense'], $bankAdmin, 0, 'Biaya admin bank ' . $nomor);
+        accounting_add_line($lines, $a['cash'], 0, $bankAdmin, 'Biaya admin bank dibayar ' . $nomor);
+    }
+
+    return accounting_replace_journal($pdo, 'invoice', $kodeInvoice, $entryDate, 'Jurnal otomatis invoice ' . $nomor, $lines);
+}
+
+function generate_operational_expense_journal(PDO $pdo, int $expenseId): int
+{
+    if (! accounting_tables_ready($pdo)) {
+        return 0;
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM operational_expenses WHERE id = ?');
+    $stmt->execute([$expenseId]);
+    $expense = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (! $expense) {
+        return 0;
+    }
+
+    $a = accounting_account_ids($pdo);
+    $amount = round((float) ($expense['jumlah'] ?? 0), 2);
+    $lines = [];
+    $name = trim((string) ($expense['nama_pengeluaran'] ?? 'Pengeluaran operasional'));
+    $expenseAccount = strtolower(trim((string) ($expense['kategori'] ?? 'operational'))) === 'bonus'
+        ? $a['bonus_expense']
+        : $a['operational_expense'];
+    $creditAccount = strtolower(trim((string) ($expense['status_pembayaran'] ?? ''))) === 'lunas'
+        ? $a['cash']
+        : $a['operational_payable'];
+
+    accounting_add_line($lines, $expenseAccount, $amount, 0, $name);
+    accounting_add_line($lines, $creditAccount, 0, $amount, $name);
+
+    return accounting_replace_journal(
+        $pdo,
+        'operational_expense',
+        (string) $expenseId,
+        accounting_entry_date($expense['tanggal'] ?? null, substr((string) ($expense['created_at'] ?? ''), 0, 10)),
+        'Jurnal otomatis operasional: ' . $name,
+        $lines
+    );
+}
+
+function regenerate_all_accounting_journals(PDO $pdo): array
+{
+    if (! accounting_tables_ready($pdo)) {
+        return ['entries' => 0, 'lines' => 0];
+    }
+
+    ensure_default_chart_of_accounts($pdo);
+    $entries = 0;
+    $lines = 0;
+
+    $invoiceCodes = $pdo->query('SELECT kode_invoice FROM invoices ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    foreach ($invoiceCodes as $kodeInvoice) {
+        $lineCount = generate_invoice_journal($pdo, (string) $kodeInvoice);
+        if ($lineCount > 0) {
+            $entries++;
+            $lines += $lineCount;
+        }
+    }
+
+    $expenseIds = $pdo->query('SELECT id FROM operational_expenses ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    foreach ($expenseIds as $expenseId) {
+        $lineCount = generate_operational_expense_journal($pdo, (int) $expenseId);
+        if ($lineCount > 0) {
+            $entries++;
+            $lines += $lineCount;
+        }
+    }
+
+    return ['entries' => $entries, 'lines' => $lines];
+}
+
+function run_accounting_journal_generation(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    try {
+        $schemaPath = dirname(__DIR__) . '/database/schema.sql';
+        if (is_readable($schemaPath)) {
+            execute_sql_file($pdo, $schemaPath, true);
+        }
+
+        if (! accounting_tables_ready($pdo)) {
+            return [
+                'ok' => false,
+                'message' => 'Tabel accounting belum tersedia dan schema tidak berhasil dijalankan.',
+                'statements' => 0,
+                'counts' => database_table_counts(),
+            ];
+        }
+
+        $pdo->beginTransaction();
+        $result = regenerate_all_accounting_journals($pdo);
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Generate jurnal akuntansi berhasil. ' . $result['entries'] . ' jurnal dibuat ulang.',
+            'statements' => $result['lines'],
+            'counts' => database_table_counts(),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Generate jurnal akuntansi gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
+function fetch_laporan_coa(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Database belum bisa dikoneksi.', 'items' => []];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $items = db_all('
+            SELECT id, code, name, type, normal_balance, is_active
+            FROM chart_of_accounts
+            ORDER BY code
+        ') ?? [];
+
+        return ['ok' => true, 'items' => $items, 'error' => null];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'error' => $exception->getMessage(), 'items' => []];
+    }
+}
+
+function fetch_laporan_jurnal_umum(string $month = '', string $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Database belum bisa dikoneksi.', 'entries' => [], 'summary' => []];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+
+        $sql = '
+            SELECT
+                je.id,
+                je.entry_date,
+                je.source_type,
+                je.source_id,
+                je.description,
+                coa.code,
+                coa.name AS account_name,
+                jl.debit,
+                jl.credit,
+                jl.memo
+            FROM journal_entries je
+            JOIN journal_lines jl ON jl.journal_entry_id = je.id
+            JOIN chart_of_accounts coa ON coa.id = jl.account_id
+            WHERE 1=1
+        ';
+        $params = [];
+
+        if ($month !== '') {
+            $sql .= ' AND MONTH(je.entry_date) = :month';
+            $params['month'] = (int) $month;
+        }
+        if ($year !== '') {
+            $sql .= ' AND YEAR(je.entry_date) = :year';
+            $params['year'] = (int) $year;
+        }
+
+        $sql .= ' ORDER BY je.entry_date DESC, je.id DESC, jl.id ASC';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $entries = [];
+        foreach ($rows as $row) {
+            $entryId = (int) $row['id'];
+            if (! isset($entries[$entryId])) {
+                $entries[$entryId] = [
+                    'id' => $entryId,
+                    'entry_date' => $row['entry_date'],
+                    'source_type' => $row['source_type'],
+                    'source_id' => $row['source_id'],
+                    'description' => $row['description'],
+                    'lines' => [],
+                    'debit_total' => 0.0,
+                    'credit_total' => 0.0,
+                ];
+            }
+
+            $line = [
+                'code' => $row['code'],
+                'account_name' => $row['account_name'],
+                'debit' => (float) $row['debit'],
+                'credit' => (float) $row['credit'],
+                'memo' => $row['memo'],
+            ];
+            $entries[$entryId]['lines'][] = $line;
+            $entries[$entryId]['debit_total'] += $line['debit'];
+            $entries[$entryId]['credit_total'] += $line['credit'];
+        }
+
+        $entries = array_values($entries);
+        return [
+            'ok' => true,
+            'entries' => $entries,
+            'summary' => [
+                'entry_count' => count($entries),
+                'debit_total' => array_sum(array_column($entries, 'debit_total')),
+                'credit_total' => array_sum(array_column($entries, 'credit_total')),
+            ],
+            'error' => null,
+        ];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'error' => $exception->getMessage(), 'entries' => [], 'summary' => []];
+    }
+}
+
+function fetch_laporan_buku_besar(string $accountCode = '', string $month = '', string $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Database belum bisa dikoneksi.', 'accounts' => [], 'items' => [], 'selected' => null];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $accounts = db_all('
+            SELECT id, code, name, type, normal_balance
+            FROM chart_of_accounts
+            WHERE is_active = 1
+            ORDER BY code
+        ') ?? [];
+
+        if ($accountCode === '' && $accounts !== []) {
+            $accountCode = (string) $accounts[0]['code'];
+        }
+
+        $selected = null;
+        foreach ($accounts as $account) {
+            if ((string) $account['code'] === $accountCode) {
+                $selected = $account;
+                break;
+            }
+        }
+
+        if ($selected === null) {
+            return ['ok' => true, 'accounts' => $accounts, 'items' => [], 'selected' => null, 'summary' => [], 'error' => null];
+        }
+
+        $sql = '
+            SELECT je.entry_date, je.source_type, je.source_id, je.description, jl.debit, jl.credit, jl.memo
+            FROM journal_lines jl
+            JOIN journal_entries je ON je.id = jl.journal_entry_id
+            WHERE jl.account_id = :account_id
+        ';
+        $params = ['account_id' => (int) $selected['id']];
+        if ($month !== '') {
+            $sql .= ' AND MONTH(je.entry_date) = :month';
+            $params['month'] = (int) $month;
+        }
+        if ($year !== '') {
+            $sql .= ' AND YEAR(je.entry_date) = :year';
+            $params['year'] = (int) $year;
+        }
+        $sql .= ' ORDER BY je.entry_date ASC, je.id ASC, jl.id ASC';
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $balance = 0.0;
+        $items = [];
+        foreach ($rows as $row) {
+            $debit = (float) $row['debit'];
+            $credit = (float) $row['credit'];
+            $balance += ($selected['normal_balance'] === 'debit') ? ($debit - $credit) : ($credit - $debit);
+            $row['debit'] = $debit;
+            $row['credit'] = $credit;
+            $row['balance'] = $balance;
+            $items[] = $row;
+        }
+
+        return [
+            'ok' => true,
+            'accounts' => $accounts,
+            'items' => $items,
+            'selected' => $selected,
+            'summary' => [
+                'debit_total' => array_sum(array_column($items, 'debit')),
+                'credit_total' => array_sum(array_column($items, 'credit')),
+                'ending_balance' => $balance,
+            ],
+            'error' => null,
+        ];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'error' => $exception->getMessage(), 'accounts' => [], 'items' => [], 'selected' => null];
+    }
+}
+
+function fetch_laporan_neraca(string $asOfDate = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Database belum bisa dikoneksi.', 'groups' => []];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $asOfDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $asOfDate) === 1 ? $asOfDate : date('Y-m-d');
+        $stmt = $pdo->prepare('
+            SELECT
+                coa.code,
+                coa.name,
+                coa.type,
+                coa.normal_balance,
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN jl.debit ELSE 0 END), 0) AS debit_total,
+                COALESCE(SUM(CASE WHEN je.id IS NOT NULL THEN jl.credit ELSE 0 END), 0) AS credit_total
+            FROM chart_of_accounts coa
+            LEFT JOIN journal_lines jl ON jl.account_id = coa.id
+            LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id AND je.entry_date <= :as_of
+            WHERE coa.is_active = 1
+            GROUP BY coa.id, coa.code, coa.name, coa.type, coa.normal_balance
+            ORDER BY coa.code
+        ');
+        $stmt->execute(['as_of' => $asOfDate]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $groups = [
+            'asset' => ['label' => 'Aset', 'items' => [], 'total' => 0.0],
+            'liability' => ['label' => 'Kewajiban', 'items' => [], 'total' => 0.0],
+            'equity' => ['label' => 'Ekuitas', 'items' => [], 'total' => 0.0],
+        ];
+        $netIncome = 0.0;
+
+        foreach ($rows as $row) {
+            $debit = (float) $row['debit_total'];
+            $credit = (float) $row['credit_total'];
+            $balance = $row['normal_balance'] === 'debit' ? ($debit - $credit) : ($credit - $debit);
+
+            if ($row['type'] === 'revenue') {
+                $netIncome += $balance;
+                continue;
+            }
+            if ($row['type'] === 'expense') {
+                $netIncome -= $balance;
+                continue;
+            }
+            if (! isset($groups[$row['type']])) {
+                continue;
+            }
+
+            $item = $row;
+            $item['balance'] = $balance;
+            $groups[$row['type']]['items'][] = $item;
+            $groups[$row['type']]['total'] += $balance;
+        }
+
+        $groups['equity']['items'][] = [
+            'code' => '3300-PNL',
+            'name' => 'Laba Tahun Berjalan dari Jurnal',
+            'type' => 'equity',
+            'normal_balance' => 'credit',
+            'balance' => $netIncome,
+        ];
+        $groups['equity']['total'] += $netIncome;
+
+        $rightTotal = $groups['liability']['total'] + $groups['equity']['total'];
+
+        return [
+            'ok' => true,
+            'as_of_date' => $asOfDate,
+            'groups' => $groups,
+            'summary' => [
+                'asset_total' => $groups['asset']['total'],
+                'liability_total' => $groups['liability']['total'],
+                'equity_total' => $groups['equity']['total'],
+                'liability_equity_total' => $rightTotal,
+                'difference' => $groups['asset']['total'] - $rightTotal,
+                'net_income' => $netIncome,
+            ],
+            'error' => null,
+        ];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'error' => $exception->getMessage(), 'groups' => []];
+    }
 }
 
 function run_database_migration_seed(): array
@@ -711,6 +1419,9 @@ function run_database_migration_seed(): array
         $statementCount = 0;
         $statementCount += execute_sql_statements($pdo, [
             'SET FOREIGN_KEY_CHECKS = 0',
+            'DROP TABLE IF EXISTS `journal_lines`',
+            'DROP TABLE IF EXISTS `journal_entries`',
+            'DROP TABLE IF EXISTS `chart_of_accounts`',
             'DROP TABLE IF EXISTS `invoice_items`',
             'DROP TABLE IF EXISTS `invoices`',
             'DROP TABLE IF EXISTS `master_sales`',
@@ -735,6 +1446,11 @@ function run_database_migration_seed(): array
                     shell_exec($cmd);
                 }
             }
+        }
+
+        if (accounting_tables_ready($pdo)) {
+            $journalResult = regenerate_all_accounting_journals($pdo);
+            $statementCount += $journalResult['lines'];
         }
 
         return [
@@ -1633,6 +2349,8 @@ function save_invoice_form(array $postData): array
             ]);
             $baris += 2;
         }
+
+        generate_invoice_journal($pdo, $kodeInvoice);
 
         $pdo->commit();
         return ['ok' => true, 'kode_invoice' => $kodeInvoice];
@@ -3661,6 +4379,11 @@ function run_hosting_update(): array
             $outputLogs[] = "4. Sinkronisasi Pembelian Barang (Lunas/Utang & Tgl Transfer): Selesai ($purchaseCount baris diperbarui)";
         }
 
+        if (accounting_tables_ready($pdo)) {
+            $journalResult = regenerate_all_accounting_journals($pdo);
+            $outputLogs[] = "5. Generate Jurnal Akuntansi: Selesai ({$journalResult['entries']} jurnal, {$journalResult['lines']} baris)";
+        }
+
         return [
             'ok' => true,
             'message' => 'Update Database Hosting Berhasil!',
@@ -3733,10 +4456,19 @@ function run_latest_update(): array
         $outputLogs[] = "3. Sinkronisasi Pembelian Barang (Lunas/Utang & Tgl Transfer): Selesai ($purchaseCount baris diperbarui)";
 
         // 4. Sinkronisasi pengeluaran operasional
+        if (accounting_tables_ready($pdo)) {
+            $pdo->exec("DELETE FROM journal_entries WHERE source_type = 'operational_expense'");
+        }
         $pdo->exec('TRUNCATE TABLE operational_expenses');
         $opCount = seed_operational_expenses_from_workbook($pdo, $excelPath);
         $opCount += seed_bonus_expenses($pdo);
         $outputLogs[] = "4. Sinkronisasi Pengeluaran Operasional: Selesai ($opCount baris diperbarui)";
+
+        if (accounting_tables_ready($pdo)) {
+            $journalResult = regenerate_all_accounting_journals($pdo);
+            $outputLogs[] = "5. Generate Jurnal Akuntansi: Selesai ({$journalResult['entries']} jurnal, {$journalResult['lines']} baris)";
+            $totalUpdated += $journalResult['lines'];
+        }
 
         return [
             'ok'         => true,
@@ -4653,6 +5385,9 @@ function delete_invoice(string $kodeInvoice): array
         $googleResult = delete_invoice_from_google($kodeInvoice);
 
         $pdo->beginTransaction();
+        if (accounting_tables_ready($pdo)) {
+            $pdo->prepare('DELETE FROM journal_entries WHERE source_type = ? AND source_id = ?')->execute(['invoice', $kodeInvoice]);
+        }
         $pdo->prepare('DELETE FROM invoice_items WHERE kode_invoice = ?')->execute([$kodeInvoice]);
         $pdo->prepare('DELETE FROM invoices WHERE kode_invoice = ?')->execute([$kodeInvoice]);
         $pdo->commit();
@@ -4882,4 +5617,3 @@ function run_delete_test_data(): array
         ];
     }
 }
-

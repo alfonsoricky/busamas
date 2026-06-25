@@ -221,6 +221,34 @@ $routes = [
             'reportData' => fetch_laporan_komisi($_GET['month'] ?? '', $_GET['year'] ?? date('Y'), $_GET['status'] ?? ''),
         ],
     ],
+    '/laporan/coa' => [
+        'view' => 'pages/laporan-coa',
+        'title' => 'Chart of Accounts',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_coa(),
+        ],
+    ],
+    '/laporan/jurnal' => [
+        'view' => 'pages/laporan-jurnal',
+        'title' => 'Jurnal Umum',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_jurnal_umum($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+        ],
+    ],
+    '/laporan/buku-besar' => [
+        'view' => 'pages/laporan-buku-besar',
+        'title' => 'Buku Besar',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_buku_besar($_GET['account'] ?? '', $_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+        ],
+    ],
+    '/laporan/neraca' => [
+        'view' => 'pages/laporan-neraca',
+        'title' => 'Neraca',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_neraca($_GET['date'] ?? date('Y-m-d')),
+        ],
+    ],
     '/invoice-delete' => [
         'view'  => 'pages/invoice-delete-result',
         'title' => 'Hapus Invoice',

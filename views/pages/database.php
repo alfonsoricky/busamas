@@ -103,6 +103,26 @@
                     </form>
                 </div>
             </div>
+
+            <!-- Akuntansi -->
+            <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+                <div class="flex items-center gap-3">
+                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
+                        <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14.25l2.25 2.25L15 12m-9.75 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
+                    </div>
+                    <h2 class="text-lg font-bold text-ink">Akuntansi</h2>
+                </div>
+                <p class="mt-3 text-sm leading-6 text-stone-600">
+                    Buat ulang jurnal otomatis dari seluruh invoice dan pengeluaran operasional berdasarkan COA default.
+                </p>
+
+                <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5">
+                    <input type="hidden" name="action" value="generate-accounting-journals">
+                    <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
+                        Generate Jurnal Akuntansi
+                    </button>
+                </form>
+            </div>
         </div>
 
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">

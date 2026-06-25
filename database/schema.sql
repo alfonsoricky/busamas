@@ -159,4 +159,84 @@ CREATE TABLE IF NOT EXISTS `operational_expenses` (
     KEY `operational_expenses_bulan_pnl_index` (`tahun_pnl`, `bulan_pnl`, `kategori`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `chart_of_accounts` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `code` VARCHAR(20) NOT NULL,
+    `name` VARCHAR(150) NOT NULL,
+    `type` ENUM('asset', 'liability', 'equity', 'revenue', 'expense') NOT NULL,
+    `normal_balance` ENUM('debit', 'credit') NOT NULL,
+    `parent_id` BIGINT UNSIGNED NULL,
+    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `chart_of_accounts_code_unique` (`code`),
+    KEY `chart_of_accounts_parent_id_index` (`parent_id`),
+    CONSTRAINT `chart_of_accounts_parent_id_foreign`
+        FOREIGN KEY (`parent_id`) REFERENCES `chart_of_accounts` (`id`)
+        ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `journal_entries` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `entry_date` DATE NOT NULL,
+    `source_type` VARCHAR(50) NOT NULL,
+    `source_id` VARCHAR(100) NOT NULL,
+    `description` VARCHAR(255) NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `journal_entries_source_unique` (`source_type`, `source_id`),
+    KEY `journal_entries_entry_date_index` (`entry_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `journal_lines` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `journal_entry_id` BIGINT UNSIGNED NOT NULL,
+    `account_id` BIGINT UNSIGNED NOT NULL,
+    `debit` DECIMAL(15,2) NOT NULL DEFAULT 0,
+    `credit` DECIMAL(15,2) NOT NULL DEFAULT 0,
+    `memo` VARCHAR(255) NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `journal_lines_journal_entry_id_index` (`journal_entry_id`),
+    KEY `journal_lines_account_id_index` (`account_id`),
+    CONSTRAINT `journal_lines_journal_entry_id_foreign`
+        FOREIGN KEY (`journal_entry_id`) REFERENCES `journal_entries` (`id`)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+    CONSTRAINT `journal_lines_account_id_foreign`
+        FOREIGN KEY (`account_id`) REFERENCES `chart_of_accounts` (`id`)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `chart_of_accounts` (`code`, `name`, `type`, `normal_balance`) VALUES
+('1100', 'Kas / Bank', 'asset', 'debit'),
+('1200', 'Piutang Usaha', 'asset', 'debit'),
+('2100', 'Hutang Pembelian Barang', 'liability', 'credit'),
+('2110', 'Hutang Operasional', 'liability', 'credit'),
+('2200', 'Hutang Komisi Sales', 'liability', 'credit'),
+('2210', 'Hutang Komisi Manager', 'liability', 'credit'),
+('2220', 'Hutang Komisi Admin', 'liability', 'credit'),
+('2300', 'Hutang PPh Final', 'liability', 'credit'),
+('3100', 'Modal Pemilik', 'equity', 'credit'),
+('3200', 'Laba Ditahan', 'equity', 'credit'),
+('3300', 'Laba Tahun Berjalan', 'equity', 'credit'),
+('4100', 'Pendapatan Penjualan', 'revenue', 'credit'),
+('4110', 'Diskon Penjualan', 'expense', 'debit'),
+('5100', 'HPP / Pembelian Barang', 'expense', 'debit'),
+('6100', 'Beban Komisi Sales', 'expense', 'debit'),
+('6110', 'Beban Komisi Manager', 'expense', 'debit'),
+('6120', 'Beban Komisi Admin', 'expense', 'debit'),
+('6200', 'Beban Operasional', 'expense', 'debit'),
+('6210', 'Beban Bonus', 'expense', 'debit'),
+('6300', 'Biaya Kirim', 'expense', 'debit'),
+('6400', 'Biaya Admin Bank', 'expense', 'debit'),
+('6500', 'Beban PPh Final', 'expense', 'debit')
+ON DUPLICATE KEY UPDATE
+    `name` = VALUES(`name`),
+    `type` = VALUES(`type`),
+    `normal_balance` = VALUES(`normal_balance`),
+    `is_active` = 1;
+
 SET FOREIGN_KEY_CHECKS = 1;

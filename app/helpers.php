@@ -194,6 +194,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'update-2026-operational-latest') {
         $result = run_2026_operational_latest_update();
         $counts = database_table_counts();
+    } elseif ($action === 'update-pnl-sales-commission') {
+        $result = run_pnl_sales_commission_update();
+        $counts = database_table_counts();
     } elseif ($action === 'migrate-seed') {
         $result = run_database_migration_seed();
         $counts = database_table_counts();
@@ -3506,7 +3509,7 @@ function fetch_laporan_profit_loss(string $month = '', string $year = ''): array
     $invoices = db_all('
         SELECT nomor_invoice, subtotal, total_harga_jual, discount_amount, 
                total_pembelian_barang, total_utang_pembelian_barang, 
-               komisi_sales_1_persen, komisi_sales_2_persen, 
+               komisi_sales_1_persen, komisi_sales_2_persen, komisi_sales_terbayar, komisi_sales_belum_terbayar,
                komisi_manager_terbayar, komisi_manager_utang, 
                pph_final_terbayar, pph_final_belum_terbayar, 
                komisi_admin_terbayar, komisi_admin_belum_terbayar, 
@@ -3535,7 +3538,8 @@ function fetch_laporan_profit_loss(string $month = '', string $year = ''): array
         $rev = (float)($inv['total_harga_jual'] ?? 0);
         $com1 = $rev * ((float)($inv['komisi_sales_1_persen'] ?? 0) / 100);
         $com2 = $rev * ((float)($inv['komisi_sales_2_persen'] ?? 0) / 100);
-        $komisi_sales += ($com1 + $com2);
+        $storedSalesCommission = (float)($inv['komisi_sales_terbayar'] ?? 0) + (float)($inv['komisi_sales_belum_terbayar'] ?? 0);
+        $komisi_sales += $storedSalesCommission > 0 ? $storedSalesCommission : ($com1 + $com2);
 
         $komisi_manager += (float)($inv['komisi_manager_terbayar'] ?? 0) + (float)($inv['komisi_manager_utang'] ?? 0);
         $pph += (float)($inv['pph_final_terbayar'] ?? 0) + (float)($inv['pph_final_belum_terbayar'] ?? 0);
@@ -4712,6 +4716,49 @@ function run_2026_operational_latest_update(): array
         return [
             'ok'         => false,
             'message'    => 'Update operational 2026 gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+}
+
+function run_pnl_sales_commission_update(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok'         => false,
+            'message'    => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts'     => database_table_counts(),
+        ];
+    }
+
+    try {
+        $pdo->beginTransaction();
+        $journalResult = regenerate_all_accounting_journals($pdo);
+        $pdo->commit();
+
+        $april = fetch_laporan_profit_loss('4', '2026');
+
+        return [
+            'ok'         => true,
+            'message'    => 'Update PNL Komisi Sales Berhasil! PNL sekarang memakai nominal komisi sales terbayar + belum terbayar jika tersedia.',
+            'statements' => $journalResult['lines'],
+            'counts'     => database_table_counts(),
+            'output'     => implode("\n", [
+                "1. Posting Ulang Jurnal Akuntansi: {$journalResult['entries']} jurnal, {$journalResult['lines']} baris",
+                '2. Komisi Sales PNL April 2026: Rp' . number_format((float) ($april['komisi_sales'] ?? 0), 0, ',', '.'),
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok'         => false,
+            'message'    => 'Update PNL komisi sales gagal: ' . $exception->getMessage(),
             'statements' => 0,
             'counts'     => database_table_counts(),
         ];

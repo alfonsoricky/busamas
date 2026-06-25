@@ -28,6 +28,25 @@
     <div class="mb-6 rounded-lg border border-teal-200 bg-white p-5 shadow-sm">
         <div class="flex items-center gap-3">
             <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
+                <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14.25l2.25 2.25L15 12m-9.75 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
+            </div>
+            <h2 class="text-lg font-bold text-ink">Update PNL Komisi Sales</h2>
+        </div>
+        <p class="mt-3 text-sm leading-6 text-stone-600">
+            Terapkan rumus PNL komisi sales terbaru: gunakan nominal komisi sales terbayar + belum terbayar jika tersedia, lalu posting ulang jurnal akuntansi.
+        </p>
+
+        <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Jalankan update PNL komisi sales sekarang?')">
+            <input type="hidden" name="action" value="update-pnl-sales-commission">
+            <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
+                Update PNL Komisi Sales
+            </button>
+        </form>
+    </div>
+
+    <div class="mb-6 rounded-lg border border-teal-200 bg-white p-5 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
                 <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             </div>
             <h2 class="text-lg font-bold text-ink">Update Operational 2026</h2>

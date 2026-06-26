@@ -20,6 +20,9 @@ $months = [
                 Pantau seluruh pengeluaran operasional perusahaan yang ditarik secara otomatis dari sheet <b>operational</b> pada file Excel.
             </p>
         </div>
+        <a href="<?= e(url('/operational/bonus-sales')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+            Bonus / Insentif Tim Sales
+        </a>
     </div>
 
     <!-- Summary Cards -->

@@ -80,6 +80,39 @@ $routes = [
             'summary' => fetch_operational_summary($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
         ],
     ],
+    '/operational/bonus-sales' => [
+        'view' => 'pages/operational-bonus-sales',
+        'title' => 'Bonus Sales Internal',
+        'data' => fn (): array => [
+            'bonusSales' => fetch_internal_sales_bonus($_GET['month'] ?? date('n'), $_GET['year'] ?? date('Y')),
+        ],
+    ],
+    '/operational/bonus-sales-update' => [
+        'view' => 'pages/operational-bonus-sales',
+        'title' => 'Update Bonus Sales Internal',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/operational/bonus-sales'));
+                exit;
+            }
+
+            $month = $_POST['month'] ?? date('n');
+            $year = $_POST['year'] ?? date('Y');
+            $_SESSION['bonus_sales_flash'] = update_internal_sales_bonus_invoice_status(
+                $_POST['kode_invoice'] ?? '',
+                $_POST['sales'] ?? '',
+                $_POST['status_bonus'] ?? '',
+                $_POST['tanggal_bayar_bonus'] ?? '',
+                $month,
+                $year
+            );
+            header('Location: ' . url('/operational/bonus-sales') . '?' . http_build_query([
+                'month' => $month,
+                'year' => $year,
+            ]));
+            exit;
+        },
+    ],
     '/invoices' => [
         'view' => 'pages/invoices',
         'title' => 'Invoice Mapping',

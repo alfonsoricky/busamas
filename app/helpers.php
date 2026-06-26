@@ -2340,6 +2340,341 @@ function update_invoice_purchase_status(string $kodeInvoice, string $statusPembe
     }
 }
 
+function internal_sales_bonus_rules(): array
+{
+    return [
+        'target' => 30000000.0,
+        'rate' => 0.05,
+        'sales' => ['Krisna', 'Wira'],
+    ];
+}
+
+function internal_sales_bonus_marker(string $kodeInvoice, string $sales): string
+{
+    return 'internal_sales_bonus:' . $kodeInvoice . ':' . strtolower($sales);
+}
+
+function fetch_internal_sales_bonus(mixed $month = '', mixed $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'items' => [], 'summary' => [], 'error' => 'Koneksi database gagal.'];
+    }
+
+    $month = (int) ($month ?: date('n'));
+    $year = (int) ($year ?: date('Y'));
+    if ($month < 1 || $month > 12) {
+        $month = (int) date('n');
+    }
+    if ($year < 2000) {
+        $year = (int) date('Y');
+    }
+
+    $rules = internal_sales_bonus_rules();
+    $salesTotals = [];
+    foreach ($rules['sales'] as $salesName) {
+        $salesTotals[$salesName] = [
+            'sales' => $salesName,
+            'invoice_count' => 0,
+            'paid_invoice_count' => 0,
+            'omzet' => 0.0,
+            'paid_omzet' => 0.0,
+        ];
+    }
+
+    try {
+        $rows = $pdo->query('
+            SELECT
+                kode_invoice,
+                nomor_invoice,
+                tanggal_invoice,
+                nama_sales_1,
+                nama_sales_2,
+                nama_customer_invoice,
+                nama_customer_master,
+                nama_laundry_invoice,
+                subtotal,
+                discount_amount,
+                total_harga_jual,
+                status_pembayaran,
+                tanggal_pembayaran
+            FROM invoices
+            ORDER BY id
+        ')->fetchAll(PDO::FETCH_ASSOC);
+
+        $invoiceRows = [];
+        foreach ($rows as $invoice) {
+            if (invoice_month_number((string) ($invoice['nomor_invoice'] ?? '')) !== $month) {
+                continue;
+            }
+            if ((int) invoice_year((string) ($invoice['nomor_invoice'] ?? '')) !== $year) {
+                continue;
+            }
+
+            $omzet = round((float) ($invoice['total_harga_jual'] ?? 0), 2);
+            if ($omzet <= 0) {
+                $omzet = max(round((float) ($invoice['subtotal'] ?? 0) - (float) ($invoice['discount_amount'] ?? 0), 2), 0);
+            }
+            if ($omzet <= 0) {
+                continue;
+            }
+            $isInvoicePaid = strcasecmp(trim((string) ($invoice['status_pembayaran'] ?? '')), 'Lunas') === 0;
+
+            $invoiceSales = [
+                normalize_spaces((string) ($invoice['nama_sales_1'] ?? '')),
+                normalize_spaces((string) ($invoice['nama_sales_2'] ?? '')),
+            ];
+
+            foreach ($salesTotals as $salesName => &$total) {
+                foreach ($invoiceSales as $invoiceSalesName) {
+                    if ($invoiceSalesName !== '' && strcasecmp($invoiceSalesName, $salesName) === 0) {
+                        $total['invoice_count']++;
+                        $total['omzet'] += $omzet;
+                        if ($isInvoicePaid) {
+                            $total['paid_invoice_count']++;
+                            $total['paid_omzet'] += $omzet;
+                        }
+                        $invoiceRows[] = [
+                            'kode_invoice' => (string) ($invoice['kode_invoice'] ?? ''),
+                            'nomor_invoice' => (string) ($invoice['nomor_invoice'] ?? ''),
+                            'tanggal_invoice' => $invoice['tanggal_invoice'] ?? '',
+                            'customer' => trim((string) ($invoice['nama_laundry_invoice'] ?? '')) ?: trim((string) ($invoice['nama_customer_invoice'] ?? '')) ?: trim((string) ($invoice['nama_customer_master'] ?? '')),
+                            'sales' => $salesName,
+                            'omzet' => $omzet,
+                            'is_invoice_paid' => $isInvoicePaid,
+                            'tanggal_pembayaran' => $invoice['tanggal_pembayaran'] ?? '',
+                            'target' => $rules['target'],
+                            'rate' => $rules['rate'],
+                            'eligible' => false,
+                            'bonus' => 0.0,
+                            'bonus_status' => 'Belum Dibayar',
+                            'bonus_paid_date' => '',
+                            'expense_id' => null,
+                        ];
+                        break;
+                    }
+                }
+            }
+            unset($total);
+        }
+
+        foreach ($salesTotals as &$total) {
+            $total['omzet'] = round((float) $total['omzet'], 2);
+            $total['paid_omzet'] = round((float) $total['paid_omzet'], 2);
+            $total['eligible'] = $total['omzet'] >= $rules['target'];
+        }
+        unset($total);
+
+        $postedStmt = $pdo->prepare("
+            SELECT id, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran, keterangan, updated_at
+            FROM operational_expenses
+            WHERE kategori = 'bonus'
+              AND bulan_pnl = ?
+              AND tahun_pnl = ?
+              AND keterangan LIKE 'internal_sales_bonus:%'
+        ");
+        $postedStmt->execute([$month, $year]);
+        $postedByMarker = [];
+        foreach ($postedStmt->fetchAll(PDO::FETCH_ASSOC) as $posted) {
+            $parts = explode(' ', (string) ($posted['keterangan'] ?? ''), 2);
+            $marker = $parts[0] ?? '';
+            if ($marker !== '') {
+                $postedByMarker[$marker] = $posted;
+            }
+        }
+
+        foreach ($invoiceRows as &$invoiceRow) {
+            $salesName = (string) $invoiceRow['sales'];
+            $invoiceRow['sales_month_omzet'] = $salesTotals[$salesName]['omzet'] ?? 0.0;
+            $invoiceRow['sales_paid_omzet'] = $salesTotals[$salesName]['paid_omzet'] ?? 0.0;
+            $invoiceRow['eligible'] = (bool) ($salesTotals[$salesName]['eligible'] ?? false);
+            $invoiceRow['bonus'] = $invoiceRow['eligible'] ? round((float) $invoiceRow['omzet'] * (float) $rules['rate'], 2) : 0.0;
+            $marker = internal_sales_bonus_marker((string) $invoiceRow['kode_invoice'], $salesName);
+            $posted = $postedByMarker[$marker] ?? null;
+            if (is_array($posted)) {
+                $invoiceRow['expense_id'] = (int) ($posted['id'] ?? 0);
+                $invoiceRow['bonus_status'] = strcasecmp((string) ($posted['status_pembayaran'] ?? ''), 'Lunas') === 0 ? 'Terbayar' : 'Belum Dibayar';
+                $invoiceRow['bonus_paid_date'] = date_input_value((string) ($posted['tanggal_pembayaran'] ?? ''));
+            }
+        }
+        unset($invoiceRow);
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'items' => [], 'summary' => [], 'error' => $exception->getMessage()];
+    }
+
+    usort($invoiceRows, static function (array $a, array $b): int {
+        $dateCompare = strcmp(date_input_value((string) ($a['tanggal_invoice'] ?? '')), date_input_value((string) ($b['tanggal_invoice'] ?? '')));
+        if ($dateCompare !== 0) {
+            return $dateCompare;
+        }
+
+        return strnatcasecmp((string) ($a['nomor_invoice'] ?? ''), (string) ($b['nomor_invoice'] ?? ''));
+    });
+
+    $eligibleRows = array_filter($invoiceRows, static fn (array $item): bool => (bool) ($item['eligible'] ?? false) && (float) ($item['bonus'] ?? 0) > 0);
+    $customerPaidRows = array_filter($eligibleRows, static fn (array $item): bool => (bool) ($item['is_invoice_paid'] ?? false));
+    $salesPaidRows = array_filter($customerPaidRows, static fn (array $item): bool => (string) ($item['bonus_status'] ?? '') === 'Terbayar');
+
+    return [
+        'ok' => true,
+        'items' => array_values($invoiceRows),
+        'sales_summary' => array_values($salesTotals),
+        'filters' => [
+            'month' => $month,
+            'year' => $year,
+        ],
+        'rules' => $rules,
+        'summary' => [
+            'omzet' => array_sum(array_map(static fn (array $item): float => (float) $item['omzet'], $salesTotals)),
+            'paid_omzet' => array_sum(array_map(static fn (array $item): float => (float) $item['paid_omzet'], $salesTotals)),
+            'bonus' => array_sum(array_map(static fn (array $item): float => (float) $item['bonus'], $eligibleRows)),
+            'payable_bonus' => array_sum(array_map(static fn (array $item): float => (float) $item['bonus'], $customerPaidRows)),
+            'paid_to_sales_bonus' => array_sum(array_map(static fn (array $item): float => (float) $item['bonus'], $salesPaidRows)),
+            'unpaid_to_sales_bonus' => array_sum(array_map(static fn (array $item): float => (float) $item['bonus'], $customerPaidRows)) - array_sum(array_map(static fn (array $item): float => (float) $item['bonus'], $salesPaidRows)),
+            'eligible_count' => count(array_filter($salesTotals, static fn (array $item): bool => (bool) ($item['eligible'] ?? false))),
+        ],
+        'error' => null,
+    ];
+}
+
+function update_internal_sales_bonus_invoice_status(string $kodeInvoice, string $sales, string $status, string $paidDate, mixed $month, mixed $year): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Koneksi database gagal.'];
+    }
+
+    $month = (int) ($month ?: date('n'));
+    $year = (int) ($year ?: date('Y'));
+    if ($month < 1 || $month > 12 || $year < 2000) {
+        return ['ok' => false, 'message' => 'Periode bonus tidak valid.'];
+    }
+
+    $kodeInvoice = trim($kodeInvoice);
+    $sales = normalize_spaces($sales);
+    $status = strcasecmp(trim($status), 'Terbayar') === 0 ? 'Terbayar' : 'Belum Dibayar';
+    $paidDate = date_input_value($paidDate);
+    if ($kodeInvoice === '' || $sales === '') {
+        return ['ok' => false, 'message' => 'Invoice dan sales wajib diisi.'];
+    }
+    if ($status === 'Terbayar' && $paidDate === '') {
+        return ['ok' => false, 'message' => 'Tanggal bayar bonus wajib diisi jika status terbayar.'];
+    }
+
+    $bonusData = fetch_internal_sales_bonus($month, $year);
+    if (! ($bonusData['ok'] ?? false)) {
+        return ['ok' => false, 'message' => $bonusData['error'] ?? 'Bonus gagal dihitung.'];
+    }
+    $targetRow = null;
+    foreach (($bonusData['items'] ?? []) as $item) {
+        if ((string) ($item['kode_invoice'] ?? '') === $kodeInvoice && strcasecmp((string) ($item['sales'] ?? ''), $sales) === 0) {
+            $targetRow = $item;
+            break;
+        }
+    }
+    if (! is_array($targetRow)) {
+        return ['ok' => false, 'message' => 'Data bonus invoice tidak ditemukan pada periode ini.'];
+    }
+    if (! (bool) ($targetRow['eligible'] ?? false) || (float) ($targetRow['bonus'] ?? 0) <= 0) {
+        return ['ok' => false, 'message' => 'Sales belum memenuhi target bonus pada periode ini.'];
+    }
+    if (! (bool) ($targetRow['is_invoice_paid'] ?? false)) {
+        return ['ok' => false, 'message' => 'Bonus belum bisa dibayar karena invoice customer belum lunas.'];
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        $marker = internal_sales_bonus_marker($kodeInvoice, $sales);
+        $existingStmt = $pdo->prepare("
+            SELECT id FROM operational_expenses
+            WHERE kategori = 'bonus'
+              AND keterangan LIKE ?
+            LIMIT 1
+        ");
+        $existingStmt->execute([$marker . '%']);
+        $existingId = (int) ($existingStmt->fetchColumn() ?: 0);
+
+        if ($existingId > 0) {
+            delete_accounting_journal_source($pdo, 'operational_expense', (string) $existingId);
+        }
+
+        $periodDate = date_input_value((string) ($targetRow['tanggal_invoice'] ?? ''));
+        if ($periodDate === '') {
+            $periodDate = sprintf('%04d-%02d-%02d', $year, $month, cal_days_in_month(CAL_GREGORIAN, $month, $year));
+        }
+        $paymentStatus = $status === 'Terbayar' ? 'Lunas' : 'Hutang';
+        $paymentDate = $status === 'Terbayar' ? $paidDate : null;
+        $name = 'Bonus Sales Internal ' . $sales . ' ' . ($targetRow['nomor_invoice'] ?? $kodeInvoice);
+        $note = $marker . ' | Bonus 5% dari invoice ' . ($targetRow['nomor_invoice'] ?? $kodeInvoice) . ', customer ' . ($targetRow['customer'] ?? '') . ', omzet ' . rupiah($targetRow['omzet'] ?? 0);
+
+        if ($existingId > 0) {
+            $stmt = $pdo->prepare("
+                UPDATE operational_expenses
+                SET tanggal = ?,
+                    bulan_pnl = ?,
+                    tahun_pnl = ?,
+                    nama_pengeluaran = ?,
+                    jumlah = ?,
+                    status_pembayaran = ?,
+                    tanggal_pembayaran = ?,
+                    keterangan = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ");
+            $stmt->execute([
+                $periodDate,
+                $month,
+                $year,
+                $name,
+                round((float) ($targetRow['bonus'] ?? 0), 2),
+                $paymentStatus,
+                $paymentDate,
+                $note,
+                $existingId,
+            ]);
+            $expenseId = $existingId;
+        } else {
+            $stmt = $pdo->prepare("
+                INSERT INTO operational_expenses
+                    (tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran, keterangan)
+                VALUES
+                    (?, ?, ?, 'bonus', ?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $periodDate,
+                $month,
+                $year,
+                $name,
+                round((float) ($targetRow['bonus'] ?? 0), 2),
+                $paymentStatus,
+                $paymentDate,
+                $note,
+            ]);
+            $expenseId = (int) $pdo->lastInsertId();
+        }
+
+        $journalLines = generate_operational_expense_journal($pdo, $expenseId);
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Status bonus ' . ($targetRow['nomor_invoice'] ?? $kodeInvoice) . ' untuk ' . $sales . ' berhasil diperbarui. ' . $journalLines . ' baris jurnal diposting.',
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'message' => 'Update bonus gagal: ' . $exception->getMessage()];
+    }
+}
+
+function post_internal_sales_bonus(mixed $month, mixed $year): array
+{
+    return ['ok' => false, 'message' => 'Posting bonus bulanan sudah diganti dengan update status bonus per invoice.'];
+}
+
 function invoice_customer_summary(array $invoices): array
 {
     $summary = [];

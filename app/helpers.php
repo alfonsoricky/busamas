@@ -2131,6 +2131,215 @@ function update_invoice_payment_status(string $kodeInvoice, string $statusPembay
     }
 }
 
+function fetch_invoice_purchase_log(array $filters = []): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'items' => [],
+            'summary' => [],
+            'options' => ['years' => [date('Y')]],
+            'filters' => $filters,
+            'error' => 'Koneksi database gagal.',
+        ];
+    }
+
+    try {
+        $rows = $pdo->query('
+            SELECT
+                kode_invoice,
+                nomor_invoice,
+                tanggal_invoice,
+                nama_sales_1,
+                nama_sales_2,
+                nama_customer_master,
+                nama_customer_invoice,
+                nama_laundry_invoice,
+                total_pembelian_barang,
+                total_utang_pembelian_barang,
+                status_pembelian_barang,
+                tanggal_transfer_pembelian_barang,
+                created_at,
+                updated_at
+            FROM invoices
+            WHERE (total_pembelian_barang > 0 OR total_utang_pembelian_barang > 0)
+            ORDER BY id DESC
+        ')->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'items' => [],
+            'summary' => [],
+            'options' => ['years' => [date('Y')]],
+            'filters' => $filters,
+            'error' => $exception->getMessage(),
+        ];
+    }
+
+    $month = trim((string) ($filters['month'] ?? ''));
+    $year = trim((string) ($filters['year'] ?? ''));
+    $status = trim((string) ($filters['status'] ?? 'unpaid'));
+    $search = trim((string) ($filters['search'] ?? ''));
+    $yearOptions = invoice_year_options($rows);
+
+    $items = array_values(array_filter(array_map(static function (array $row): array {
+        $paid = round((float) ($row['total_pembelian_barang'] ?? 0), 2);
+        $debt = round((float) ($row['total_utang_pembelian_barang'] ?? 0), 2);
+        $total = $paid + $debt;
+        $statusPembelian = trim((string) ($row['status_pembelian_barang'] ?? ''));
+        $isPaid = $debt <= 0.01 || strcasecmp($statusPembelian, 'Lunas') === 0;
+
+        $row['purchase_total'] = $total;
+        $row['purchase_paid'] = $isPaid ? $total : $paid;
+        $row['purchase_debt'] = $isPaid ? 0.0 : $debt;
+        $row['is_paid'] = $isPaid;
+        $row['transfer_date_input'] = date_input_value((string) ($row['tanggal_transfer_pembelian_barang'] ?? ''));
+
+        return $row;
+    }, $rows), static function (array $invoice) use ($month, $year, $status, $search): bool {
+        if ($month !== '' && invoice_month_number((string) ($invoice['nomor_invoice'] ?? '')) !== (int) $month) {
+            return false;
+        }
+
+        if ($year !== '' && invoice_year((string) ($invoice['nomor_invoice'] ?? '')) !== $year) {
+            return false;
+        }
+
+        if ($status === 'paid' && ! ($invoice['is_paid'] ?? false)) {
+            return false;
+        }
+
+        if ($status === 'unpaid' && ($invoice['is_paid'] ?? false)) {
+            return false;
+        }
+
+        if ($search !== '') {
+            $haystack = strtoupper(implode(' ', [
+                $invoice['nomor_invoice'] ?? '',
+                $invoice['kode_invoice'] ?? '',
+                $invoice['nama_customer_master'] ?? '',
+                $invoice['nama_customer_invoice'] ?? '',
+                $invoice['nama_laundry_invoice'] ?? '',
+                $invoice['nama_sales_1'] ?? '',
+                $invoice['nama_sales_2'] ?? '',
+            ]));
+
+            if (! str_contains($haystack, strtoupper($search))) {
+                return false;
+            }
+        }
+
+        return true;
+    }));
+
+    sort_invoices_newest_first($items);
+
+    $paidItems = array_filter($items, static fn (array $invoice): bool => (bool) ($invoice['is_paid'] ?? false));
+    $debtItems = array_filter($items, static fn (array $invoice): bool => ! (bool) ($invoice['is_paid'] ?? false));
+
+    return [
+        'ok' => true,
+        'items' => $items,
+        'filters' => [
+            'month' => $month,
+            'year' => $year,
+            'status' => $status,
+            'search' => $search,
+        ],
+        'options' => [
+            'years' => $yearOptions,
+        ],
+        'summary' => [
+            'invoice_count' => count($items),
+            'paid_count' => count($paidItems),
+            'debt_count' => count($debtItems),
+            'purchase_total' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['purchase_total'] ?? 0), $items)),
+            'paid_total' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['purchase_paid'] ?? 0), $items)),
+            'debt_total' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['purchase_debt'] ?? 0), $items)),
+        ],
+        'error' => null,
+    ];
+}
+
+function update_invoice_purchase_status(string $kodeInvoice, string $statusPembelian, mixed $purchaseTotal, mixed $purchaseDebt, string $transferDate): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Koneksi database gagal.'];
+    }
+
+    $kodeInvoice = trim($kodeInvoice);
+    $statusPembelian = strtolower(trim($statusPembelian)) === 'lunas' ? 'Lunas' : 'Utang';
+    $purchaseTotal = max(clean_money_value($purchaseTotal), 0);
+    $purchaseDebt = max(clean_money_value($purchaseDebt), 0);
+    $transferDate = date_input_value($transferDate);
+
+    if ($kodeInvoice === '') {
+        return ['ok' => false, 'message' => 'Kode invoice tidak boleh kosong.'];
+    }
+
+    if ($purchaseTotal <= 0) {
+        return ['ok' => false, 'message' => 'Total pembelian harus lebih besar dari 0.'];
+    }
+
+    if ($statusPembelian === 'Lunas') {
+        if ($transferDate === '') {
+            return ['ok' => false, 'message' => 'Tanggal transfer wajib diisi untuk pembelian lunas.'];
+        }
+        $purchaseDebt = 0.0;
+    } else {
+        $purchaseDebt = min($purchaseDebt, $purchaseTotal);
+    }
+
+    $purchasePaid = max($purchaseTotal - $purchaseDebt, 0);
+
+    try {
+        $pdo->beginTransaction();
+
+        $stmt = $pdo->prepare('SELECT kode_invoice, nomor_invoice FROM invoices WHERE kode_invoice = ? LIMIT 1');
+        $stmt->execute([$kodeInvoice]);
+        $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (! $invoice) {
+            $pdo->rollBack();
+            return ['ok' => false, 'message' => 'Invoice tidak ditemukan.'];
+        }
+
+        $stmt = $pdo->prepare('
+            UPDATE invoices
+            SET total_pembelian_barang = ?,
+                total_utang_pembelian_barang = ?,
+                status_pembelian_barang = ?,
+                tanggal_transfer_pembelian_barang = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE kode_invoice = ?
+        ');
+        $stmt->execute([
+            $purchasePaid,
+            $purchaseDebt,
+            $statusPembelian,
+            $transferDate !== '' ? $transferDate : null,
+            $kodeInvoice,
+        ]);
+
+        post_invoice_accounting_journal($pdo, $kodeInvoice);
+
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Pembelian barang invoice ' . ($invoice['nomor_invoice'] ?? $kodeInvoice) . ' berhasil diperbarui.',
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'message' => 'Update pembelian gagal: ' . $exception->getMessage()];
+    }
+}
+
 function invoice_customer_summary(array $invoices): array
 {
     $summary = [];

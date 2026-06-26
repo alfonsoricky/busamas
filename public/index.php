@@ -130,6 +130,45 @@ $routes = [
             exit;
         },
     ],
+    '/invoice-purchase-log' => [
+        'view' => 'pages/invoice-purchase-log',
+        'title' => 'Log Book Pembelian Barang',
+        'data' => fn (): array => [
+            'purchaseLog' => fetch_invoice_purchase_log([
+                'month' => $_GET['month'] ?? '',
+                'year' => $_GET['year'] ?? date('Y'),
+                'status' => $_GET['status'] ?? 'unpaid',
+                'search' => $_GET['search'] ?? '',
+            ]),
+        ],
+    ],
+    '/invoice-purchase-update' => [
+        'view' => 'pages/invoice-purchase-log',
+        'title' => 'Update Pembelian Barang',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/invoice-purchase-log'));
+                exit;
+            }
+
+            $returnTo = trim((string) ($_POST['return_to'] ?? ''));
+            $target = $returnTo !== '' && str_starts_with($returnTo, url('/invoice-purchase-log'))
+                ? $returnTo
+                : url('/invoice-purchase-log');
+
+            $result = update_invoice_purchase_status(
+                $_POST['kode_invoice'] ?? '',
+                $_POST['status_pembelian_barang'] ?? '',
+                $_POST['total_pembelian'] ?? '',
+                $_POST['total_utang_pembelian_barang'] ?? '',
+                $_POST['tanggal_transfer_pembelian_barang'] ?? ''
+            );
+
+            $_SESSION['invoice_purchase_log_flash'] = $result;
+            header('Location: ' . $target);
+            exit;
+        },
+    ],
     '/invoice-create' => [
         'view' => 'pages/invoice-create',
         'title' => 'Buat Invoice',

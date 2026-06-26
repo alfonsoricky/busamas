@@ -7,11 +7,16 @@
                 Data invoice tahun 2025 sampai Juni 2026 yang sudah dipetakan ke master customer dan master barang.
             </p>
         </div>
-        <div class="flex flex-wrap gap-2">
-            <a href="<?= e(url('/invoice-payment-log')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
-                Log Book Pembayaran
-            </a>
-            <a href="<?= e(url('/invoice-create')) ?>" class="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800">
+        <div class="flex flex-col gap-3 sm:items-end">
+            <div class="flex flex-wrap gap-2">
+                <a href="<?= e(url('/invoice-payment-log')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                    Log Book Pembayaran
+                </a>
+                <a href="<?= e(url('/invoice-purchase-log')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                    Log Book Pembelian
+                </a>
+            </div>
+            <a href="<?= e(url('/invoice-create')) ?>" class="inline-flex items-center justify-center self-start rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800 sm:self-end">
                 Buat Invoice
             </a>
         </div>

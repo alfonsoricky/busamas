@@ -197,6 +197,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'update-pnl-sales-commission') {
         $result = run_pnl_sales_commission_update();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-krisna-april-bonus') {
+        $result = run_seed_krisna_april_bonus_status();
+        $counts = database_table_counts();
     } elseif ($action === 'migrate-seed') {
         $result = run_database_migration_seed();
         $counts = database_table_counts();
@@ -2702,6 +2705,78 @@ function update_internal_sales_bonus_invoice_status(string $kodeInvoice, string 
 function post_internal_sales_bonus(mixed $month, mixed $year): array
 {
     return ['ok' => false, 'message' => 'Posting bonus bulanan sudah diganti dengan update status bonus per invoice.'];
+}
+
+function run_seed_krisna_april_bonus_status(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+        ];
+    }
+
+    $paidInvoices = [
+        '352/BM-INV/IV/2026',
+        '353/BM-INV/IV/2026',
+        '355/BM-INV/IV/2026',
+        '356/BM-INV/IV/2026',
+        '357/BM-INV/IV/2026',
+        '358/BM-INV/IV/2026',
+        '360/BM-INV/IV/2026',
+        '361/BM-INV/IV/2026',
+        '365/BM-INV/IV/2026',
+        '369/BM-INV/IV/2026',
+        '375/BM-INV/IV/2026',
+        '377/BM-INV/IV/2026',
+        '378/BM-INV/IV/2026',
+    ];
+    $unpaidInvoices = [
+        '364/BM-INV/IV/2026',
+        '366/BM-INV/IV/2026',
+        '367/BM-INV/IV/2026',
+        '379/BM-INV/IV/2026',
+        '381/BM-INV/IV/2026',
+        '384/BM-INV/IV/2026',
+    ];
+
+    $find = $pdo->prepare('SELECT kode_invoice FROM invoices WHERE nomor_invoice = ? LIMIT 1');
+    $updated = 0;
+    $failed = [];
+    $logs = [];
+
+    foreach ([
+        ['Terbayar', $paidInvoices, '2026-06-26'],
+        ['Belum Dibayar', $unpaidInvoices, ''],
+    ] as [$status, $invoices, $paidDate]) {
+        foreach ($invoices as $nomorInvoice) {
+            $find->execute([$nomorInvoice]);
+            $kodeInvoice = (string) ($find->fetchColumn() ?: '');
+            if ($kodeInvoice === '') {
+                $failed[] = $nomorInvoice . ' tidak ditemukan';
+                continue;
+            }
+
+            $result = update_internal_sales_bonus_invoice_status($kodeInvoice, 'Krisna', $status, $paidDate, 4, 2026);
+            if ($result['ok'] ?? false) {
+                $updated++;
+                $logs[] = $nomorInvoice . ' => ' . $status;
+            } else {
+                $failed[] = $nomorInvoice . ': ' . ($result['message'] ?? 'gagal');
+            }
+        }
+    }
+
+    return [
+        'ok' => $failed === [],
+        'message' => $failed === []
+            ? 'Seeder bonus Krisna April berhasil. ' . $updated . ' invoice diperbarui.'
+            : 'Seeder bonus Krisna April selesai dengan beberapa error. Berhasil ' . $updated . ', gagal ' . count($failed) . '.',
+        'statements' => $updated,
+        'output' => implode(PHP_EOL, array_merge($logs, $failed)),
+    ];
 }
 
 function invoice_customer_summary(array $invoices): array

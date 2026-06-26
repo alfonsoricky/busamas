@@ -63,6 +63,25 @@
         </form>
     </div>
 
+    <div class="mb-6 rounded-lg border border-teal-200 bg-white p-5 shadow-sm">
+        <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
+                <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <h2 class="text-lg font-bold text-ink">Seeder Bonus Krisna April</h2>
+        </div>
+        <p class="mt-3 text-sm leading-6 text-stone-600">
+            Terapkan status bonus Krisna April 2026 sesuai screenshot: 13 invoice merah menjadi <strong class="text-ink">Terbayar/Lunas</strong> dengan tanggal 26-06-2026, dan 6 invoice putih menjadi <strong class="text-ink">Belum Dibayar/Hutang</strong>. Jurnal akuntansi bonus ikut dibuat/update.
+        </p>
+
+        <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Jalankan seeder bonus Krisna April 2026 sesuai screenshot?')">
+            <input type="hidden" name="action" value="seed-krisna-april-bonus">
+            <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
+                Update Bonus Krisna April
+            </button>
+        </form>
+    </div>
+
     <div class="mb-6 rounded-lg border border-orange-200 bg-white p-5 shadow-sm">
         <div class="flex items-center gap-3">
             <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-100">

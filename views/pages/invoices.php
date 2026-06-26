@@ -7,9 +7,14 @@
                 Data invoice tahun 2025 sampai Juni 2026 yang sudah dipetakan ke master customer dan master barang.
             </p>
         </div>
-        <a href="<?= e(url('/invoice-create')) ?>" class="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800">
-            Buat Invoice
-        </a>
+        <div class="flex flex-wrap gap-2">
+            <a href="<?= e(url('/invoice-payment-log')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                Log Book Pembayaran
+            </a>
+            <a href="<?= e(url('/invoice-create')) ?>" class="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800">
+                Buat Invoice
+            </a>
+        </div>
     </div>
 
     <?php if (!empty($_SESSION['google_sync_warnings'])): ?>

@@ -1929,6 +1929,208 @@ function fetch_invoice_mapping(array $filters = []): array
     ];
 }
 
+function fetch_invoice_payment_log(array $filters = []): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'items' => [],
+            'summary' => [],
+            'options' => ['years' => [date('Y')]],
+            'filters' => $filters,
+            'error' => 'Koneksi database gagal.',
+        ];
+    }
+
+    try {
+        $rows = $pdo->query('
+            SELECT
+                kode_invoice,
+                nomor_invoice,
+                tanggal_invoice,
+                kode_sales_1,
+                nama_sales_1,
+                kode_sales_2,
+                nama_sales_2,
+                nama_customer_master,
+                nama_customer_invoice,
+                nama_laundry_invoice,
+                total_harga_jual,
+                status_pembayaran,
+                tanggal_pembayaran,
+                created_at,
+                updated_at
+            FROM invoices
+            ORDER BY id DESC
+        ')->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'items' => [],
+            'summary' => [],
+            'options' => ['years' => [date('Y')]],
+            'filters' => $filters,
+            'error' => $exception->getMessage(),
+        ];
+    }
+
+    $month = trim((string) ($filters['month'] ?? ''));
+    $year = trim((string) ($filters['year'] ?? ''));
+    $status = trim((string) ($filters['status'] ?? 'unpaid'));
+    $search = trim((string) ($filters['search'] ?? ''));
+    $today = new DateTimeImmutable('today');
+
+    $yearOptions = invoice_year_options($rows);
+
+    $items = array_values(array_filter(array_map(static function (array $row) use ($today): array {
+        $statusPembayaran = trim((string) ($row['status_pembayaran'] ?? ''));
+        $isPaid = strcasecmp($statusPembayaran, 'Lunas') === 0;
+        $total = (float) ($row['total_harga_jual'] ?? 0);
+        $invoiceDate = date_input_value((string) ($row['tanggal_invoice'] ?? ''));
+        $paymentDate = date_input_value((string) ($row['tanggal_pembayaran'] ?? ''));
+        $start = $invoiceDate !== '' ? new DateTimeImmutable($invoiceDate) : null;
+        $end = $paymentDate !== '' ? new DateTimeImmutable($paymentDate) : $today;
+        $ageDays = $start !== null ? (int) $start->diff($end)->format('%r%a') : null;
+
+        $row['is_paid'] = $isPaid;
+        $row['invoice_date_input'] = $invoiceDate;
+        $row['payment_date_input'] = $paymentDate;
+        $row['paid_amount'] = $isPaid ? $total : 0.0;
+        $row['remaining_amount'] = $isPaid ? 0.0 : $total;
+        $row['age_days'] = $ageDays;
+
+        return $row;
+    }, $rows), static function (array $invoice) use ($month, $year, $status, $search): bool {
+        if ($month !== '' && invoice_month_number((string) ($invoice['nomor_invoice'] ?? '')) !== (int) $month) {
+            return false;
+        }
+
+        if ($year !== '' && invoice_year((string) ($invoice['nomor_invoice'] ?? '')) !== $year) {
+            return false;
+        }
+
+        if ($status === 'paid' && ! ($invoice['is_paid'] ?? false)) {
+            return false;
+        }
+
+        if ($status === 'unpaid' && ($invoice['is_paid'] ?? false)) {
+            return false;
+        }
+
+        if ($search !== '') {
+            $haystack = strtoupper(implode(' ', [
+                $invoice['nomor_invoice'] ?? '',
+                $invoice['kode_invoice'] ?? '',
+                $invoice['nama_customer_master'] ?? '',
+                $invoice['nama_customer_invoice'] ?? '',
+                $invoice['nama_laundry_invoice'] ?? '',
+                $invoice['nama_sales_1'] ?? '',
+                $invoice['nama_sales_2'] ?? '',
+            ]));
+
+            if (! str_contains($haystack, strtoupper($search))) {
+                return false;
+            }
+        }
+
+        return true;
+    }));
+
+    sort_invoices_newest_first($items);
+
+    $paidItems = array_filter($items, static fn (array $invoice): bool => (bool) ($invoice['is_paid'] ?? false));
+    $unpaidItems = array_filter($items, static fn (array $invoice): bool => ! (bool) ($invoice['is_paid'] ?? false));
+
+    return [
+        'ok' => true,
+        'items' => $items,
+        'filters' => [
+            'month' => $month,
+            'year' => $year,
+            'status' => $status,
+            'search' => $search,
+        ],
+        'options' => [
+            'years' => $yearOptions,
+        ],
+        'summary' => [
+            'invoice_count' => count($items),
+            'paid_count' => count($paidItems),
+            'unpaid_count' => count($unpaidItems),
+            'total_invoice' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['total_harga_jual'] ?? 0), $items)),
+            'paid_total' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['paid_amount'] ?? 0), $items)),
+            'remaining_total' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['remaining_amount'] ?? 0), $items)),
+        ],
+        'error' => null,
+    ];
+}
+
+function update_invoice_payment_status(string $kodeInvoice, string $statusPembayaran, string $tanggalPembayaran): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Koneksi database gagal.'];
+    }
+
+    $kodeInvoice = trim($kodeInvoice);
+    $statusPembayaran = strtolower(trim($statusPembayaran)) === 'lunas' ? 'Lunas' : 'Belum Lunas';
+    $tanggalPembayaran = date_input_value($tanggalPembayaran);
+
+    if ($kodeInvoice === '') {
+        return ['ok' => false, 'message' => 'Kode invoice tidak boleh kosong.'];
+    }
+
+    if ($statusPembayaran === 'Lunas' && $tanggalPembayaran === '') {
+        return ['ok' => false, 'message' => 'Tanggal pembayaran wajib diisi untuk invoice lunas.'];
+    }
+
+    if ($statusPembayaran !== 'Lunas') {
+        $tanggalPembayaran = '';
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        $stmt = $pdo->prepare('SELECT kode_invoice, nomor_invoice FROM invoices WHERE kode_invoice = ? LIMIT 1');
+        $stmt->execute([$kodeInvoice]);
+        $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (! $invoice) {
+            $pdo->rollBack();
+            return ['ok' => false, 'message' => 'Invoice tidak ditemukan.'];
+        }
+
+        $stmt = $pdo->prepare('
+            UPDATE invoices
+            SET status_pembayaran = ?,
+                tanggal_pembayaran = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE kode_invoice = ?
+        ');
+        $stmt->execute([
+            $statusPembayaran,
+            $tanggalPembayaran !== '' ? $tanggalPembayaran : null,
+            $kodeInvoice,
+        ]);
+
+        post_invoice_accounting_journal($pdo, $kodeInvoice);
+
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Pembayaran invoice ' . ($invoice['nomor_invoice'] ?? $kodeInvoice) . ' berhasil diperbarui.',
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'message' => 'Update pembayaran gagal: ' . $exception->getMessage()];
+    }
+}
+
 function invoice_customer_summary(array $invoices): array
 {
     $summary = [];

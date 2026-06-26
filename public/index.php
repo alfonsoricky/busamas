@@ -93,6 +93,43 @@ $routes = [
             ]),
         ],
     ],
+    '/invoice-payment-log' => [
+        'view' => 'pages/invoice-payment-log',
+        'title' => 'Log Book Pembayaran Invoice',
+        'data' => fn (): array => [
+            'paymentLog' => fetch_invoice_payment_log([
+                'month' => $_GET['month'] ?? '',
+                'year' => $_GET['year'] ?? date('Y'),
+                'status' => $_GET['status'] ?? 'unpaid',
+                'search' => $_GET['search'] ?? '',
+            ]),
+        ],
+    ],
+    '/invoice-payment-update' => [
+        'view' => 'pages/invoice-payment-log',
+        'title' => 'Update Pembayaran Invoice',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/invoice-payment-log'));
+                exit;
+            }
+
+            $returnTo = trim((string) ($_POST['return_to'] ?? ''));
+            $target = $returnTo !== '' && str_starts_with($returnTo, url('/invoice-payment-log'))
+                ? $returnTo
+                : url('/invoice-payment-log');
+
+            $result = update_invoice_payment_status(
+                $_POST['kode_invoice'] ?? '',
+                $_POST['status_pembayaran'] ?? '',
+                $_POST['tanggal_pembayaran'] ?? ''
+            );
+
+            $_SESSION['invoice_payment_log_flash'] = $result;
+            header('Location: ' . $target);
+            exit;
+        },
+    ],
     '/invoice-create' => [
         'view' => 'pages/invoice-create',
         'title' => 'Buat Invoice',

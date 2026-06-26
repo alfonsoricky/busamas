@@ -37,7 +37,13 @@ $summary = $reportData['summary'] ?? [];
                     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 bg-stone-50 px-4 py-3">
                         <div>
                             <p class="text-sm font-bold text-ink"><?= e($entry['description'] ?? '') ?></p>
-                            <p class="mt-1 text-xs text-stone-500"><?= e(date('d-m-Y', strtotime((string) $entry['entry_date']))) ?> · <?= e($entry['source_type'] ?? '') ?> / <?= e($entry['source_id'] ?? '') ?></p>
+                            <p class="mt-1 text-xs text-stone-500">
+                                Transaksi <?= e(date('d-m-Y', strtotime((string) $entry['entry_date']))) ?>
+                                <?php if (! empty($entry['posted_at'])): ?>
+                                    · Posting <?= e(date('d-m-Y H:i', strtotime((string) $entry['posted_at']))) ?>
+                                <?php endif; ?>
+                                · <?= e($entry['source_type'] ?? '') ?> / <?= e($entry['source_id'] ?? '') ?>
+                            </p>
                         </div>
                         <div class="text-right text-xs font-semibold text-stone-600">Debit <?= rupiah($entry['debit_total'] ?? 0) ?> · Kredit <?= rupiah($entry['credit_total'] ?? 0) ?></div>
                     </div>

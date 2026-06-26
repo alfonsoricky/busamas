@@ -783,9 +783,38 @@ function database_table_exists(PDO $pdo, string $table): bool
     return (int) $stmt->fetchColumn() > 0;
 }
 
+function database_column_exists(PDO $pdo, string $table, string $column): bool
+{
+    $stmt = $pdo->prepare('
+        SELECT COUNT(*)
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = ?
+          AND column_name = ?
+    ');
+    $stmt->execute([$table, $column]);
+
+    return (int) $stmt->fetchColumn() > 0;
+}
+
+function ensure_journal_entries_posted_at_column(PDO $pdo): void
+{
+    if (! database_table_exists($pdo, 'journal_entries')) {
+        return;
+    }
+
+    if (database_column_exists($pdo, 'journal_entries', 'posted_at')) {
+        return;
+    }
+
+    $pdo->exec('ALTER TABLE journal_entries ADD COLUMN posted_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP AFTER entry_date');
+    $pdo->exec('UPDATE journal_entries SET posted_at = COALESCE(posted_at, created_at, NOW())');
+}
+
 function ensure_accounting_tables(PDO $pdo): void
 {
     if (accounting_tables_ready($pdo)) {
+        ensure_journal_entries_posted_at_column($pdo);
         return;
     }
 
@@ -793,6 +822,8 @@ function ensure_accounting_tables(PDO $pdo): void
     if (is_readable($schemaPath)) {
         execute_sql_file($pdo, $schemaPath, true);
     }
+
+    ensure_journal_entries_posted_at_column($pdo);
 }
 
 function ensure_default_chart_of_accounts(PDO $pdo): void
@@ -867,6 +898,7 @@ function accounting_add_line(array &$lines, int $accountId, float $debit, float 
 
 function accounting_replace_journal(PDO $pdo, string $sourceType, string $sourceId, string $entryDate, string $description, array $lines): int
 {
+    ensure_accounting_tables($pdo);
     delete_accounting_journal_source($pdo, $sourceType, $sourceId);
 
     if ($lines === []) {
@@ -880,8 +912,8 @@ function accounting_replace_journal(PDO $pdo, string $sourceType, string $source
     }
 
     $entryStmt = $pdo->prepare('
-        INSERT INTO journal_entries (entry_date, source_type, source_id, description)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO journal_entries (entry_date, posted_at, source_type, source_id, description)
+        VALUES (?, NOW(), ?, ?, ?)
     ');
     $entryStmt->execute([$entryDate, $sourceType, $sourceId, $description]);
     $entryId = (int) $pdo->lastInsertId();
@@ -1177,6 +1209,7 @@ function fetch_laporan_jurnal_umum(string $month = '', string $year = ''): array
             SELECT
                 je.id,
                 je.entry_date,
+                je.posted_at,
                 je.source_type,
                 je.source_id,
                 je.description,
@@ -1213,6 +1246,7 @@ function fetch_laporan_jurnal_umum(string $month = '', string $year = ''): array
                 $entries[$entryId] = [
                     'id' => $entryId,
                     'entry_date' => $row['entry_date'],
+                    'posted_at' => $row['posted_at'],
                     'source_type' => $row['source_type'],
                     'source_id' => $row['source_id'],
                     'description' => $row['description'],

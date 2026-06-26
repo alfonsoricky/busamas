@@ -144,6 +144,7 @@ $tables = [
     'journal_entries' => [
         'id',
         'entry_date',
+        'posted_at',
         'source_type',
         'source_id',
         'description',

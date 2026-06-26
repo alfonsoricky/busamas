@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS `chart_of_accounts` (
 CREATE TABLE IF NOT EXISTS `journal_entries` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `entry_date` DATE NOT NULL,
+    `posted_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     `source_type` VARCHAR(50) NOT NULL,
     `source_id` VARCHAR(100) NOT NULL,
     `description` VARCHAR(255) NULL,

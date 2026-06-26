@@ -6,6 +6,7 @@ $rules = $bonusSales['rules'] ?? ['target' => 30000000, 'rate' => 0.05];
 $filters = $bonusSales['filters'] ?? [];
 $selectedMonth = (string) ($filters['month'] ?? date('n'));
 $selectedYear = (string) ($filters['year'] ?? date('Y'));
+$selectedSales = (string) ($filters['sales'] ?? '');
 $selectedCustomerStatus = (string) ($filters['customer_status'] ?? '');
 $selectedBonusStatus = (string) ($filters['bonus_status'] ?? '');
 $months = invoice_months();
@@ -61,6 +62,16 @@ $dateLabel = static function (?string $date): string {
                 <select name="year" class="w-full sm:w-36 rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
                     <?php foreach ([2026, 2025] as $year): ?>
                         <option value="<?= e((string) $year) ?>" <?= $selectedYear === (string) $year ? 'selected' : '' ?>><?= e((string) $year) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+
+            <label class="block w-full sm:w-auto">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Sales</span>
+                <select name="sales" class="w-full sm:w-40 rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+                    <option value="" <?= $selectedSales === '' ? 'selected' : '' ?>>Semua Sales</option>
+                    <?php foreach (($rules['sales'] ?? []) as $salesOption): ?>
+                        <option value="<?= e((string) $salesOption) ?>" <?= strcasecmp($selectedSales, (string) $salesOption) === 0 ? 'selected' : '' ?>><?= e((string) $salesOption) ?></option>
                     <?php endforeach; ?>
                 </select>
             </label>
@@ -202,6 +213,7 @@ $dateLabel = static function (?string $date): string {
                                         <form method="POST" action="<?= e(url('/operational/bonus-sales-update')) ?>" class="flex min-w-[24rem] items-center gap-2">
                                             <input type="hidden" name="month" value="<?= e($selectedMonth) ?>">
                                             <input type="hidden" name="year" value="<?= e($selectedYear) ?>">
+                                            <input type="hidden" name="filter_sales" value="<?= e($selectedSales) ?>">
                                             <input type="hidden" name="customer_status" value="<?= e($selectedCustomerStatus) ?>">
                                             <input type="hidden" name="bonus_status" value="<?= e($selectedBonusStatus) ?>">
                                             <input type="hidden" name="kode_invoice" value="<?= e($item['kode_invoice'] ?? '') ?>">

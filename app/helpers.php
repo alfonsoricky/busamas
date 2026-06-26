@@ -2375,6 +2375,7 @@ function fetch_internal_sales_bonus(mixed $month = '', mixed $year = '', array $
 
     $customerStatus = trim((string) ($filters['customer_status'] ?? ''));
     $bonusStatus = trim((string) ($filters['bonus_status'] ?? ''));
+    $salesFilter = normalize_spaces((string) ($filters['sales'] ?? ''));
     $allowedCustomerStatuses = ['', 'paid', 'unpaid'];
     $allowedBonusStatuses = ['', 'paid', 'unpaid'];
     if (! in_array($customerStatus, $allowedCustomerStatuses, true)) {
@@ -2385,6 +2386,10 @@ function fetch_internal_sales_bonus(mixed $month = '', mixed $year = '', array $
     }
 
     $rules = internal_sales_bonus_rules();
+    if ($salesFilter !== '' && ! in_array(strtolower($salesFilter), array_map(static fn (string $sales): string => strtolower($sales), $rules['sales']), true)) {
+        $salesFilter = '';
+    }
+
     $salesTotals = [];
     foreach ($rules['sales'] as $salesName) {
         $salesTotals[$salesName] = [
@@ -2528,7 +2533,10 @@ function fetch_internal_sales_bonus(mixed $month = '', mixed $year = '', array $
     $eligibleRows = array_filter($invoiceRows, static fn (array $item): bool => (bool) ($item['eligible'] ?? false) && (float) ($item['bonus'] ?? 0) > 0);
     $customerPaidRows = array_filter($eligibleRows, static fn (array $item): bool => (bool) ($item['is_invoice_paid'] ?? false));
     $salesPaidRows = array_filter($customerPaidRows, static fn (array $item): bool => (string) ($item['bonus_status'] ?? '') === 'Terbayar');
-    $filteredInvoiceRows = array_values(array_filter($invoiceRows, static function (array $item) use ($customerStatus, $bonusStatus): bool {
+    $filteredInvoiceRows = array_values(array_filter($invoiceRows, static function (array $item) use ($customerStatus, $bonusStatus, $salesFilter): bool {
+        if ($salesFilter !== '' && strcasecmp((string) ($item['sales'] ?? ''), $salesFilter) !== 0) {
+            return false;
+        }
         if ($customerStatus === 'paid' && ! (bool) ($item['is_invoice_paid'] ?? false)) {
             return false;
         }
@@ -2552,6 +2560,7 @@ function fetch_internal_sales_bonus(mixed $month = '', mixed $year = '', array $
         'filters' => [
             'month' => $month,
             'year' => $year,
+            'sales' => $salesFilter,
             'customer_status' => $customerStatus,
             'bonus_status' => $bonusStatus,
         ],

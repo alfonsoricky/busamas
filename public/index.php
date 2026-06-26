@@ -85,6 +85,7 @@ $routes = [
         'title' => 'Bonus Sales Internal',
         'data' => fn (): array => [
             'bonusSales' => fetch_internal_sales_bonus($_GET['month'] ?? date('n'), $_GET['year'] ?? date('Y'), [
+                'sales' => $_GET['sales'] ?? '',
                 'customer_status' => $_GET['customer_status'] ?? '',
                 'bonus_status' => $_GET['bonus_status'] ?? '',
             ]),
@@ -112,6 +113,7 @@ $routes = [
             header('Location: ' . url('/operational/bonus-sales') . '?' . http_build_query([
                 'month' => $month,
                 'year' => $year,
+                'sales' => $_POST['filter_sales'] ?? '',
                 'customer_status' => $_POST['customer_status'] ?? '',
                 'bonus_status' => $_POST['bonus_status'] ?? '',
             ]));

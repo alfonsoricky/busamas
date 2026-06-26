@@ -2354,7 +2354,7 @@ function internal_sales_bonus_marker(string $kodeInvoice, string $sales): string
     return 'internal_sales_bonus:' . $kodeInvoice . ':' . strtolower($sales);
 }
 
-function fetch_internal_sales_bonus(mixed $month = '', mixed $year = ''): array
+function fetch_internal_sales_bonus(mixed $month = '', mixed $year = '', array $filters = []): array
 {
     $pdo = db();
     if ($pdo === null) {
@@ -2368,6 +2368,17 @@ function fetch_internal_sales_bonus(mixed $month = '', mixed $year = ''): array
     }
     if ($year < 2000) {
         $year = (int) date('Y');
+    }
+
+    $customerStatus = trim((string) ($filters['customer_status'] ?? ''));
+    $bonusStatus = trim((string) ($filters['bonus_status'] ?? ''));
+    $allowedCustomerStatuses = ['', 'paid', 'unpaid'];
+    $allowedBonusStatuses = ['', 'paid', 'unpaid'];
+    if (! in_array($customerStatus, $allowedCustomerStatuses, true)) {
+        $customerStatus = '';
+    }
+    if (! in_array($bonusStatus, $allowedBonusStatuses, true)) {
+        $bonusStatus = '';
     }
 
     $rules = internal_sales_bonus_rules();
@@ -2514,14 +2525,32 @@ function fetch_internal_sales_bonus(mixed $month = '', mixed $year = ''): array
     $eligibleRows = array_filter($invoiceRows, static fn (array $item): bool => (bool) ($item['eligible'] ?? false) && (float) ($item['bonus'] ?? 0) > 0);
     $customerPaidRows = array_filter($eligibleRows, static fn (array $item): bool => (bool) ($item['is_invoice_paid'] ?? false));
     $salesPaidRows = array_filter($customerPaidRows, static fn (array $item): bool => (string) ($item['bonus_status'] ?? '') === 'Terbayar');
+    $filteredInvoiceRows = array_values(array_filter($invoiceRows, static function (array $item) use ($customerStatus, $bonusStatus): bool {
+        if ($customerStatus === 'paid' && ! (bool) ($item['is_invoice_paid'] ?? false)) {
+            return false;
+        }
+        if ($customerStatus === 'unpaid' && (bool) ($item['is_invoice_paid'] ?? false)) {
+            return false;
+        }
+        if ($bonusStatus === 'paid' && (string) ($item['bonus_status'] ?? '') !== 'Terbayar') {
+            return false;
+        }
+        if ($bonusStatus === 'unpaid' && (string) ($item['bonus_status'] ?? '') === 'Terbayar') {
+            return false;
+        }
+
+        return true;
+    }));
 
     return [
         'ok' => true,
-        'items' => array_values($invoiceRows),
+        'items' => $filteredInvoiceRows,
         'sales_summary' => array_values($salesTotals),
         'filters' => [
             'month' => $month,
             'year' => $year,
+            'customer_status' => $customerStatus,
+            'bonus_status' => $bonusStatus,
         ],
         'rules' => $rules,
         'summary' => [
@@ -2578,7 +2607,7 @@ function update_internal_sales_bonus_invoice_status(string $kodeInvoice, string 
     if (! (bool) ($targetRow['eligible'] ?? false) || (float) ($targetRow['bonus'] ?? 0) <= 0) {
         return ['ok' => false, 'message' => 'Sales belum memenuhi target bonus pada periode ini.'];
     }
-    if (! (bool) ($targetRow['is_invoice_paid'] ?? false)) {
+    if ($status === 'Terbayar' && ! (bool) ($targetRow['is_invoice_paid'] ?? false)) {
         return ['ok' => false, 'message' => 'Bonus belum bisa dibayar karena invoice customer belum lunas.'];
     }
 

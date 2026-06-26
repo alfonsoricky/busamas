@@ -6,6 +6,8 @@ $rules = $bonusSales['rules'] ?? ['target' => 30000000, 'rate' => 0.05];
 $filters = $bonusSales['filters'] ?? [];
 $selectedMonth = (string) ($filters['month'] ?? date('n'));
 $selectedYear = (string) ($filters['year'] ?? date('Y'));
+$selectedCustomerStatus = (string) ($filters['customer_status'] ?? '');
+$selectedBonusStatus = (string) ($filters['bonus_status'] ?? '');
 $months = invoice_months();
 $flash = $_SESSION['bonus_sales_flash'] ?? null;
 unset($_SESSION['bonus_sales_flash']);
@@ -63,7 +65,26 @@ $dateLabel = static function (?string $date): string {
                 </select>
             </label>
 
+            <label class="block w-full sm:w-auto">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Status Customer</span>
+                <select name="customer_status" class="w-full sm:w-44 rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+                    <option value="" <?= $selectedCustomerStatus === '' ? 'selected' : '' ?>>Semua Customer</option>
+                    <option value="paid" <?= $selectedCustomerStatus === 'paid' ? 'selected' : '' ?>>Customer Lunas</option>
+                    <option value="unpaid" <?= $selectedCustomerStatus === 'unpaid' ? 'selected' : '' ?>>Customer Belum Lunas</option>
+                </select>
+            </label>
+
+            <label class="block w-full sm:w-auto">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Status Bonus Sales</span>
+                <select name="bonus_status" class="w-full sm:w-44 rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+                    <option value="" <?= $selectedBonusStatus === '' ? 'selected' : '' ?>>Semua Bonus</option>
+                    <option value="unpaid" <?= $selectedBonusStatus === 'unpaid' ? 'selected' : '' ?>>Belum Dibayar</option>
+                    <option value="paid" <?= $selectedBonusStatus === 'paid' ? 'selected' : '' ?>>Terbayar</option>
+                </select>
+            </label>
+
             <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">Filter</button>
+            <a href="<?= e(url('/operational/bonus-sales')) ?>" class="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:bg-stone-50">Reset</a>
         </form>
 
         <div class="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -155,7 +176,7 @@ $dateLabel = static function (?string $date): string {
                                 $eligible = (bool) ($item['eligible'] ?? false);
                                 $customerPaid = (bool) ($item['is_invoice_paid'] ?? false);
                                 $bonusPaid = (string) ($item['bonus_status'] ?? '') === 'Terbayar';
-                                $canUpdate = $eligible && $customerPaid && (float) ($item['bonus'] ?? 0) > 0;
+                                $canUpdate = $eligible && (float) ($item['bonus'] ?? 0) > 0;
                             ?>
                             <tr class="<?= $canUpdate && ! $bonusPaid ? 'bg-rose-50/40 hover:bg-rose-50' : 'hover:bg-stone-50' ?>">
                                 <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand">
@@ -181,17 +202,19 @@ $dateLabel = static function (?string $date): string {
                                         <form method="POST" action="<?= e(url('/operational/bonus-sales-update')) ?>" class="flex min-w-[24rem] items-center gap-2">
                                             <input type="hidden" name="month" value="<?= e($selectedMonth) ?>">
                                             <input type="hidden" name="year" value="<?= e($selectedYear) ?>">
+                                            <input type="hidden" name="customer_status" value="<?= e($selectedCustomerStatus) ?>">
+                                            <input type="hidden" name="bonus_status" value="<?= e($selectedBonusStatus) ?>">
                                             <input type="hidden" name="kode_invoice" value="<?= e($item['kode_invoice'] ?? '') ?>">
                                             <input type="hidden" name="sales" value="<?= e($item['sales'] ?? '') ?>">
                                             <select name="status_bonus" class="w-36 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-xs font-semibold text-ink outline-none focus:border-brand">
                                                 <option value="Belum Dibayar" <?= ! $bonusPaid ? 'selected' : '' ?>>Belum Dibayar</option>
-                                                <option value="Terbayar" <?= $bonusPaid ? 'selected' : '' ?>>Terbayar</option>
+                                                <option value="Terbayar" <?= $bonusPaid ? 'selected' : '' ?> <?= ! $customerPaid ? 'disabled' : '' ?>>Terbayar</option>
                                             </select>
                                             <input type="date" name="tanggal_bayar_bonus" value="<?= e($item['bonus_paid_date'] ?? '') ?>" class="w-36 rounded-lg border border-stone-300 px-2 py-1.5 text-xs text-ink outline-none focus:border-brand">
                                             <button type="submit" class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-teal-800">Simpan</button>
                                         </form>
                                     <?php else: ?>
-                                        <span class="text-xs font-semibold text-stone-400"><?= e($eligible ? 'Tunggu customer lunas' : 'Belum target') ?></span>
+                                        <span class="text-xs font-semibold text-stone-400"><?= e($eligible ? '-' : 'Belum target') ?></span>
                                     <?php endif; ?>
                                 </td>
                             </tr>

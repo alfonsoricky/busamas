@@ -130,6 +130,19 @@ $tables = [
         'created_at',
         'updated_at',
     ],
+    'partner_prive' => [
+        'id',
+        'tanggal',
+        'bulan_pnl',
+        'tahun_pnl',
+        'partner',
+        'jumlah',
+        'status_pembayaran',
+        'tanggal_transfer',
+        'keterangan',
+        'created_at',
+        'updated_at',
+    ],
     'chart_of_accounts' => [
         'id',
         'code',
@@ -173,6 +186,7 @@ $sql[] = 'TRUNCATE TABLE `chart_of_accounts`;';
 $sql[] = 'TRUNCATE TABLE `invoice_items`;';
 $sql[] = 'TRUNCATE TABLE `invoices`;';
 $sql[] = 'TRUNCATE TABLE `operational_expenses`;';
+$sql[] = 'TRUNCATE TABLE `partner_prive`;';
 $sql[] = 'TRUNCATE TABLE `master_sales`;';
 $sql[] = 'TRUNCATE TABLE `master_barang`;';
 $sql[] = 'TRUNCATE TABLE `master_customers`;';

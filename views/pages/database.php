@@ -3,7 +3,7 @@
         <p class="mb-3 text-sm font-semibold uppercase tracking-wide text-brand">Maintenance</p>
         <h1 class="text-3xl font-bold text-ink sm:text-4xl">Database</h1>
         <p class="mt-4 max-w-2xl leading-7 text-stone-600">
-            Restore database hosting agar sama persis dengan snapshot database lokal yang tersimpan di <span class="font-semibold text-ink">database/seed-data.sql</span>.
+            Pantau status snapshot database dan jumlah data saat ini.
         </p>
     </div>
 
@@ -24,82 +24,6 @@
             <?php endif; ?>
         </div>
     <?php endif; ?>
-
-    <div class="mb-6 rounded-lg border border-teal-200 bg-white p-5 shadow-sm">
-        <div class="flex items-center gap-3">
-            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
-                <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14.25l2.25 2.25L15 12m-9.75 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
-            </div>
-            <h2 class="text-lg font-bold text-ink">Update PNL Komisi Sales</h2>
-        </div>
-        <p class="mt-3 text-sm leading-6 text-stone-600">
-            Terapkan rumus PNL komisi sales terbaru: gunakan nominal komisi sales terbayar + belum terbayar jika tersedia, lalu posting ulang jurnal akuntansi.
-        </p>
-
-        <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Jalankan update PNL komisi sales sekarang?')">
-            <input type="hidden" name="action" value="update-pnl-sales-commission">
-            <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
-                Update PNL Komisi Sales
-            </button>
-        </form>
-    </div>
-
-    <div class="mb-6 rounded-lg border border-teal-200 bg-white p-5 shadow-sm">
-        <div class="flex items-center gap-3">
-            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
-                <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            </div>
-            <h2 class="text-lg font-bold text-ink">Update Operational 2026</h2>
-        </div>
-        <p class="mt-3 text-sm leading-6 text-stone-600">
-            Sinkronisasi ulang operational 2026 dari <strong class="text-ink">PENJUALAN-2026.xlsx</strong>. Bulan PNL akan mengikuti blok/subtotal operational di Excel, termasuk transaksi tanggal Februari yang berada di blok Januari.
-        </p>
-
-        <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Jalankan update operational 2026 dari Excel sekarang?')">
-            <input type="hidden" name="action" value="update-2026-operational-latest">
-            <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
-                Update Operational 2026
-            </button>
-        </form>
-    </div>
-
-    <div class="mb-6 rounded-lg border border-teal-200 bg-white p-5 shadow-sm">
-        <div class="flex items-center gap-3">
-            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100">
-                <svg class="h-5 w-5 text-teal-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            </div>
-            <h2 class="text-lg font-bold text-ink">Seeder Bonus Krisna April</h2>
-        </div>
-        <p class="mt-3 text-sm leading-6 text-stone-600">
-            Terapkan status bonus Krisna April 2026 sesuai screenshot: 13 invoice merah menjadi <strong class="text-ink">Terbayar/Lunas</strong> dengan tanggal 26-06-2026, dan 6 invoice putih menjadi <strong class="text-ink">Belum Dibayar/Hutang</strong>. Jurnal akuntansi bonus ikut dibuat/update.
-        </p>
-
-        <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Jalankan seeder bonus Krisna April 2026 sesuai screenshot?')">
-            <input type="hidden" name="action" value="seed-krisna-april-bonus">
-            <button class="rounded-lg bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700">
-                Update Bonus Krisna April
-            </button>
-        </form>
-    </div>
-
-    <div class="mb-6 rounded-lg border border-orange-200 bg-white p-5 shadow-sm">
-        <div class="flex items-center gap-3">
-            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-100">
-                <svg class="h-5 w-5 text-orange-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-            </div>
-            <h2 class="text-lg font-bold text-ink">Restore Snapshot Lokal</h2>
-        </div>
-        <p class="mt-3 text-sm leading-6 text-stone-600">
-            Tombol ini akan drop dan buat ulang tabel hosting, lalu mengisi data dari snapshot lokal terbaru. Semua data hosting yang berbeda dari lokal akan tertimpa.
-        </p>
-
-        <form method="post" action="<?= e(url('/db-maintenance')) ?>" class="mt-5" onsubmit="return confirm('Yakin restore database hosting dari snapshot lokal? Semua data hosting saat ini akan tertimpa.')">
-            <input type="hidden" name="action" value="restore-local-snapshot">
-            <button class="rounded-lg bg-orange-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-700">
-                Restore Database dari Snapshot Lokal
-            </button>
-        </form>
-    </div>
 
     <div class="grid gap-6 lg:grid-cols-[0.85fr_1fr]">
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">

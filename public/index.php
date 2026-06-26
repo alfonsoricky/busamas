@@ -78,7 +78,48 @@ $routes = [
         'data' => fn (): array => [
             'expenses' => fetch_operational_expenses($_GET['month'] ?? '', $_GET['year'] ?? date('Y'), $_GET['status'] ?? '', $_GET['search'] ?? ''),
             'summary' => fetch_operational_summary($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+            'operationalEdit' => fetch_operational_expense_detail($_GET['edit_id'] ?? ''),
         ],
+    ],
+    '/operational-create' => [
+        'view' => 'pages/operational',
+        'title' => 'Input Pengeluaran Operasional',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/operational'));
+                exit;
+            }
+
+            $_SESSION['operational_flash'] = save_operational_expense_form($_POST);
+            $redirect = url('/operational') . '?' . http_build_query([
+                'month' => $_POST['filter_month'] ?? '',
+                'year' => $_POST['filter_year'] ?? date('Y'),
+                'status' => $_POST['filter_status'] ?? '',
+                'search' => $_POST['filter_search'] ?? '',
+            ]);
+            header('Location: ' . $redirect);
+            exit;
+        },
+    ],
+    '/operational-delete' => [
+        'view' => 'pages/operational',
+        'title' => 'Hapus Pengeluaran Operasional',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/operational'));
+                exit;
+            }
+
+            $_SESSION['operational_flash'] = delete_operational_expense((int) ($_POST['operational_id'] ?? 0));
+            $redirect = url('/operational') . '?' . http_build_query([
+                'month' => $_POST['filter_month'] ?? '',
+                'year' => $_POST['filter_year'] ?? date('Y'),
+                'status' => $_POST['filter_status'] ?? '',
+                'search' => $_POST['filter_search'] ?? '',
+            ]);
+            header('Location: ' . $redirect);
+            exit;
+        },
     ],
     '/operational/bonus-sales' => [
         'view' => 'pages/operational-bonus-sales',
@@ -117,6 +158,59 @@ $routes = [
                 'customer_status' => $_POST['customer_status'] ?? '',
                 'bonus_status' => $_POST['bonus_status'] ?? '',
             ]));
+            exit;
+        },
+    ],
+    '/prive' => [
+        'view' => 'pages/prive',
+        'title' => 'Prive Partner',
+        'data' => fn (): array => [
+            'priveData' => fetch_partner_prive([
+                'month' => $_GET['month'] ?? '',
+                'year' => $_GET['year'] ?? date('Y'),
+                'partner' => $_GET['partner'] ?? '',
+                'status' => $_GET['status'] ?? '',
+            ]),
+            'priveEdit' => fetch_partner_prive_detail($_GET['edit_id'] ?? ''),
+        ],
+    ],
+    '/prive-save' => [
+        'view' => 'pages/prive',
+        'title' => 'Simpan Prive Partner',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/prive'));
+                exit;
+            }
+
+            $_SESSION['prive_flash'] = save_partner_prive_form($_POST);
+            $redirect = url('/prive') . '?' . http_build_query([
+                'month' => $_POST['filter_month'] ?? '',
+                'year' => $_POST['filter_year'] ?? date('Y'),
+                'partner' => $_POST['filter_partner'] ?? '',
+                'status' => $_POST['filter_status'] ?? '',
+            ]);
+            header('Location: ' . $redirect);
+            exit;
+        },
+    ],
+    '/prive-delete' => [
+        'view' => 'pages/prive',
+        'title' => 'Hapus Prive Partner',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/prive'));
+                exit;
+            }
+
+            $_SESSION['prive_flash'] = delete_partner_prive((int) ($_POST['prive_id'] ?? 0));
+            $redirect = url('/prive') . '?' . http_build_query([
+                'month' => $_POST['filter_month'] ?? '',
+                'year' => $_POST['filter_year'] ?? date('Y'),
+                'partner' => $_POST['filter_partner'] ?? '',
+                'status' => $_POST['filter_status'] ?? '',
+            ]);
+            header('Location: ' . $redirect);
             exit;
         },
     ],

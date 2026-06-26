@@ -3,6 +3,15 @@ $selectedYear = $_GET['year'] ?? date('Y');
 $selectedMonth = $_GET['month'] ?? '';
 $selectedStatus = $_GET['status'] ?? '';
 $searchQuery = $_GET['search'] ?? '';
+$flash = $_SESSION['operational_flash'] ?? null;
+unset($_SESSION['operational_flash']);
+$editItem = is_array($operationalEdit['item'] ?? null) ? $operationalEdit['item'] : null;
+$isEdit = $editItem !== null;
+$formTanggal = $isEdit ? date_input_value((string) ($editItem['tanggal'] ?? '')) : date('Y-m-d');
+$formBulanPnl = (int) ($editItem['bulan_pnl'] ?? date('n'));
+$formTahunPnl = (string) ($editItem['tahun_pnl'] ?? date('Y'));
+$formStatus = (string) ($editItem['status_pembayaran'] ?? 'Lunas');
+$formTanggalBayar = $isEdit ? date_input_value((string) ($editItem['tanggal_pembayaran'] ?? '')) : date('Y-m-d');
 
 $months = [
     1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
@@ -24,6 +33,84 @@ $months = [
             Bonus / Insentif Tim Sales
         </a>
     </div>
+
+    <?php if (is_array($flash)): ?>
+        <?php $flashOk = (bool) ($flash['ok'] ?? false); ?>
+        <div class="mb-6 rounded-lg border p-4 text-sm <?= $flashOk ? 'border-teal-200 bg-teal-50 text-teal-900' : 'border-rose-200 bg-rose-50 text-rose-900' ?>">
+            <?= e((string) ($flash['message'] ?? '')) ?>
+        </div>
+    <?php endif; ?>
+
+    <form method="POST" action="<?= e(url('/operational-create')) ?>" class="mb-6 rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 class="text-lg font-bold text-ink"><?= $isEdit ? 'Update Pengeluaran Manual' : 'Input Pengeluaran Manual' ?></h2>
+            <?php if ($isEdit): ?>
+                <a href="<?= e(url('/operational') . '?' . http_build_query(['month' => $selectedMonth, 'year' => $selectedYear, 'status' => $selectedStatus, 'search' => $searchQuery])) ?>" class="rounded-lg border border-stone-300 px-3 py-1.5 text-xs font-semibold text-ink transition hover:bg-stone-50">
+                    Batal Edit
+                </a>
+            <?php endif; ?>
+        </div>
+        <input type="hidden" name="operational_id" value="<?= e((string) ($editItem['id'] ?? '')) ?>">
+        <input type="hidden" name="filter_month" value="<?= e((string) $selectedMonth) ?>">
+        <input type="hidden" name="filter_year" value="<?= e((string) $selectedYear) ?>">
+        <input type="hidden" name="filter_status" value="<?= e((string) $selectedStatus) ?>">
+        <input type="hidden" name="filter_search" value="<?= e((string) $searchQuery) ?>">
+
+        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Tanggal</span>
+                <input type="date" name="tanggal" value="<?= e($formTanggal) ?>" required class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+            </label>
+
+            <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Bulan PNL</span>
+                <select name="bulan_pnl" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+                    <?php foreach ($months as $num => $name): ?>
+                        <option value="<?= e((string) $num) ?>" <?= $formBulanPnl === (int) $num ? 'selected' : '' ?>><?= e($name) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+
+            <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Tahun PNL</span>
+                <input type="number" name="tahun_pnl" min="2020" max="2100" value="<?= e($formTahunPnl) ?>" required class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+            </label>
+
+            <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Status</span>
+                <select name="status_pembayaran" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+                    <option value="Lunas" <?= strcasecmp($formStatus, 'Lunas') === 0 ? 'selected' : '' ?>>Lunas</option>
+                    <option value="Hutang" <?= strcasecmp($formStatus, 'Lunas') !== 0 ? 'selected' : '' ?>>Hutang</option>
+                </select>
+            </label>
+
+            <label class="block lg:col-span-2">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Nama Pengeluaran</span>
+                <input name="nama_pengeluaran" value="<?= e((string) ($editItem['nama_pengeluaran'] ?? '')) ?>" required placeholder="Contoh: Bensin operasional" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+            </label>
+
+            <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Jumlah</span>
+                <input type="number" step="0.01" min="0" name="jumlah" value="<?= e(clean_decimal($editItem['jumlah'] ?? '')) ?>" required placeholder="0" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+            </label>
+
+            <label class="block">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Tanggal Bayar</span>
+                <input type="date" name="tanggal_pembayaran" value="<?= e($formTanggalBayar) ?>" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+            </label>
+
+            <label class="block lg:col-span-3">
+                <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Keterangan</span>
+                <input name="keterangan" value="<?= e((string) ($editItem['keterangan'] ?? '')) ?>" placeholder="Opsional" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
+            </label>
+
+            <div class="flex items-end">
+                <button type="submit" class="w-full rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
+                    <?= $isEdit ? 'Update Pengeluaran' : 'Simpan Pengeluaran' ?>
+                </button>
+            </div>
+        </div>
+    </form>
 
     <!-- Summary Cards -->
     <div class="mb-6 grid gap-4 sm:grid-cols-3">
@@ -109,12 +196,13 @@ $months = [
                             <th class="whitespace-nowrap px-4 py-3.5 font-semibold text-center">Status</th>
                             <th class="whitespace-nowrap px-4 py-3.5 font-semibold">Tanggal Bayar</th>
                             <th class="px-4 py-3.5 font-semibold">Keterangan</th>
+                            <th class="whitespace-nowrap px-4 py-3.5 font-semibold">Aksi</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
                         <?php if (empty($expenses['items'])): ?>
                             <tr>
-                                <td colspan="6" class="px-4 py-8 text-center text-stone-400">
+                                <td colspan="7" class="px-4 py-8 text-center text-stone-400">
                                     Tidak menemukan data pengeluaran operasional yang sesuai dengan kriteria filter.
                                 </td>
                             </tr>
@@ -146,6 +234,23 @@ $months = [
                                     </td>
                                     <td class="px-4 py-3 text-stone-500 max-w-xs truncate" title="<?= e($item['keterangan'] ?? '') ?>">
                                         <?= e($item['keterangan'] ?? '-') ?>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3">
+                                        <div class="flex items-center gap-2">
+                                            <a href="<?= e(url('/operational') . '?' . http_build_query(['month' => $selectedMonth, 'year' => $selectedYear, 'status' => $selectedStatus, 'search' => $searchQuery, 'edit_id' => $item['id'] ?? ''])) ?>" class="rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-brand transition hover:border-brand hover:bg-teal-50">
+                                                Edit
+                                            </a>
+                                            <form method="POST" action="<?= e(url('/operational-delete')) ?>" onsubmit="return confirm('Hapus pengeluaran operasional ini beserta jurnalnya?')">
+                                                <input type="hidden" name="operational_id" value="<?= e((string) ($item['id'] ?? '')) ?>">
+                                                <input type="hidden" name="filter_month" value="<?= e((string) $selectedMonth) ?>">
+                                                <input type="hidden" name="filter_year" value="<?= e((string) $selectedYear) ?>">
+                                                <input type="hidden" name="filter_status" value="<?= e((string) $selectedStatus) ?>">
+                                                <input type="hidden" name="filter_search" value="<?= e((string) $searchQuery) ?>">
+                                                <button type="submit" class="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-700">
+                                                    Hapus
+                                                </button>
+                                            </form>
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

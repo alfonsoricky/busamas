@@ -718,6 +718,7 @@ function database_table_counts(): array
         'invoices',
         'invoice_items',
         'operational_expenses',
+        'partner_prive',
         'chart_of_accounts',
         'journal_entries',
         'journal_lines',
@@ -742,10 +743,12 @@ function accounting_default_accounts(): array
         'sales_commission_payable' => ['2200', 'Hutang Komisi Sales', 'liability', 'credit'],
         'manager_commission_payable' => ['2210', 'Hutang Komisi Manager', 'liability', 'credit'],
         'admin_commission_payable' => ['2220', 'Hutang Komisi Admin', 'liability', 'credit'],
+        'partner_prive_payable' => ['2230', 'Hutang Prive Partner', 'liability', 'credit'],
         'tax_payable' => ['2300', 'Hutang PPh Final', 'liability', 'credit'],
         'owner_capital' => ['3100', 'Modal Pemilik', 'equity', 'credit'],
         'retained_earnings' => ['3200', 'Laba Ditahan', 'equity', 'credit'],
         'current_year_earnings' => ['3300', 'Laba Tahun Berjalan', 'equity', 'credit'],
+        'partner_prive' => ['3400', 'Prive Partner (Pengurang Ekuitas)', 'equity', 'credit'],
         'sales_revenue' => ['4100', 'Pendapatan Penjualan', 'revenue', 'credit'],
         'sales_discount' => ['4110', 'Diskon Penjualan', 'expense', 'debit'],
         'cogs' => ['5100', 'HPP / Pembelian Barang', 'expense', 'debit'],
@@ -827,6 +830,31 @@ function ensure_accounting_tables(PDO $pdo): void
     }
 
     ensure_journal_entries_posted_at_column($pdo);
+}
+
+function ensure_partner_prive_table(PDO $pdo): void
+{
+    if (! database_table_exists($pdo, 'partner_prive')) {
+        $schemaPath = dirname(__DIR__) . '/database/schema.sql';
+        if (is_readable($schemaPath)) {
+            execute_sql_file($pdo, $schemaPath, true);
+        }
+    }
+
+    if (database_table_exists($pdo, 'partner_prive')) {
+        $stmt = $pdo->prepare('
+            SELECT COLUMN_DEFAULT
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+              AND table_name = ?
+              AND column_name = ?
+            LIMIT 1
+        ');
+        $stmt->execute(['partner_prive', 'status_pembayaran']);
+        if ((string) $stmt->fetchColumn() !== 'Hutang') {
+            $pdo->exec("ALTER TABLE partner_prive MODIFY status_pembayaran VARCHAR(50) NOT NULL DEFAULT 'Hutang'");
+        }
+    }
 }
 
 function ensure_default_chart_of_accounts(PDO $pdo): void
@@ -1093,6 +1121,42 @@ function generate_operational_expense_journal(PDO $pdo, int $expenseId): int
     );
 }
 
+function generate_partner_prive_journal(PDO $pdo, int $priveId): int
+{
+    ensure_accounting_tables($pdo);
+    ensure_partner_prive_table($pdo);
+    if (! accounting_tables_ready($pdo)) {
+        return 0;
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM partner_prive WHERE id = ?');
+    $stmt->execute([$priveId]);
+    $prive = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (! $prive) {
+        return 0;
+    }
+
+    $a = accounting_account_ids($pdo);
+    $amount = round((float) ($prive['jumlah'] ?? 0), 2);
+    $partner = normalize_spaces((string) ($prive['partner'] ?? 'Partner'));
+    $status = strtolower(trim((string) ($prive['status_pembayaran'] ?? '')));
+    $creditAccount = $status === 'lunas' ? $a['cash'] : $a['partner_prive_payable'];
+    $memo = 'Prive partner ' . $partner;
+    $lines = [];
+
+    accounting_add_line($lines, $a['partner_prive'], $amount, 0, $memo);
+    accounting_add_line($lines, $creditAccount, 0, $amount, $memo);
+
+    return accounting_replace_journal(
+        $pdo,
+        'partner_prive',
+        (string) $priveId,
+        accounting_entry_date($prive['tanggal'] ?? null, substr((string) ($prive['created_at'] ?? ''), 0, 10)),
+        'Jurnal otomatis prive: ' . $partner,
+        $lines
+    );
+}
+
 function regenerate_all_accounting_journals(PDO $pdo): array
 {
     if (! accounting_tables_ready($pdo)) {
@@ -1118,6 +1182,18 @@ function regenerate_all_accounting_journals(PDO $pdo): array
         if ($lineCount > 0) {
             $entries++;
             $lines += $lineCount;
+        }
+    }
+
+    ensure_partner_prive_table($pdo);
+    if (database_table_exists($pdo, 'partner_prive')) {
+        $priveIds = $pdo->query('SELECT id FROM partner_prive ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        foreach ($priveIds as $priveId) {
+            $lineCount = generate_partner_prive_journal($pdo, (int) $priveId);
+            if ($lineCount > 0) {
+                $entries++;
+                $lines += $lineCount;
+            }
         }
     }
 
@@ -4883,6 +4959,435 @@ function fetch_operational_expenses(string $month = '', string $year = '', strin
             'error' => 'Gagal mengambil data pengeluaran: ' . $e->getMessage(),
             'items' => [],
         ];
+    }
+}
+
+function fetch_operational_expense_detail(mixed $id): array
+{
+    $id = (int) $id;
+    if ($id <= 0) {
+        return ['ok' => true, 'item' => null, 'error' => null];
+    }
+
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'item' => null, 'error' => 'Koneksi database gagal.'];
+    }
+
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM operational_expenses WHERE id = ? AND kategori = 'operational' LIMIT 1");
+        $stmt->execute([$id]);
+        $item = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        return [
+            'ok' => $item !== null,
+            'item' => $item,
+            'error' => $item === null ? 'Data pengeluaran tidak ditemukan.' : null,
+        ];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'item' => null, 'error' => $exception->getMessage()];
+    }
+}
+
+function save_operational_expense_form(array $postData): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Koneksi database gagal.'];
+    }
+
+    $id = (int) ($postData['operational_id'] ?? 0);
+    $isUpdate = $id > 0;
+    $tanggal = date_input_value((string) ($postData['tanggal'] ?? ''));
+    $bulanPnl = (int) ($postData['bulan_pnl'] ?? 0);
+    $tahunPnl = (int) ($postData['tahun_pnl'] ?? 0);
+    $nama = normalize_spaces((string) ($postData['nama_pengeluaran'] ?? ''));
+    $jumlah = clean_money_value($postData['jumlah'] ?? 0);
+    $status = strcasecmp(normalize_spaces((string) ($postData['status_pembayaran'] ?? '')), 'Lunas') === 0 ? 'Lunas' : 'Hutang';
+    $tanggalPembayaran = date_input_value((string) ($postData['tanggal_pembayaran'] ?? ''));
+    $keterangan = normalize_spaces((string) ($postData['keterangan'] ?? ''));
+
+    if ($tanggal === '') {
+        return ['ok' => false, 'message' => 'Tanggal pengeluaran wajib diisi.'];
+    }
+    if ($bulanPnl < 1 || $bulanPnl > 12) {
+        $bulanPnl = (int) date('n', strtotime($tanggal));
+    }
+    if ($tahunPnl < 2000) {
+        $tahunPnl = (int) date('Y', strtotime($tanggal));
+    }
+    if ($nama === '') {
+        return ['ok' => false, 'message' => 'Nama pengeluaran wajib diisi.'];
+    }
+    if ($jumlah <= 0) {
+        return ['ok' => false, 'message' => 'Jumlah pengeluaran harus lebih besar dari 0.'];
+    }
+
+    if ($status === 'Lunas' && $tanggalPembayaran === '') {
+        $tanggalPembayaran = $tanggal;
+    }
+    if ($status !== 'Lunas') {
+        $tanggalPembayaran = '';
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        if ($isUpdate) {
+            $check = $pdo->prepare("SELECT id FROM operational_expenses WHERE id = ? AND kategori = 'operational' LIMIT 1");
+            $check->execute([$id]);
+            if (! $check->fetchColumn()) {
+                $pdo->rollBack();
+                return ['ok' => false, 'message' => 'Data pengeluaran yang akan diupdate tidak ditemukan.'];
+            }
+
+            $stmt = $pdo->prepare('
+                UPDATE operational_expenses
+                SET tanggal = ?,
+                    bulan_pnl = ?,
+                    tahun_pnl = ?,
+                    nama_pengeluaran = ?,
+                    jumlah = ?,
+                    status_pembayaran = ?,
+                    tanggal_pembayaran = ?,
+                    keterangan = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                  AND kategori = ?
+            ');
+            $stmt->execute([
+                $tanggal,
+                $bulanPnl,
+                $tahunPnl,
+                $nama,
+                $jumlah,
+                $status,
+                $tanggalPembayaran !== '' ? $tanggalPembayaran : null,
+                $keterangan !== '' ? $keterangan : null,
+                $id,
+                'operational',
+            ]);
+            $expenseId = $id;
+        } else {
+            $stmt = $pdo->prepare('
+                INSERT INTO operational_expenses
+                    (tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran, keterangan)
+                VALUES
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ');
+            $stmt->execute([
+                $tanggal,
+                $bulanPnl,
+                $tahunPnl,
+                'operational',
+                $nama,
+                $jumlah,
+                $status,
+                $tanggalPembayaran !== '' ? $tanggalPembayaran : null,
+                $keterangan !== '' ? $keterangan : null,
+            ]);
+            $expenseId = (int) $pdo->lastInsertId();
+        }
+
+        $journalLines = generate_operational_expense_journal($pdo, $expenseId);
+
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Pengeluaran operasional berhasil ' . ($isUpdate ? 'diupdate' : 'disimpan') . '. ' . $journalLines . ' baris jurnal diposting.',
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'message' => 'Gagal menyimpan pengeluaran operasional: ' . $exception->getMessage()];
+    }
+}
+
+function delete_operational_expense(int $id): array
+{
+    if ($id <= 0) {
+        return ['ok' => false, 'message' => 'ID pengeluaran tidak valid.'];
+    }
+
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Koneksi database gagal.'];
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        $stmt = $pdo->prepare("SELECT id, nama_pengeluaran FROM operational_expenses WHERE id = ? AND kategori = 'operational' LIMIT 1");
+        $stmt->execute([$id]);
+        $expense = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (! $expense) {
+            $pdo->rollBack();
+            return ['ok' => false, 'message' => 'Data pengeluaran tidak ditemukan.'];
+        }
+
+        delete_accounting_journal_source($pdo, 'operational_expense', (string) $id);
+        $delete = $pdo->prepare("DELETE FROM operational_expenses WHERE id = ? AND kategori = 'operational'");
+        $delete->execute([$id]);
+
+        $pdo->commit();
+
+        return ['ok' => true, 'message' => 'Pengeluaran operasional ' . ($expense['nama_pengeluaran'] ?? '') . ' berhasil dihapus beserta jurnalnya.'];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'message' => 'Gagal menghapus pengeluaran operasional: ' . $exception->getMessage()];
+    }
+}
+
+function fetch_partner_prive(array $filters = []): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'items' => [], 'summary' => [], 'error' => 'Koneksi database gagal.'];
+    }
+
+    try {
+        ensure_partner_prive_table($pdo);
+
+        $month = trim((string) ($filters['month'] ?? ''));
+        $year = trim((string) ($filters['year'] ?? date('Y')));
+        $partner = trim((string) ($filters['partner'] ?? ''));
+        $status = trim((string) ($filters['status'] ?? ''));
+
+        $sql = 'SELECT * FROM partner_prive WHERE 1=1';
+        $params = [];
+        if ($month !== '') {
+            $sql .= ' AND ((bulan_pnl IS NOT NULL AND bulan_pnl = :month) OR (bulan_pnl IS NULL AND MONTH(tanggal) = :month2))';
+            $params['month'] = (int) $month;
+            $params['month2'] = (int) $month;
+        }
+        if ($year !== '') {
+            $sql .= ' AND ((tahun_pnl IS NOT NULL AND tahun_pnl = :year) OR (tahun_pnl IS NULL AND YEAR(tanggal) = :year2))';
+            $params['year'] = (int) $year;
+            $params['year2'] = (int) $year;
+        }
+        if ($partner !== '') {
+            $sql .= ' AND partner LIKE :partner';
+            $params['partner'] = '%' . $partner . '%';
+        }
+        if ($status !== '') {
+            $sql .= ' AND status_pembayaran = :status';
+            $params['status'] = $status;
+        }
+        $sql .= ' ORDER BY tanggal DESC, id DESC';
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $partners = $pdo->query('SELECT DISTINCT partner FROM partner_prive ORDER BY partner')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $summary = [
+            'total' => array_sum(array_map(static fn (array $item): float => (float) ($item['jumlah'] ?? 0), $items)),
+            'lunas' => array_sum(array_map(static fn (array $item): float => strcasecmp((string) ($item['status_pembayaran'] ?? ''), 'Lunas') === 0 ? (float) ($item['jumlah'] ?? 0) : 0.0, $items)),
+            'hutang' => array_sum(array_map(static fn (array $item): float => strcasecmp((string) ($item['status_pembayaran'] ?? ''), 'Lunas') !== 0 ? (float) ($item['jumlah'] ?? 0) : 0.0, $items)),
+            'count' => count($items),
+        ];
+
+        return [
+            'ok' => true,
+            'items' => $items,
+            'summary' => $summary,
+            'partners' => $partners,
+            'filters' => [
+                'month' => $month,
+                'year' => $year,
+                'partner' => $partner,
+                'status' => $status,
+            ],
+            'error' => null,
+        ];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'items' => [], 'summary' => [], 'error' => $exception->getMessage()];
+    }
+}
+
+function fetch_partner_prive_detail(mixed $id): array
+{
+    $id = (int) $id;
+    if ($id <= 0) {
+        return ['ok' => true, 'item' => null, 'error' => null];
+    }
+
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'item' => null, 'error' => 'Koneksi database gagal.'];
+    }
+
+    try {
+        ensure_partner_prive_table($pdo);
+        $stmt = $pdo->prepare('SELECT * FROM partner_prive WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $item = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        return [
+            'ok' => $item !== null,
+            'item' => $item,
+            'error' => $item === null ? 'Data prive tidak ditemukan.' : null,
+        ];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'item' => null, 'error' => $exception->getMessage()];
+    }
+}
+
+function save_partner_prive_form(array $postData): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Koneksi database gagal.'];
+    }
+
+    $id = (int) ($postData['prive_id'] ?? 0);
+    $isUpdate = $id > 0;
+    $tanggal = date_input_value((string) ($postData['tanggal'] ?? ''));
+    $bulanPnl = (int) ($postData['bulan_pnl'] ?? 0);
+    $tahunPnl = (int) ($postData['tahun_pnl'] ?? 0);
+    $partner = normalize_spaces((string) ($postData['partner'] ?? ''));
+    $jumlah = clean_money_value($postData['jumlah'] ?? 0);
+    $status = strcasecmp(normalize_spaces((string) ($postData['status_pembayaran'] ?? '')), 'Lunas') === 0 ? 'Lunas' : 'Hutang';
+    $tanggalTransfer = date_input_value((string) ($postData['tanggal_transfer'] ?? ''));
+    $keterangan = normalize_spaces((string) ($postData['keterangan'] ?? ''));
+
+    if ($tanggal === '') {
+        return ['ok' => false, 'message' => 'Tanggal prive wajib diisi.'];
+    }
+    if ($bulanPnl < 1 || $bulanPnl > 12) {
+        $bulanPnl = (int) date('n', strtotime($tanggal));
+    }
+    if ($tahunPnl < 2000) {
+        $tahunPnl = (int) date('Y', strtotime($tanggal));
+    }
+    if ($partner === '') {
+        return ['ok' => false, 'message' => 'Nama partner wajib diisi.'];
+    }
+    if ($jumlah <= 0) {
+        return ['ok' => false, 'message' => 'Jumlah prive harus lebih besar dari 0.'];
+    }
+    if ($status === 'Lunas' && $tanggalTransfer === '') {
+        $tanggalTransfer = $tanggal;
+    }
+    if ($status !== 'Lunas') {
+        $tanggalTransfer = '';
+    }
+
+    try {
+        ensure_partner_prive_table($pdo);
+        $pdo->beginTransaction();
+
+        if ($isUpdate) {
+            $check = $pdo->prepare('SELECT id FROM partner_prive WHERE id = ? LIMIT 1');
+            $check->execute([$id]);
+            if (! $check->fetchColumn()) {
+                $pdo->rollBack();
+                return ['ok' => false, 'message' => 'Data prive yang akan diupdate tidak ditemukan.'];
+            }
+
+            $stmt = $pdo->prepare('
+                UPDATE partner_prive
+                SET tanggal = ?,
+                    bulan_pnl = ?,
+                    tahun_pnl = ?,
+                    partner = ?,
+                    jumlah = ?,
+                    status_pembayaran = ?,
+                    tanggal_transfer = ?,
+                    keterangan = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ');
+            $stmt->execute([
+                $tanggal,
+                $bulanPnl,
+                $tahunPnl,
+                $partner,
+                $jumlah,
+                $status,
+                $tanggalTransfer !== '' ? $tanggalTransfer : null,
+                $keterangan !== '' ? $keterangan : null,
+                $id,
+            ]);
+            $priveId = $id;
+        } else {
+            $stmt = $pdo->prepare('
+                INSERT INTO partner_prive
+                    (tanggal, bulan_pnl, tahun_pnl, partner, jumlah, status_pembayaran, tanggal_transfer, keterangan)
+                VALUES
+                    (?, ?, ?, ?, ?, ?, ?, ?)
+            ');
+            $stmt->execute([
+                $tanggal,
+                $bulanPnl,
+                $tahunPnl,
+                $partner,
+                $jumlah,
+                $status,
+                $tanggalTransfer !== '' ? $tanggalTransfer : null,
+                $keterangan !== '' ? $keterangan : null,
+            ]);
+            $priveId = (int) $pdo->lastInsertId();
+        }
+
+        $journalLines = generate_partner_prive_journal($pdo, $priveId);
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Prive partner berhasil ' . ($isUpdate ? 'diupdate' : 'disimpan') . '. ' . $journalLines . ' baris jurnal diposting.',
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'message' => 'Gagal menyimpan prive partner: ' . $exception->getMessage()];
+    }
+}
+
+function delete_partner_prive(int $id): array
+{
+    if ($id <= 0) {
+        return ['ok' => false, 'message' => 'ID prive tidak valid.'];
+    }
+
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Koneksi database gagal.'];
+    }
+
+    try {
+        ensure_partner_prive_table($pdo);
+        $pdo->beginTransaction();
+
+        $stmt = $pdo->prepare('SELECT id, partner FROM partner_prive WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $prive = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (! $prive) {
+            $pdo->rollBack();
+            return ['ok' => false, 'message' => 'Data prive tidak ditemukan.'];
+        }
+
+        delete_accounting_journal_source($pdo, 'partner_prive', (string) $id);
+        $delete = $pdo->prepare('DELETE FROM partner_prive WHERE id = ?');
+        $delete->execute([$id]);
+
+        $pdo->commit();
+
+        return ['ok' => true, 'message' => 'Prive partner ' . ($prive['partner'] ?? '') . ' berhasil dihapus beserta jurnalnya.'];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'message' => 'Gagal menghapus prive partner: ' . $exception->getMessage()];
     }
 }
 

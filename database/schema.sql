@@ -150,13 +150,29 @@ CREATE TABLE IF NOT EXISTS `operational_expenses` (
     `kategori` VARCHAR(50) NOT NULL DEFAULT 'operational' COMMENT 'Kategori: operational atau bonus',
     `nama_pengeluaran` VARCHAR(255) NOT NULL,
     `jumlah` DECIMAL(15,2) NOT NULL DEFAULT 0,
-    `status_pembayaran` VARCHAR(50) NOT NULL DEFAULT 'Lunas',
+    `status_pembayaran` VARCHAR(50) NOT NULL DEFAULT 'Hutang',
     `tanggal_pembayaran` DATE NULL,
     `keterangan` TEXT NULL,
     `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `operational_expenses_bulan_pnl_index` (`tahun_pnl`, `bulan_pnl`, `kategori`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `partner_prive` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `tanggal` DATE NOT NULL,
+    `bulan_pnl` TINYINT UNSIGNED NULL COMMENT 'Bulan periode prive (1-12)',
+    `tahun_pnl` SMALLINT UNSIGNED NULL COMMENT 'Tahun periode prive',
+    `partner` VARCHAR(150) NOT NULL,
+    `jumlah` DECIMAL(15,2) NOT NULL DEFAULT 0,
+    `status_pembayaran` VARCHAR(50) NOT NULL DEFAULT 'Lunas',
+    `tanggal_transfer` DATE NULL,
+    `keterangan` TEXT NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `partner_prive_period_index` (`tahun_pnl`, `bulan_pnl`, `partner`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `chart_of_accounts` (

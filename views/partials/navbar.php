@@ -4,6 +4,7 @@
         '/master' => 'Data Master',
         '/invoices' => 'Invoice',
         '/operational' => 'Operasional',
+        '/prive' => 'Prive',
         '/laporan' => 'Laporan',
         '/db-maintenance' => 'Database',
     ];

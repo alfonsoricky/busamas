@@ -811,6 +811,10 @@ function database_column_exists(PDO $pdo, string $table, string $column): bool
 
 function ensure_journal_entries_posted_at_column(PDO $pdo): void
 {
+    if ($pdo->inTransaction()) {
+        return;
+    }
+
     if (! database_table_exists($pdo, 'journal_entries')) {
         return;
     }
@@ -825,6 +829,10 @@ function ensure_journal_entries_posted_at_column(PDO $pdo): void
 
 function ensure_accounting_tables(PDO $pdo): void
 {
+    if ($pdo->inTransaction()) {
+        return;
+    }
+
     if (accounting_tables_ready($pdo)) {
         ensure_journal_entries_posted_at_column($pdo);
         return;
@@ -840,6 +848,10 @@ function ensure_accounting_tables(PDO $pdo): void
 
 function ensure_partner_prive_table(PDO $pdo): void
 {
+    if ($pdo->inTransaction()) {
+        return;
+    }
+
     if (! database_table_exists($pdo, 'partner_prive')) {
         $schemaPath = dirname(__DIR__) . '/database/schema.sql';
         if (is_readable($schemaPath)) {
@@ -5331,6 +5343,7 @@ function save_operational_expense_form(array $postData): array
     }
 
     try {
+        ensure_accounting_tables($pdo);
         $pdo->beginTransaction();
 
         if ($isUpdate) {
@@ -5580,6 +5593,7 @@ function save_partner_prive_form(array $postData): array
     }
 
     try {
+        ensure_accounting_tables($pdo);
         ensure_partner_prive_table($pdo);
         $pdo->beginTransaction();
 

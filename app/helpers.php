@@ -3536,6 +3536,10 @@ function run_seed_legacy_2025_journal(): array
     try {
         ensure_accounting_tables($pdo);
         ensure_default_chart_of_accounts($pdo);
+        $legacyEnsureResults = [
+            '0001/BM-INV/III/2025' => ensure_legacy_2025_invoice_from_excel($pdo, '0001/BM-INV/III/2025', 'INV-00000'),
+            '0028/BM-INV/VII/2025' => ensure_legacy_2025_invoice_from_excel($pdo, '0028/BM-INV/VII/2025', 'INV-LEGACY-0028'),
+        ];
 
         $rows = $pdo->query('
             SELECT
@@ -3626,6 +3630,11 @@ function run_seed_legacy_2025_journal(): array
             'message' => 'Jurnal legacy 2025 berhasil diposting. ' . count($legacyInvoices) . ' invoice diringkas, ' . $lineCount . ' baris jurnal dibuat.',
             'statements' => count($legacyInvoices) + 1,
             'output' => implode(PHP_EOL, [
+                'Invoice Excel legacy: ' . implode(', ', array_map(
+                    static fn (string $number, string $status): string => $number . ' ' . $status,
+                    array_keys($legacyEnsureResults),
+                    $legacyEnsureResults
+                )),
                 'Periode: 2025-03-01 sampai 2025-07-14',
                 'Invoice: ' . count($legacyInvoices),
                 'Nomor invoice awal: ' . ($invoiceNumbers[0] ?? '-'),
@@ -3647,6 +3656,204 @@ function run_seed_legacy_2025_journal(): array
             'statements' => 0,
         ];
     }
+}
+
+function ensure_legacy_2025_invoice_from_excel(PDO $pdo, string $invoiceNumber, string $kodeInvoice): string
+{
+    $excelPath = dirname(__DIR__) . '/storage/PENJUALAN-2025.xlsx';
+    if (! is_readable($excelPath)) {
+        throw new RuntimeException('File Excel storage/PENJUALAN-2025.xlsx tidak ditemukan.');
+    }
+
+    $rows = read_xlsx_sheet_rows_internal($excelPath, 'Penjualan-2025');
+    $target = null;
+    foreach ($rows as $row) {
+        if (normalize_spaces((string) ($row['A'] ?? '')) === $invoiceNumber) {
+            $target = $row;
+            break;
+        }
+    }
+    if ($target === null) {
+        throw new RuntimeException('Invoice ' . $invoiceNumber . ' tidak ditemukan di PENJUALAN-2025.xlsx.');
+    }
+
+    $invoiceDate = excel_date_2025($target['B'] ?? '');
+    $sjDate = excel_date_2025($target['D'] ?? '');
+    $paymentDate = excel_date_2025($target['M'] ?? '');
+    $purchaseTransferDate = excel_date_2025($target['AI'] ?? '');
+    $salesMap = fetch_sales_map_2025($pdo);
+    $sales1 = resolve_sales_2025($pdo, $salesMap, (string) ($target['F'] ?? ''));
+    $sales2 = resolve_sales_2025($pdo, $salesMap, (string) ($target['G'] ?? ''));
+
+    $customerName = normalize_spaces((string) ($target['E'] ?? 'Detail Laundry'));
+    $customer = $pdo->prepare('
+        SELECT kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default
+        FROM master_customers
+        WHERE UPPER(nama_laundry) = UPPER(?)
+           OR UPPER(nama_customer) = UPPER(?)
+        LIMIT 1
+    ');
+    $customer->execute([$customerName, $customerName]);
+    $customerRow = $customer->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $subtotal = (float) parse_number_internal($target['H'] ?? 0);
+    $discountAmount = (float) parse_number_internal($target['J'] ?? 0);
+    $totalJual = (float) parse_number_internal($target['K'] ?? 0);
+    if ($totalJual <= 0 && $subtotal > 0) {
+        $totalJual = max($subtotal - $discountAmount, 0);
+    }
+    $purchaseDebt = (float) parse_number_internal($target['AH'] ?? 0);
+
+    $payload = [
+        'kode_invoice' => $kodeInvoice,
+        'nomor_invoice' => $invoiceNumber,
+        'tanggal_invoice' => legacy_2025_date_label($invoiceDate),
+        'nomor_surat_jalan' => normalize_spaces((string) ($target['C'] ?? '')) ?: null,
+        'tanggal_surat_jalan' => legacy_2025_date_label($sjDate),
+        'kode_sales_1' => $sales1['kode_sales'],
+        'nama_sales_1' => $sales1['nama_sales'],
+        'kode_sales_2' => $sales2['kode_sales'],
+        'nama_sales_2' => $sales2['nama_sales'],
+        'komisi_sales_1_persen' => parse_percent_2025($target['P'] ?? ''),
+        'komisi_sales_2_persen' => parse_percent_2025($target['Q'] ?? ''),
+        'komisi_sales_terbayar' => (float) parse_number_internal($target['S'] ?? 0),
+        'komisi_sales_belum_terbayar' => (float) parse_number_internal($target['T'] ?? 0),
+        'status_pembayaran_komisi_sales' => normalize_spaces((string) ($target['U'] ?? '')) ?: null,
+        'tanggal_transfer_komisi_sales' => excel_date_2025($target['V'] ?? ''),
+        'komisi_manager_terbayar' => (float) parse_number_internal($target['W'] ?? 0),
+        'komisi_manager_utang' => (float) parse_number_internal($target['X'] ?? 0),
+        'tanggal_transfer_komisi_manager' => excel_date_2025($target['Y'] ?? ''),
+        'tanggal_transfer_komisi_admin' => excel_date_2025($target['AD'] ?? ''),
+        'kode_customer' => $customerRow['kode_customer'] ?? null,
+        'nama_customer_master' => $customerRow['nama_customer'] ?? null,
+        'nama_customer_invoice' => $customerName,
+        'nama_laundry_invoice' => $customerName,
+        'no_telepon' => $customerRow['no_telepon'] ?? null,
+        'alamat' => $customerRow['alamat_default'] ?? null,
+        'subtotal' => $subtotal,
+        'harga_normal_pricelist' => (float) parse_number_internal($target['H'] ?? 0),
+        'discount_persen' => parse_percent_2025($target['I'] ?? ''),
+        'discount_amount' => $discountAmount,
+        'total_harga_jual' => $totalJual,
+        'status_pembayaran' => normalize_payment_status_2025((string) ($target['L'] ?? '')),
+        'tanggal_pembayaran' => $paymentDate,
+        'pph_final_terbayar' => (float) parse_number_internal($target['Z'] ?? 0),
+        'pph_final_belum_terbayar' => (float) parse_number_internal($target['AA'] ?? 0),
+        'komisi_admin_terbayar' => (float) parse_number_internal($target['AB'] ?? 0),
+        'komisi_admin_belum_terbayar' => (float) parse_number_internal($target['AC'] ?? 0),
+        'biaya_kirim' => (float) parse_number_internal($target['AE'] ?? 0),
+        'biaya_admin_bank' => (float) parse_number_internal($target['AF'] ?? 0),
+        'total_pembelian_barang' => (float) parse_number_internal($target['AG'] ?? 0),
+        'total_utang_pembelian_barang' => $purchaseDebt,
+        'status_pembelian_barang' => $purchaseTransferDate !== null ? 'Lunas' : ($purchaseDebt > 0 ? 'Utang' : 'Lunas'),
+        'tanggal_transfer_pembelian_barang' => $purchaseTransferDate,
+    ];
+
+    $exists = $pdo->prepare('SELECT kode_invoice FROM invoices WHERE kode_invoice = ? OR nomor_invoice = ? LIMIT 1');
+    $exists->execute([$kodeInvoice, $invoiceNumber]);
+    $existingCode = (string) ($exists->fetchColumn() ?: '');
+
+    if ($existingCode !== '') {
+        $payload['kode_invoice'] = $existingCode;
+        $sql = '
+            UPDATE invoices
+            SET nomor_invoice = :nomor_invoice,
+                tanggal_invoice = :tanggal_invoice,
+                nomor_surat_jalan = :nomor_surat_jalan,
+                tanggal_surat_jalan = :tanggal_surat_jalan,
+                kode_sales_1 = :kode_sales_1,
+                nama_sales_1 = :nama_sales_1,
+                kode_sales_2 = :kode_sales_2,
+                nama_sales_2 = :nama_sales_2,
+                komisi_sales_1_persen = :komisi_sales_1_persen,
+                komisi_sales_2_persen = :komisi_sales_2_persen,
+                komisi_sales_terbayar = :komisi_sales_terbayar,
+                komisi_sales_belum_terbayar = :komisi_sales_belum_terbayar,
+                status_pembayaran_komisi_sales = :status_pembayaran_komisi_sales,
+                tanggal_transfer_komisi_sales = :tanggal_transfer_komisi_sales,
+                komisi_manager_terbayar = :komisi_manager_terbayar,
+                komisi_manager_utang = :komisi_manager_utang,
+                tanggal_transfer_komisi_manager = :tanggal_transfer_komisi_manager,
+                tanggal_transfer_komisi_admin = :tanggal_transfer_komisi_admin,
+                kode_customer = :kode_customer,
+                nama_customer_master = :nama_customer_master,
+                nama_customer_invoice = :nama_customer_invoice,
+                nama_laundry_invoice = :nama_laundry_invoice,
+                no_telepon = :no_telepon,
+                alamat = :alamat,
+                subtotal = :subtotal,
+                harga_normal_pricelist = :harga_normal_pricelist,
+                discount_persen = :discount_persen,
+                discount_amount = :discount_amount,
+                total_harga_jual = :total_harga_jual,
+                status_pembayaran = :status_pembayaran,
+                tanggal_pembayaran = :tanggal_pembayaran,
+                pph_final_terbayar = :pph_final_terbayar,
+                pph_final_belum_terbayar = :pph_final_belum_terbayar,
+                komisi_admin_terbayar = :komisi_admin_terbayar,
+                komisi_admin_belum_terbayar = :komisi_admin_belum_terbayar,
+                biaya_kirim = :biaya_kirim,
+                biaya_admin_bank = :biaya_admin_bank,
+                total_pembelian_barang = :total_pembelian_barang,
+                total_utang_pembelian_barang = :total_utang_pembelian_barang,
+                status_pembelian_barang = :status_pembelian_barang,
+                tanggal_transfer_pembelian_barang = :tanggal_transfer_pembelian_barang,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE kode_invoice = :kode_invoice
+        ';
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($payload);
+
+        return 'diupdate';
+    }
+
+    $sql = '
+        INSERT INTO invoices (
+            kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan,
+            kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2,
+            komisi_sales_1_persen, komisi_sales_2_persen, komisi_sales_terbayar, komisi_sales_belum_terbayar,
+            status_pembayaran_komisi_sales, tanggal_transfer_komisi_sales,
+            komisi_manager_terbayar, komisi_manager_utang, tanggal_transfer_komisi_manager,
+            tanggal_transfer_komisi_admin, kode_customer, nama_customer_master, nama_customer_invoice,
+            nama_laundry_invoice, no_telepon, alamat, subtotal, harga_normal_pricelist,
+            discount_persen, discount_amount, total_harga_jual, status_pembayaran, tanggal_pembayaran,
+            pph_final_terbayar, pph_final_belum_terbayar, komisi_admin_terbayar, komisi_admin_belum_terbayar,
+            biaya_kirim, biaya_admin_bank, total_pembelian_barang, total_utang_pembelian_barang,
+            status_pembelian_barang, tanggal_transfer_pembelian_barang
+        ) VALUES (
+            :kode_invoice, :nomor_invoice, :tanggal_invoice, :nomor_surat_jalan, :tanggal_surat_jalan,
+            :kode_sales_1, :nama_sales_1, :kode_sales_2, :nama_sales_2,
+            :komisi_sales_1_persen, :komisi_sales_2_persen, :komisi_sales_terbayar, :komisi_sales_belum_terbayar,
+            :status_pembayaran_komisi_sales, :tanggal_transfer_komisi_sales,
+            :komisi_manager_terbayar, :komisi_manager_utang, :tanggal_transfer_komisi_manager,
+            :tanggal_transfer_komisi_admin, :kode_customer, :nama_customer_master, :nama_customer_invoice,
+            :nama_laundry_invoice, :no_telepon, :alamat, :subtotal, :harga_normal_pricelist,
+            :discount_persen, :discount_amount, :total_harga_jual, :status_pembayaran, :tanggal_pembayaran,
+            :pph_final_terbayar, :pph_final_belum_terbayar, :komisi_admin_terbayar, :komisi_admin_belum_terbayar,
+            :biaya_kirim, :biaya_admin_bank, :total_pembelian_barang, :total_utang_pembelian_barang,
+            :status_pembelian_barang, :tanggal_transfer_pembelian_barang
+        )
+    ';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($payload);
+
+    return 'ditambahkan';
+}
+
+function legacy_2025_date_label(?string $date): ?string
+{
+    if ($date === null || $date === '') {
+        return null;
+    }
+
+    $timestamp = strtotime($date);
+    if ($timestamp === false) {
+        return null;
+    }
+
+    $months = invoice_months();
+
+    return (int) date('j', $timestamp) . ' ' . ($months[(int) date('n', $timestamp)] ?? date('F', $timestamp)) . ' ' . date('Y', $timestamp);
 }
 
 function invoice_customer_summary(array $invoices): array

@@ -100,6 +100,25 @@ $routes = [
             ];
         },
     ],
+    '/settings/activity-log' => [
+        'view' => 'pages/activity-log',
+        'title' => 'Activity Log',
+        'data' => function (): array {
+            if (! is_admin()) {
+                http_response_code(403);
+                view('pages/404', ['title' => 'Akses Ditolak']);
+                exit;
+            }
+
+            return [
+                'activityLog' => fetch_activity_logs([
+                    'module' => $_GET['module'] ?? '',
+                    'action' => $_GET['action'] ?? '',
+                    'search' => $_GET['search'] ?? '',
+                ]),
+            ];
+        },
+    ],
     '/' => [
         'view' => 'pages/home',
         'title' => 'Dashboard',

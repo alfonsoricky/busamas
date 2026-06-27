@@ -25,6 +25,9 @@ $accountBadge = static function (?array $account): string {
         <a href="<?= e(url('/')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
             Dashboard
         </a>
+        <a href="<?= e(url('/settings/activity-log')) ?>" class="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800">
+            Activity Log
+        </a>
     </div>
 
     <?php if (is_array($flash)): ?>

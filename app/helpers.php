@@ -196,6 +196,71 @@ function ensure_users_table(?PDO $pdo = null): bool
     return true;
 }
 
+function ensure_activity_logs_table(?PDO $pdo = null): bool
+{
+    $pdo = $pdo ?: db();
+
+    if ($pdo === null) {
+        return false;
+    }
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `activity_logs` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `user_id` BIGINT UNSIGNED NULL,
+            `user_name` VARCHAR(150) NULL,
+            `action` VARCHAR(50) NOT NULL,
+            `module` VARCHAR(100) NOT NULL,
+            `record_id` VARCHAR(100) NULL,
+            `description` TEXT NULL,
+            `old_values` JSON NULL,
+            `new_values` JSON NULL,
+            `ip_address` VARCHAR(100) NULL,
+            `user_agent` VARCHAR(255) NULL,
+            `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `activity_logs_user_id_index` (`user_id`),
+            KEY `activity_logs_module_index` (`module`),
+            KEY `activity_logs_created_at_index` (`created_at`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    return true;
+}
+
+function activity_log(string $action, string $module, string $recordId = '', string $description = '', ?array $oldValues = null, ?array $newValues = null): void
+{
+    $pdo = db();
+
+    if ($pdo === null || ! ensure_activity_logs_table($pdo)) {
+        return;
+    }
+
+    try {
+        $user = current_user();
+        $stmt = $pdo->prepare('
+            INSERT INTO activity_logs
+                (user_id, user_name, action, module, record_id, description, old_values, new_values, ip_address, user_agent)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ');
+        $stmt->execute([
+            $user['id'] ?? null,
+            $user['name'] ?? null,
+            $action,
+            $module,
+            $recordId !== '' ? $recordId : null,
+            $description !== '' ? $description : null,
+            $oldValues !== null ? json_encode($oldValues, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+            $newValues !== null ? json_encode($newValues, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+            $_SERVER['REMOTE_ADDR'] ?? null,
+            substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
+        ]);
+    } catch (Throwable) {
+        return;
+    }
+}
+
 function seed_system_user(string $name, string $email, string $password, string $role = 'admin'): bool
 {
     $pdo = db();
@@ -303,12 +368,17 @@ function login_user(string $email, string $password): array
         'email' => (string) $user['email'],
         'role' => (string) $user['role'],
     ];
+    activity_log('login', 'auth', (string) $user['id'], 'Login user ' . (string) $user['email']);
 
     return ['ok' => true, 'message' => 'Login berhasil.'];
 }
 
 function logout_user(): void
 {
+    $user = current_user();
+    if ($user !== null) {
+        activity_log('logout', 'auth', (string) ($user['id'] ?? ''), 'Logout user ' . (string) ($user['email'] ?? ''));
+    }
     unset($_SESSION['user']);
     session_regenerate_id(true);
 }
@@ -427,6 +497,63 @@ function accounting_mapping_settings(): array
     ];
 }
 
+function fetch_activity_logs(array $filters = []): array
+{
+    $pdo = db();
+
+    if ($pdo === null || ! ensure_activity_logs_table($pdo)) {
+        return ['ok' => false, 'items' => [], 'filters' => $filters, 'error' => 'Database log belum bisa dibaca.'];
+    }
+
+    $module = trim((string) ($filters['module'] ?? ''));
+    $action = trim((string) ($filters['action'] ?? ''));
+    $search = trim((string) ($filters['search'] ?? ''));
+    $params = [];
+    $where = ['1=1'];
+
+    if ($module !== '') {
+        $where[] = 'module = :module';
+        $params['module'] = $module;
+    }
+    if ($action !== '') {
+        $where[] = 'action = :action';
+        $params['action'] = $action;
+    }
+    if ($search !== '') {
+        $where[] = '(user_name LIKE :search OR record_id LIKE :search OR description LIKE :search)';
+        $params['search'] = '%' . $search . '%';
+    }
+
+    try {
+        $stmt = $pdo->prepare('
+            SELECT *
+            FROM activity_logs
+            WHERE ' . implode(' AND ', $where) . '
+            ORDER BY created_at DESC, id DESC
+            LIMIT 300
+        ');
+        $stmt->execute($params);
+        $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $modules = $pdo->query('SELECT DISTINCT module FROM activity_logs ORDER BY module')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        $actions = $pdo->query('SELECT DISTINCT action FROM activity_logs ORDER BY action')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+
+        return [
+            'ok' => true,
+            'items' => $items,
+            'modules' => $modules,
+            'actions' => $actions,
+            'filters' => [
+                'module' => $module,
+                'action' => $action,
+                'search' => $search,
+            ],
+            'error' => null,
+        ];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'items' => [], 'filters' => $filters, 'error' => $exception->getMessage()];
+    }
+}
+
 function save_system_user_form(array $input): array
 {
     $pdo = db();
@@ -459,6 +586,7 @@ function save_system_user_form(array $input): array
                 $statement->execute([$name, $email, $role, $id]);
             }
 
+            activity_log('update', 'settings.user', (string) $id, 'Update user ' . $email, null, ['name' => $name, 'email' => $email, 'role' => $role]);
             return ['ok' => true, 'message' => 'User berhasil diupdate.'];
         }
 
@@ -467,6 +595,7 @@ function save_system_user_form(array $input): array
         }
 
         seed_system_user($name, $email, $password, $role);
+        activity_log('insert', 'settings.user', $email, 'Tambah user ' . $email, null, ['name' => $name, 'email' => $email, 'role' => $role]);
 
         return ['ok' => true, 'message' => 'User berhasil ditambahkan.'];
     } catch (Throwable $exception) {
@@ -2527,7 +2656,7 @@ function update_invoice_payment_status(string $kodeInvoice, string $statusPembay
     try {
         $pdo->beginTransaction();
 
-        $stmt = $pdo->prepare('SELECT kode_invoice, nomor_invoice FROM invoices WHERE kode_invoice = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT kode_invoice, nomor_invoice, status_pembayaran, tanggal_pembayaran FROM invoices WHERE kode_invoice = ? LIMIT 1');
         $stmt->execute([$kodeInvoice]);
         $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -2552,6 +2681,10 @@ function update_invoice_payment_status(string $kodeInvoice, string $statusPembay
         post_invoice_accounting_journal($pdo, $kodeInvoice);
 
         $pdo->commit();
+        activity_log('update', 'invoice.payment', $kodeInvoice, 'Update pembayaran invoice ' . ($invoice['nomor_invoice'] ?? $kodeInvoice), $invoice, [
+            'status_pembayaran' => $statusPembayaran,
+            'tanggal_pembayaran' => $tanggalPembayaran !== '' ? $tanggalPembayaran : null,
+        ]);
 
         return [
             'ok' => true,
@@ -2732,7 +2865,7 @@ function update_invoice_purchase_status(string $kodeInvoice, string $statusPembe
     try {
         $pdo->beginTransaction();
 
-        $stmt = $pdo->prepare('SELECT kode_invoice, nomor_invoice FROM invoices WHERE kode_invoice = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT kode_invoice, nomor_invoice, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, tanggal_transfer_pembelian_barang FROM invoices WHERE kode_invoice = ? LIMIT 1');
         $stmt->execute([$kodeInvoice]);
         $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -2761,6 +2894,12 @@ function update_invoice_purchase_status(string $kodeInvoice, string $statusPembe
         post_invoice_accounting_journal($pdo, $kodeInvoice);
 
         $pdo->commit();
+        activity_log('update', 'invoice.purchase', $kodeInvoice, 'Update pembelian invoice ' . ($invoice['nomor_invoice'] ?? $kodeInvoice), $invoice, [
+            'total_pembelian_barang' => $purchasePaid,
+            'total_utang_pembelian_barang' => $purchaseDebt,
+            'status_pembelian_barang' => $statusPembelian,
+            'tanggal_transfer_pembelian_barang' => $transferDate !== '' ? $transferDate : null,
+        ]);
 
         return [
             'ok' => true,
@@ -3031,7 +3170,7 @@ function update_invoice_commission_status(string $type, string $kodeInvoice, str
         ensure_accounting_tables($pdo);
         $pdo->beginTransaction();
 
-        $stmt = $pdo->prepare('SELECT kode_invoice, nomor_invoice FROM invoices WHERE kode_invoice = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT * FROM invoices WHERE kode_invoice = ? LIMIT 1');
         $stmt->execute([$kodeInvoice]);
         $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -3075,6 +3214,17 @@ function update_invoice_commission_status(string $type, string $kodeInvoice, str
         post_invoice_accounting_journal($pdo, $kodeInvoice);
 
         $pdo->commit();
+        activity_log('update', 'invoice.commission.' . $config['type'], $kodeInvoice, 'Update ' . strtolower($config['label']) . ' invoice ' . ($invoice['nomor_invoice'] ?? $kodeInvoice), [
+            $paidColumn => $invoice[$paidColumn] ?? null,
+            $debtColumn => $invoice[$debtColumn] ?? null,
+            $dateColumn => $invoice[$dateColumn] ?? null,
+            'status' => $statusColumn !== null ? ($invoice[$statusColumn] ?? null) : null,
+        ], [
+            $paidColumn => $paid,
+            $debtColumn => $debt,
+            $dateColumn => $transferDate !== '' ? $transferDate : null,
+            'status' => $statusValue,
+        ]);
 
         return [
             'ok' => true,
@@ -4533,7 +4683,7 @@ function save_invoice_form(array $postData): array
 
         if ($isUpdate) {
             // Check if exists
-            $stmt = $pdo->prepare("SELECT file_invoice FROM invoices WHERE kode_invoice = ?");
+            $stmt = $pdo->prepare("SELECT * FROM invoices WHERE kode_invoice = ?");
             $stmt->execute([$kodeInvoice]);
             $existingInvoice = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$existingInvoice) {
@@ -4714,6 +4864,14 @@ function save_invoice_form(array $postData): array
         post_invoice_accounting_journal($pdo, $kodeInvoice);
 
         $pdo->commit();
+        activity_log($isUpdate ? 'update' : 'insert', 'invoice', $kodeInvoice, ($isUpdate ? 'Update' : 'Tambah') . ' invoice ' . $nomorInvoice, $isUpdate ? $existingInvoice : null, [
+            'kode_invoice' => $kodeInvoice,
+            'nomor_invoice' => $nomorInvoice,
+            'tanggal_invoice' => $tanggalInvoice,
+            'kode_customer' => $kodeCustomer,
+            'total_harga_jual' => $totalHargaJual,
+            'status_pembayaran' => $statusPembayaran,
+        ]);
         return ['ok' => true, 'kode_invoice' => $kodeInvoice];
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) {
@@ -6334,9 +6492,10 @@ function save_operational_expense_form(array $postData): array
         $pdo->beginTransaction();
 
         if ($isUpdate) {
-            $check = $pdo->prepare("SELECT id FROM operational_expenses WHERE id = ? AND kategori = 'operational' LIMIT 1");
+            $check = $pdo->prepare("SELECT * FROM operational_expenses WHERE id = ? AND kategori = 'operational' LIMIT 1");
             $check->execute([$id]);
-            if (! $check->fetchColumn()) {
+            $oldExpense = $check->fetch(PDO::FETCH_ASSOC);
+            if (! $oldExpense) {
                 $pdo->rollBack();
                 return ['ok' => false, 'message' => 'Data pengeluaran yang akan diupdate tidak ditemukan.'];
             }
@@ -6392,6 +6551,15 @@ function save_operational_expense_form(array $postData): array
         $journalLines = generate_operational_expense_journal($pdo, $expenseId);
 
         $pdo->commit();
+        activity_log($isUpdate ? 'update' : 'insert', 'operational', (string) $expenseId, ($isUpdate ? 'Update' : 'Tambah') . ' pengeluaran operasional ' . $nama, $isUpdate ? $oldExpense : null, [
+            'tanggal' => $tanggal,
+            'bulan_pnl' => $bulanPnl,
+            'tahun_pnl' => $tahunPnl,
+            'nama_pengeluaran' => $nama,
+            'jumlah' => $jumlah,
+            'status_pembayaran' => $status,
+            'tanggal_pembayaran' => $tanggalPembayaran !== '' ? $tanggalPembayaran : null,
+        ]);
 
         return [
             'ok' => true,
@@ -6433,6 +6601,7 @@ function delete_operational_expense(int $id): array
         $delete->execute([$id]);
 
         $pdo->commit();
+        activity_log('delete', 'operational', (string) $id, 'Hapus pengeluaran operasional ' . ($expense['nama_pengeluaran'] ?? ''), $expense, null);
 
         return ['ok' => true, 'message' => 'Pengeluaran operasional ' . ($expense['nama_pengeluaran'] ?? '') . ' berhasil dihapus beserta jurnalnya.'];
     } catch (Throwable $exception) {
@@ -6585,9 +6754,10 @@ function save_partner_prive_form(array $postData): array
         $pdo->beginTransaction();
 
         if ($isUpdate) {
-            $check = $pdo->prepare('SELECT id FROM partner_prive WHERE id = ? LIMIT 1');
+            $check = $pdo->prepare('SELECT * FROM partner_prive WHERE id = ? LIMIT 1');
             $check->execute([$id]);
-            if (! $check->fetchColumn()) {
+            $oldPrive = $check->fetch(PDO::FETCH_ASSOC);
+            if (! $oldPrive) {
                 $pdo->rollBack();
                 return ['ok' => false, 'message' => 'Data prive yang akan diupdate tidak ditemukan.'];
             }
@@ -6639,6 +6809,15 @@ function save_partner_prive_form(array $postData): array
 
         $journalLines = generate_partner_prive_journal($pdo, $priveId);
         $pdo->commit();
+        activity_log($isUpdate ? 'update' : 'insert', 'prive', (string) $priveId, ($isUpdate ? 'Update' : 'Tambah') . ' prive partner ' . $partner, $isUpdate ? $oldPrive : null, [
+            'tanggal' => $tanggal,
+            'bulan_pnl' => $bulanPnl,
+            'tahun_pnl' => $tahunPnl,
+            'partner' => $partner,
+            'jumlah' => $jumlah,
+            'status_pembayaran' => $status,
+            'tanggal_transfer' => $tanggalTransfer !== '' ? $tanggalTransfer : null,
+        ]);
 
         return [
             'ok' => true,
@@ -6681,6 +6860,7 @@ function delete_partner_prive(int $id): array
         $delete->execute([$id]);
 
         $pdo->commit();
+        activity_log('delete', 'prive', (string) $id, 'Hapus prive partner ' . ($prive['partner'] ?? ''), $prive, null);
 
         return ['ok' => true, 'message' => 'Prive partner ' . ($prive['partner'] ?? '') . ' berhasil dihapus beserta jurnalnya.'];
     } catch (Throwable $exception) {
@@ -9365,7 +9545,7 @@ function delete_invoice(string $kodeInvoice): array
     if ($pdo === null) return ['ok' => false, 'message' => 'Koneksi database gagal.'];
 
     // Cek invoice ada
-    $check = $pdo->prepare('SELECT nomor_invoice FROM invoices WHERE kode_invoice = ?');
+    $check = $pdo->prepare('SELECT * FROM invoices WHERE kode_invoice = ?');
     $check->execute([$kodeInvoice]);
     $inv = $check->fetch(PDO::FETCH_ASSOC);
 
@@ -9380,6 +9560,7 @@ function delete_invoice(string $kodeInvoice): array
         $pdo->prepare('DELETE FROM invoice_items WHERE kode_invoice = ?')->execute([$kodeInvoice]);
         $pdo->prepare('DELETE FROM invoices WHERE kode_invoice = ?')->execute([$kodeInvoice]);
         $pdo->commit();
+        activity_log('delete', 'invoice', $kodeInvoice, 'Hapus invoice ' . ($inv['nomor_invoice'] ?? $kodeInvoice), $inv, null);
 
         $warnings = [];
         if (!$googleResult['drive_ok']) $warnings[] = 'Gagal hapus dari Google Drive.';

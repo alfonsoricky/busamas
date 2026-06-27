@@ -18,6 +18,25 @@ CREATE TABLE IF NOT EXISTS `users` (
     UNIQUE KEY `users_email_unique` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `activity_logs` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id` BIGINT UNSIGNED NULL,
+    `user_name` VARCHAR(150) NULL,
+    `action` VARCHAR(50) NOT NULL,
+    `module` VARCHAR(100) NOT NULL,
+    `record_id` VARCHAR(100) NULL,
+    `description` TEXT NULL,
+    `old_values` JSON NULL,
+    `new_values` JSON NULL,
+    `ip_address` VARCHAR(100) NULL,
+    `user_agent` VARCHAR(255) NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `activity_logs_user_id_index` (`user_id`),
+    KEY `activity_logs_module_index` (`module`),
+    KEY `activity_logs_created_at_index` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `master_barang` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `kode_barang` VARCHAR(20) NOT NULL,

@@ -7171,9 +7171,12 @@ function run_2026_latest_final_update(): array
         $manualOperational = ensure_2026_manual_operational_expenses($pdo);
         $output[] = "4. Operational manual Coffee Shop: {$manualOperational['created']} dibuat, {$manualOperational['updated']} sudah ada/diupdate";
 
+        $removedBonusAggregate = remove_2026_legacy_bonus_aggregate($pdo);
+        $output[] = "5. Bonus agregat lama April: {$removedBonusAggregate} data dihapus";
+
         $journalResult = regenerate_all_accounting_journals($pdo);
         $pdo->commit();
-        $output[] = "5. Posting ulang jurnal akuntansi: {$journalResult['entries']} jurnal, {$journalResult['lines']} baris";
+        $output[] = "6. Posting ulang jurnal akuntansi: {$journalResult['entries']} jurnal, {$journalResult['lines']} baris";
 
         return [
             'ok'         => true,
@@ -7182,6 +7185,7 @@ function run_2026_latest_final_update(): array
                 + 2
                 + (int) ($operationalResult['inserted'] ?? 0)
                 + (int) ($manualOperational['created'] ?? 0)
+                + $removedBonusAggregate
                 + (int) ($journalResult['lines'] ?? 0),
             'counts'     => database_table_counts(),
             'output'     => implode(PHP_EOL, $output),
@@ -7414,6 +7418,28 @@ function ensure_2026_manual_operational_expenses(PDO $pdo): array
     }
 
     return ['created' => $created, 'updated' => $updated];
+}
+
+function remove_2026_legacy_bonus_aggregate(PDO $pdo): int
+{
+    $stmt = $pdo->prepare("
+        SELECT id
+        FROM operational_expenses
+        WHERE kategori = 'bonus'
+          AND bulan_pnl = 4
+          AND tahun_pnl = 2026
+          AND nama_pengeluaran = 'Bonus Krisna April 2026'
+    ");
+    $stmt->execute();
+    $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+    $delete = $pdo->prepare('DELETE FROM operational_expenses WHERE id = ?');
+
+    foreach ($ids as $id) {
+        delete_accounting_journal_source($pdo, 'operational_expense', (string) $id);
+        $delete->execute([$id]);
+    }
+
+    return count($ids);
 }
 
 function next_2026_invoice_code(PDO $pdo): string

@@ -1,5 +1,5 @@
 <section class="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-    <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
             <p class="mb-3 text-sm font-semibold uppercase tracking-wide text-brand">Transaksi</p>
             <h1 class="text-3xl font-bold text-ink sm:text-4xl">Invoice Mapping</h1>
@@ -7,18 +7,31 @@
                 Data invoice tahun 2025 sampai Juni 2026 yang sudah dipetakan ke master customer dan master barang.
             </p>
         </div>
-        <div class="flex flex-col gap-3 sm:items-end">
+        <a href="<?= e(url('/invoice-create')) ?>" class="inline-flex items-center justify-center self-start rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800 sm:self-end">
+            Buat Invoice
+        </a>
+    </div>
+
+    <div class="mb-8 rounded-lg border border-stone-200 bg-white p-3 shadow-sm">
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <p class="text-xs font-bold uppercase tracking-wide text-stone-500">Log Book Invoice</p>
             <div class="flex flex-wrap gap-2">
-                <a href="<?= e(url('/invoice-payment-log')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
-                    Log Book Pembayaran
+                <a href="<?= e(url('/invoice-payment-log')) ?>" class="inline-flex items-center justify-center rounded-md border border-stone-300 px-3 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                    Pembayaran
                 </a>
-                <a href="<?= e(url('/invoice-purchase-log')) ?>" class="inline-flex items-center justify-center rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
-                    Log Book Pembelian
+                <a href="<?= e(url('/invoice-purchase-log')) ?>" class="inline-flex items-center justify-center rounded-md border border-stone-300 px-3 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                    Pembelian
+                </a>
+                <a href="<?= e(url('/invoice-commission-sales-log')) ?>" class="inline-flex items-center justify-center rounded-md border border-stone-300 px-3 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                    Komisi Sales
+                </a>
+                <a href="<?= e(url('/invoice-commission-manager-log')) ?>" class="inline-flex items-center justify-center rounded-md border border-stone-300 px-3 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                    Komisi Manager
+                </a>
+                <a href="<?= e(url('/invoice-commission-admin-log')) ?>" class="inline-flex items-center justify-center rounded-md border border-stone-300 px-3 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                    Komisi Admin
                 </a>
             </div>
-            <a href="<?= e(url('/invoice-create')) ?>" class="inline-flex items-center justify-center self-start rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800 sm:self-end">
-                Buat Invoice
-            </a>
         </div>
     </div>
 

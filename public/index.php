@@ -303,6 +303,120 @@ $routes = [
             exit;
         },
     ],
+    '/invoice-commission-sales-log' => [
+        'view' => 'pages/invoice-commission-log',
+        'title' => 'Log Book Komisi Sales',
+        'data' => fn (): array => [
+            'commissionLog' => fetch_invoice_commission_log('sales', [
+                'month' => $_GET['month'] ?? '',
+                'year' => $_GET['year'] ?? date('Y'),
+                'status' => $_GET['status'] ?? 'unpaid',
+                'customer_status' => $_GET['customer_status'] ?? '',
+                'search' => $_GET['search'] ?? '',
+            ]),
+        ],
+    ],
+    '/invoice-commission-sales-update' => [
+        'view' => 'pages/invoice-commission-log',
+        'title' => 'Update Komisi Sales',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/invoice-commission-sales-log'));
+                exit;
+            }
+
+            $returnTo = trim((string) ($_POST['return_to'] ?? ''));
+            $target = $returnTo !== '' && str_starts_with($returnTo, url('/invoice-commission-sales-log'))
+                ? $returnTo
+                : url('/invoice-commission-sales-log');
+
+            $_SESSION['invoice_commission_sales_flash'] = update_invoice_commission_status(
+                'sales',
+                $_POST['kode_invoice'] ?? '',
+                $_POST['status_komisi'] ?? '',
+                $_POST['commission_total'] ?? '',
+                $_POST['tanggal_transfer'] ?? ''
+            );
+            header('Location: ' . $target);
+            exit;
+        },
+    ],
+    '/invoice-commission-manager-log' => [
+        'view' => 'pages/invoice-commission-log',
+        'title' => 'Log Book Komisi Manager',
+        'data' => fn (): array => [
+            'commissionLog' => fetch_invoice_commission_log('manager', [
+                'month' => $_GET['month'] ?? '',
+                'year' => $_GET['year'] ?? date('Y'),
+                'status' => $_GET['status'] ?? 'unpaid',
+                'customer_status' => $_GET['customer_status'] ?? '',
+                'search' => $_GET['search'] ?? '',
+            ]),
+        ],
+    ],
+    '/invoice-commission-manager-update' => [
+        'view' => 'pages/invoice-commission-log',
+        'title' => 'Update Komisi Manager',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/invoice-commission-manager-log'));
+                exit;
+            }
+
+            $returnTo = trim((string) ($_POST['return_to'] ?? ''));
+            $target = $returnTo !== '' && str_starts_with($returnTo, url('/invoice-commission-manager-log'))
+                ? $returnTo
+                : url('/invoice-commission-manager-log');
+
+            $_SESSION['invoice_commission_manager_flash'] = update_invoice_commission_status(
+                'manager',
+                $_POST['kode_invoice'] ?? '',
+                $_POST['status_komisi'] ?? '',
+                $_POST['commission_total'] ?? '',
+                $_POST['tanggal_transfer'] ?? ''
+            );
+            header('Location: ' . $target);
+            exit;
+        },
+    ],
+    '/invoice-commission-admin-log' => [
+        'view' => 'pages/invoice-commission-log',
+        'title' => 'Log Book Komisi Admin',
+        'data' => fn (): array => [
+            'commissionLog' => fetch_invoice_commission_log('admin', [
+                'month' => $_GET['month'] ?? '',
+                'year' => $_GET['year'] ?? date('Y'),
+                'status' => $_GET['status'] ?? 'unpaid',
+                'customer_status' => $_GET['customer_status'] ?? '',
+                'search' => $_GET['search'] ?? '',
+            ]),
+        ],
+    ],
+    '/invoice-commission-admin-update' => [
+        'view' => 'pages/invoice-commission-log',
+        'title' => 'Update Komisi Admin',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+                header('Location: ' . url('/invoice-commission-admin-log'));
+                exit;
+            }
+
+            $returnTo = trim((string) ($_POST['return_to'] ?? ''));
+            $target = $returnTo !== '' && str_starts_with($returnTo, url('/invoice-commission-admin-log'))
+                ? $returnTo
+                : url('/invoice-commission-admin-log');
+
+            $_SESSION['invoice_commission_admin_flash'] = update_invoice_commission_status(
+                'admin',
+                $_POST['kode_invoice'] ?? '',
+                $_POST['status_komisi'] ?? '',
+                $_POST['commission_total'] ?? '',
+                $_POST['tanggal_transfer'] ?? ''
+            );
+            header('Location: ' . $target);
+            exit;
+        },
+    ],
     '/invoice-create' => [
         'view' => 'pages/invoice-create',
         'title' => 'Buat Invoice',

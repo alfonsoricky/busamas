@@ -2437,6 +2437,320 @@ function update_invoice_purchase_status(string $kodeInvoice, string $statusPembe
     }
 }
 
+function invoice_commission_config(string $type): ?array
+{
+    $type = strtolower(trim($type));
+
+    return match ($type) {
+        'sales' => [
+            'type' => 'sales',
+            'label' => 'Komisi Sales',
+            'title' => 'Log Book Komisi Sales',
+            'route' => '/invoice-commission-sales-log',
+            'update_route' => '/invoice-commission-sales-update',
+            'paid_column' => 'komisi_sales_terbayar',
+            'debt_column' => 'komisi_sales_belum_terbayar',
+            'date_column' => 'tanggal_transfer_komisi_sales',
+            'status_column' => 'status_pembayaran_komisi_sales',
+            'paid_status' => 'Transfer',
+            'unpaid_status' => 'Belum TF',
+        ],
+        'manager' => [
+            'type' => 'manager',
+            'label' => 'Komisi Manager',
+            'title' => 'Log Book Komisi Manager',
+            'route' => '/invoice-commission-manager-log',
+            'update_route' => '/invoice-commission-manager-update',
+            'paid_column' => 'komisi_manager_terbayar',
+            'debt_column' => 'komisi_manager_utang',
+            'date_column' => 'tanggal_transfer_komisi_manager',
+            'status_column' => null,
+            'paid_status' => 'Lunas',
+            'unpaid_status' => 'Belum Dibayar',
+        ],
+        'admin' => [
+            'type' => 'admin',
+            'label' => 'Komisi Admin',
+            'title' => 'Log Book Komisi Admin',
+            'route' => '/invoice-commission-admin-log',
+            'update_route' => '/invoice-commission-admin-update',
+            'paid_column' => 'komisi_admin_terbayar',
+            'debt_column' => 'komisi_admin_belum_terbayar',
+            'date_column' => 'tanggal_transfer_komisi_admin',
+            'status_column' => null,
+            'paid_status' => 'Lunas',
+            'unpaid_status' => 'Belum Dibayar',
+        ],
+        default => null,
+    };
+}
+
+function fetch_invoice_commission_log(string $type, array $filters = []): array
+{
+    $config = invoice_commission_config($type);
+    if ($config === null) {
+        return [
+            'ok' => false,
+            'items' => [],
+            'summary' => [],
+            'options' => ['years' => [date('Y')]],
+            'filters' => $filters,
+            'config' => ['type' => $type, 'label' => 'Komisi', 'title' => 'Log Book Komisi', 'route' => '/invoices', 'update_route' => '/invoices'],
+            'error' => 'Jenis komisi tidak valid.',
+        ];
+    }
+
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'items' => [],
+            'summary' => [],
+            'options' => ['years' => [date('Y')]],
+            'filters' => $filters,
+            'config' => $config,
+            'error' => 'Koneksi database gagal.',
+        ];
+    }
+
+    try {
+        $rows = $pdo->query('
+            SELECT
+                kode_invoice,
+                nomor_invoice,
+                tanggal_invoice,
+                kode_sales_1,
+                nama_sales_1,
+                kode_sales_2,
+                nama_sales_2,
+                nama_customer_master,
+                nama_customer_invoice,
+                nama_laundry_invoice,
+                total_harga_jual,
+                status_pembayaran,
+                komisi_sales_1_persen,
+                komisi_sales_2_persen,
+                komisi_sales_terbayar,
+                komisi_sales_belum_terbayar,
+                status_pembayaran_komisi_sales,
+                tanggal_transfer_komisi_sales,
+                komisi_manager_terbayar,
+                komisi_manager_utang,
+                tanggal_transfer_komisi_manager,
+                komisi_admin_terbayar,
+                komisi_admin_belum_terbayar,
+                tanggal_transfer_komisi_admin,
+                created_at,
+                updated_at
+            FROM invoices
+            ORDER BY id DESC
+        ')->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'items' => [],
+            'summary' => [],
+            'options' => ['years' => [date('Y')]],
+            'filters' => $filters,
+            'config' => $config,
+            'error' => $exception->getMessage(),
+        ];
+    }
+
+    $month = trim((string) ($filters['month'] ?? ''));
+    $year = trim((string) ($filters['year'] ?? ''));
+    $status = trim((string) ($filters['status'] ?? 'unpaid'));
+    $customerStatus = trim((string) ($filters['customer_status'] ?? ''));
+    $search = trim((string) ($filters['search'] ?? ''));
+    $yearOptions = invoice_year_options($rows);
+    $paidColumn = $config['paid_column'];
+    $debtColumn = $config['debt_column'];
+    $dateColumn = $config['date_column'];
+
+    $items = array_values(array_filter(array_map(static function (array $row) use ($paidColumn, $debtColumn, $dateColumn): array {
+        $paid = round((float) ($row[$paidColumn] ?? 0), 2);
+        $debt = round((float) ($row[$debtColumn] ?? 0), 2);
+        $total = $paid + $debt;
+        $isPaid = $total > 0 && $debt <= 0.01;
+        $customerPaid = strcasecmp(trim((string) ($row['status_pembayaran'] ?? '')), 'Lunas') === 0;
+
+        $row['commission_paid'] = $isPaid ? $total : $paid;
+        $row['commission_debt'] = $isPaid ? 0.0 : $debt;
+        $row['commission_total'] = $total;
+        $row['is_paid'] = $isPaid;
+        $row['customer_paid'] = $customerPaid;
+        $row['transfer_date_input'] = date_input_value((string) ($row[$dateColumn] ?? ''));
+
+        return $row;
+    }, $rows), static function (array $invoice) use ($month, $year, $status, $customerStatus, $search): bool {
+        if (($invoice['commission_total'] ?? 0) <= 0) {
+            return false;
+        }
+        if ($month !== '' && invoice_month_number((string) ($invoice['nomor_invoice'] ?? '')) !== (int) $month) {
+            return false;
+        }
+        if ($year !== '' && invoice_year((string) ($invoice['nomor_invoice'] ?? '')) !== $year) {
+            return false;
+        }
+        if ($status === 'paid' && ! ($invoice['is_paid'] ?? false)) {
+            return false;
+        }
+        if ($status === 'unpaid' && ($invoice['is_paid'] ?? false)) {
+            return false;
+        }
+        if ($customerStatus === 'paid' && ! ($invoice['customer_paid'] ?? false)) {
+            return false;
+        }
+        if ($customerStatus === 'unpaid' && ($invoice['customer_paid'] ?? false)) {
+            return false;
+        }
+        if ($search !== '') {
+            $haystack = strtoupper(implode(' ', [
+                $invoice['nomor_invoice'] ?? '',
+                $invoice['kode_invoice'] ?? '',
+                $invoice['nama_customer_master'] ?? '',
+                $invoice['nama_customer_invoice'] ?? '',
+                $invoice['nama_laundry_invoice'] ?? '',
+                $invoice['nama_sales_1'] ?? '',
+                $invoice['nama_sales_2'] ?? '',
+            ]));
+
+            if (! str_contains($haystack, strtoupper($search))) {
+                return false;
+            }
+        }
+
+        return true;
+    }));
+
+    sort_invoices_newest_first($items);
+
+    $paidItems = array_filter($items, static fn (array $invoice): bool => (bool) ($invoice['is_paid'] ?? false));
+    $debtItems = array_filter($items, static fn (array $invoice): bool => ! (bool) ($invoice['is_paid'] ?? false));
+    $customerPaidItems = array_filter($items, static fn (array $invoice): bool => (bool) ($invoice['customer_paid'] ?? false));
+
+    return [
+        'ok' => true,
+        'items' => $items,
+        'filters' => [
+            'month' => $month,
+            'year' => $year,
+            'status' => $status,
+            'customer_status' => $customerStatus,
+            'search' => $search,
+        ],
+        'options' => [
+            'years' => $yearOptions,
+        ],
+        'summary' => [
+            'invoice_count' => count($items),
+            'paid_count' => count($paidItems),
+            'debt_count' => count($debtItems),
+            'customer_paid_count' => count($customerPaidItems),
+            'commission_total' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['commission_total'] ?? 0), $items)),
+            'paid_total' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['commission_paid'] ?? 0), $items)),
+            'debt_total' => array_sum(array_map(static fn (array $invoice): float => (float) ($invoice['commission_debt'] ?? 0), $items)),
+        ],
+        'config' => $config,
+        'error' => null,
+    ];
+}
+
+function update_invoice_commission_status(string $type, string $kodeInvoice, string $status, mixed $commissionTotal, string $transferDate): array
+{
+    $config = invoice_commission_config($type);
+    if ($config === null) {
+        return ['ok' => false, 'message' => 'Jenis komisi tidak valid.'];
+    }
+
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Koneksi database gagal.'];
+    }
+
+    $kodeInvoice = trim($kodeInvoice);
+    $status = strtolower(trim($status)) === 'paid' ? 'paid' : 'unpaid';
+    $commissionTotal = max(clean_money_value($commissionTotal), 0);
+    $transferDate = date_input_value($transferDate);
+
+    if ($kodeInvoice === '') {
+        return ['ok' => false, 'message' => 'Kode invoice tidak boleh kosong.'];
+    }
+    if ($commissionTotal <= 0) {
+        return ['ok' => false, 'message' => 'Nilai komisi harus lebih besar dari 0.'];
+    }
+    if ($status === 'paid' && $transferDate === '') {
+        return ['ok' => false, 'message' => 'Tanggal transfer wajib diisi untuk komisi terbayar.'];
+    }
+
+    $paid = $status === 'paid' ? $commissionTotal : 0.0;
+    $debt = $status === 'paid' ? 0.0 : $commissionTotal;
+    if ($status !== 'paid') {
+        $transferDate = '';
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        $pdo->beginTransaction();
+
+        $stmt = $pdo->prepare('SELECT kode_invoice, nomor_invoice FROM invoices WHERE kode_invoice = ? LIMIT 1');
+        $stmt->execute([$kodeInvoice]);
+        $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (! $invoice) {
+            $pdo->rollBack();
+            return ['ok' => false, 'message' => 'Invoice tidak ditemukan.'];
+        }
+
+        $paidColumn = $config['paid_column'];
+        $debtColumn = $config['debt_column'];
+        $dateColumn = $config['date_column'];
+        $statusColumn = $config['status_column'];
+        $statusValue = $status === 'paid' ? $config['paid_status'] : $config['unpaid_status'];
+
+        if ($statusColumn !== null) {
+            $sql = "
+                UPDATE invoices
+                SET {$paidColumn} = ?,
+                    {$debtColumn} = ?,
+                    {$statusColumn} = ?,
+                    {$dateColumn} = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE kode_invoice = ?
+            ";
+            $params = [$paid, $debt, $statusValue, $transferDate !== '' ? $transferDate : null, $kodeInvoice];
+        } else {
+            $sql = "
+                UPDATE invoices
+                SET {$paidColumn} = ?,
+                    {$debtColumn} = ?,
+                    {$dateColumn} = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE kode_invoice = ?
+            ";
+            $params = [$paid, $debt, $transferDate !== '' ? $transferDate : null, $kodeInvoice];
+        }
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+
+        post_invoice_accounting_journal($pdo, $kodeInvoice);
+
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => $config['label'] . ' invoice ' . ($invoice['nomor_invoice'] ?? $kodeInvoice) . ' berhasil diperbarui.',
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return ['ok' => false, 'message' => 'Update ' . strtolower($config['label']) . ' gagal: ' . $exception->getMessage()];
+    }
+}
+
 function internal_sales_bonus_rules(): array
 {
     return [

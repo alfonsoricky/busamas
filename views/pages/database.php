@@ -29,7 +29,7 @@
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
                 <h2 class="text-lg font-bold text-ink">Update Data Khusus</h2>
-                <p class="mt-1 text-sm leading-6 text-stone-600">Jalankan hanya saat perlu menyamakan data prive partner tahun 2025 di hosting.</p>
+                <p class="mt-1 text-sm leading-6 text-stone-600">Jalankan hanya saat perlu menyamakan data khusus di hosting.</p>
             </div>
             <div class="flex flex-wrap gap-2">
                 <form method="POST" action="<?= e(url('/db-maintenance')) ?>" onsubmit="return confirm('Update prive partner 2025 dan posting ulang jurnal akuntansinya?')">
@@ -42,6 +42,12 @@
                     <input type="hidden" name="action" value="seed-prive-2026">
                     <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
                         Update Prive 2026
+                    </button>
+                </form>
+                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" onsubmit="return confirm('Posting jurnal legacy direktur lama 2025 dan mengganti jurnal invoice normal periode tersebut?')">
+                    <input type="hidden" name="action" value="seed-legacy-2025-journal">
+                    <button type="submit" class="rounded-lg bg-stone-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-stone-950">
+                        Posting Jurnal Legacy 2025
                     </button>
                 </form>
             </div>

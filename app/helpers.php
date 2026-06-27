@@ -206,6 +206,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-prive-2026') {
         $result = run_seed_partner_prive_2026();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-legacy-2025-journal') {
+        $result = run_seed_legacy_2025_journal();
+        $counts = database_table_counts();
     } elseif ($action === 'migrate-seed') {
         $result = run_database_migration_seed();
         $counts = database_table_counts();
@@ -755,6 +758,7 @@ function accounting_default_accounts(): array
         'retained_earnings' => ['3200', 'Laba Ditahan', 'equity', 'credit'],
         'current_year_earnings' => ['3300', 'Laba Tahun Berjalan', 'equity', 'credit'],
         'partner_prive' => ['3400', 'Prive Partner (Pengurang Ekuitas)', 'equity', 'credit'],
+        'legacy_transition' => ['3900', 'Saldo Transisi Direktur Lama', 'equity', 'credit'],
         'sales_revenue' => ['4100', 'Pendapatan Penjualan', 'revenue', 'credit'],
         'sales_discount' => ['4110', 'Diskon Penjualan', 'expense', 'debit'],
         'cogs' => ['5100', 'HPP / Pembelian Barang', 'expense', 'debit'],
@@ -1005,6 +1009,29 @@ function post_invoice_accounting_journal(PDO $pdo, string $kodeInvoice): int
     return generate_invoice_journal($pdo, $kodeInvoice);
 }
 
+function is_legacy_2025_invoice(array $invoice): bool
+{
+    $invoiceDate = date_input_value((string) ($invoice['tanggal_invoice'] ?? ''));
+    if ($invoiceDate === '') {
+        return false;
+    }
+
+    if ($invoiceDate < '2025-03-01' || $invoiceDate > '2025-07-14') {
+        return false;
+    }
+
+    if ($invoiceDate === '2025-07-14') {
+        $number = 0;
+        if (preg_match('/^(\d+)/', (string) ($invoice['nomor_invoice'] ?? ''), $match) === 1) {
+            $number = (int) $match[1];
+        }
+
+        return $number > 0 && $number <= 32;
+    }
+
+    return true;
+}
+
 function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
 {
     if (! accounting_tables_ready($pdo)) {
@@ -1015,6 +1042,11 @@ function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
     $stmt->execute([$kodeInvoice]);
     $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
     if (! $invoice) {
+        return 0;
+    }
+
+    if (is_legacy_2025_invoice($invoice)) {
+        delete_invoice_accounting_journal($pdo, $kodeInvoice);
         return 0;
     }
 
@@ -3485,6 +3517,133 @@ function run_seed_partner_prive_2026(): array
         return [
             'ok' => false,
             'message' => 'Seeder prive partner 2026 gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_seed_legacy_2025_journal(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+        ];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $rows = $pdo->query('
+            SELECT
+                kode_invoice,
+                nomor_invoice,
+                tanggal_invoice,
+                subtotal,
+                discount_amount,
+                total_harga_jual,
+                pph_final_terbayar,
+                pph_final_belum_terbayar
+            FROM invoices
+            ORDER BY tanggal_invoice, nomor_invoice
+        ')->fetchAll(PDO::FETCH_ASSOC);
+
+        $legacyInvoices = array_values(array_filter($rows, static fn (array $invoice): bool => is_legacy_2025_invoice($invoice)));
+        if ($legacyInvoices === []) {
+            return [
+                'ok' => false,
+                'message' => 'Tidak ada invoice legacy periode 1 Maret 2025 sampai 14 Juli 2025 yang ditemukan.',
+                'statements' => 0,
+            ];
+        }
+        usort($legacyInvoices, static function (array $a, array $b): int {
+            $dateA = date_input_value((string) ($a['tanggal_invoice'] ?? ''));
+            $dateB = date_input_value((string) ($b['tanggal_invoice'] ?? ''));
+            if ($dateA === $dateB) {
+                return strcmp((string) ($a['nomor_invoice'] ?? ''), (string) ($b['nomor_invoice'] ?? ''));
+            }
+
+            return strcmp($dateA, $dateB);
+        });
+
+        $a = accounting_account_ids($pdo);
+        $subtotal = 0.0;
+        $discount = 0.0;
+        $netSales = 0.0;
+        $taxDebt = 0.0;
+        $invoiceNumbers = [];
+
+        foreach ($legacyInvoices as $invoice) {
+            $invoiceSubtotal = round((float) ($invoice['subtotal'] ?? 0), 2);
+            $invoiceDiscount = round((float) ($invoice['discount_amount'] ?? 0), 2);
+            $storedNet = round((float) ($invoice['total_harga_jual'] ?? 0), 2);
+            $invoiceNet = $invoiceSubtotal > 0 ? max($invoiceSubtotal - $invoiceDiscount, 0) : $storedNet;
+            if ($invoiceNet <= 0 && $storedNet > 0) {
+                $invoiceNet = $storedNet;
+            }
+
+            $taxTotal = round((float) ($invoice['pph_final_terbayar'] ?? 0) + (float) ($invoice['pph_final_belum_terbayar'] ?? 0), 2);
+            if ($taxTotal <= 0 && $invoiceNet > 0) {
+                $taxTotal = round($invoiceNet * 0.005, 2);
+            }
+
+            $subtotal += $invoiceSubtotal;
+            $discount += $invoiceDiscount;
+            $netSales += $invoiceNet;
+            $taxDebt += $taxTotal;
+            $invoiceNumbers[] = (string) ($invoice['nomor_invoice'] ?? $invoice['kode_invoice'] ?? '');
+        }
+
+        $lines = [];
+        accounting_add_line($lines, $a['legacy_transition'], $netSales, 0, 'Net sales periode legacy direktur lama');
+        accounting_add_line($lines, $a['sales_discount'], $discount, 0, 'Diskon penjualan periode legacy direktur lama');
+        accounting_add_line($lines, $a['sales_revenue'], 0, $subtotal, 'Pendapatan penjualan periode legacy direktur lama');
+        accounting_add_line($lines, $a['tax_expense'], $taxDebt, 0, 'Beban PPh final periode legacy direktur lama');
+        accounting_add_line($lines, $a['tax_payable'], 0, $taxDebt, 'Hutang PPh final periode legacy direktur lama');
+
+        $pdo->beginTransaction();
+
+        foreach ($legacyInvoices as $invoice) {
+            delete_invoice_accounting_journal($pdo, (string) ($invoice['kode_invoice'] ?? ''));
+        }
+
+        $lineCount = accounting_replace_journal(
+            $pdo,
+            'legacy_2025_transition',
+            '2025-03-01_2025-07-14',
+            '2025-07-14',
+            'Jurnal legacy direktur lama 1 Maret 2025 sampai 14 Juli 2025',
+            $lines
+        );
+
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Jurnal legacy 2025 berhasil diposting. ' . count($legacyInvoices) . ' invoice diringkas, ' . $lineCount . ' baris jurnal dibuat.',
+            'statements' => count($legacyInvoices) + 1,
+            'output' => implode(PHP_EOL, [
+                'Periode: 2025-03-01 sampai 2025-07-14',
+                'Invoice: ' . count($legacyInvoices),
+                'Nomor invoice awal: ' . ($invoiceNumbers[0] ?? '-'),
+                'Nomor invoice akhir: ' . ($invoiceNumbers[count($invoiceNumbers) - 1] ?? '-'),
+                'Subtotal: ' . rupiah($subtotal),
+                'Discount: ' . rupiah($discount),
+                'Net sales ke Saldo Transisi Direktur Lama: ' . rupiah($netSales),
+                'Hutang PPh Final: ' . rupiah($taxDebt),
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Posting jurnal legacy 2025 gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

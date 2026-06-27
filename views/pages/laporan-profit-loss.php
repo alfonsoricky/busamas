@@ -41,6 +41,142 @@ $pct = function(float $val) use ($pendapatan) {
 
     <?php require dirname(__DIR__) . '/partials/filter.php'; ?>
 
+    <!-- Grafik Tren Profit & Loss -->
+    <div class="mx-auto max-w-3xl mb-6 rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
+        <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <h2 class="text-sm font-bold text-ink">Tren Laba Rugi Bulanan</h2>
+                <p class="text-[10px] text-stone-500">Perbandingan Omset, Beban, dan Laba Bersih di tahun <?= e($_GET['year'] ?? date('Y')) ?></p>
+            </div>
+            <div class="flex items-center gap-3 text-[10px] font-semibold">
+                <span class="flex items-center gap-1 text-brand">
+                    <span class="h-2 w-2 rounded-full bg-brand"></span>
+                    Omset
+                </span>
+                <span class="flex items-center gap-1 text-rose-600">
+                    <span class="h-2 w-2 rounded-full bg-rose-600"></span>
+                    Beban
+                </span>
+                <span class="flex items-center gap-1 text-coral">
+                    <span class="h-2 w-2 rounded-full bg-coral"></span>
+                    Laba Bersih
+                </span>
+            </div>
+        </div>
+        <div class="relative h-[250px] w-full">
+            <canvas id="pnlTrendChart"></canvas>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const ctx = document.getElementById('pnlTrendChart').getContext('2d');
+        <?php $selYear = $_GET['year'] ?? date('Y'); $trends = fetch_dashboard_trends($selYear); ?>
+        const labels = <?= json_encode($trends['labels'] ?? []) ?>;
+        const revenueData = <?= json_encode($trends['revenue'] ?? []) ?>;
+        const profitData = <?= json_encode($trends['profit'] ?? []) ?>;
+        const expensesData = revenueData.map((rev, i) => rev - profitData[i]);
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Omset',
+                        data: revenueData,
+                        borderColor: '#0f766e', // brand
+                        backgroundColor: 'transparent',
+                        borderWidth: 2.5,
+                        pointBackgroundColor: '#0f766e',
+                        pointRadius: 3.5,
+                        tension: 0.3
+                    },
+                    {
+                        label: 'Beban',
+                        data: expensesData,
+                        borderColor: '#e11d48', // rose-600
+                        backgroundColor: 'transparent',
+                        borderWidth: 2.5,
+                        pointBackgroundColor: '#e11d48',
+                        pointRadius: 3.5,
+                        tension: 0.3
+                    },
+                    {
+                        label: 'Laba Bersih',
+                        data: profitData,
+                        borderColor: '#f97316', // coral
+                        backgroundColor: 'transparent',
+                        borderWidth: 2.5,
+                        pointBackgroundColor: '#f97316',
+                        pointRadius: 3.5,
+                        tension: 0.3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: '#17202a',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        padding: 10,
+                        cornerRadius: 8,
+                        displayColors: true,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.raw !== null) {
+                                    label += new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(context.raw);
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.05)'
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 10
+                            },
+                            color: '#78716c',
+                            callback: function(value) {
+                                return 'Rp ' + new Intl.NumberFormat('id-ID', { notation: 'compact', compactDisplay: 'short' }).format(value);
+                            }
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 10
+                            },
+                            color: '#78716c'
+                        }
+                    }
+                }
+            }
+        });
+    });
+    </script>
+
     <!-- P&L Sheet Card -->
     <div class="mx-auto max-w-3xl overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
         <div class="border-b border-stone-200 bg-stone-50 px-6 py-4 text-center">

@@ -119,6 +119,135 @@ $recent_invoices = $data['recent_invoices'] ?? [];
         </div>
     </div>
 
+    <!-- Grafik Tren Penjualan & Laba -->
+    <div class="mb-8 rounded-xl border border-stone-200 bg-white p-5 shadow-sm">
+        <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <h2 class="text-lg font-bold text-ink">Tren Performa Keuangan</h2>
+                <p class="text-xs text-stone-500">Perbandingan Omset vs Estimasi Laba Bersih bulanan di tahun <?= e($data['trends']['year'] ?? date('Y')) ?></p>
+            </div>
+            <div class="flex items-center gap-4 text-xs font-semibold">
+                <span class="flex items-center gap-1.5 text-brand">
+                    <span class="h-3 w-3 rounded-full bg-brand"></span>
+                    Omset
+                </span>
+                <span class="flex items-center gap-1.5 text-coral">
+                    <span class="h-3 w-3 rounded-full bg-coral"></span>
+                    Laba Bersih
+                </span>
+            </div>
+        </div>
+        <div class="relative h-[300px] w-full">
+            <canvas id="financialTrendChart"></canvas>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const ctx = document.getElementById('financialTrendChart').getContext('2d');
+        
+        const labels = <?= json_encode($data['trends']['labels'] ?? []) ?>;
+        const revenueData = <?= json_encode($data['trends']['revenue'] ?? []) ?>;
+        const profitData = <?= json_encode($data['trends']['profit'] ?? []) ?>;
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Omset',
+                        data: revenueData,
+                        borderColor: '#0f766e', // brand
+                        backgroundColor: 'rgba(15, 118, 110, 0.03)',
+                        borderWidth: 3,
+                        pointBackgroundColor: '#0f766e',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        tension: 0.3,
+                        fill: true
+                    },
+                    {
+                        label: 'Laba Bersih',
+                        data: profitData,
+                        borderColor: '#f97316', // coral
+                        backgroundColor: 'rgba(249, 115, 22, 0.03)',
+                        borderWidth: 3,
+                        pointBackgroundColor: '#f97316',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        tension: 0.3,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        backgroundColor: '#17202a',
+                        titleColor: '#ffffff',
+                        bodyColor: '#ffffff',
+                        padding: 10,
+                        cornerRadius: 8,
+                        displayColors: true,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.raw !== null) {
+                                    label += new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(context.raw);
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.05)'
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 10
+                            },
+                            color: '#78716c',
+                            callback: function(value) {
+                                return 'Rp ' + new Intl.NumberFormat('id-ID', { notation: 'compact', compactDisplay: 'short' }).format(value);
+                            }
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 10
+                            },
+                            color: '#78716c'
+                        }
+                    }
+                }
+            }
+        });
+    });
+    </script>
+
     <!-- Main Grid -->
     <div class="grid gap-6 lg:grid-cols-3">
         <!-- Recent Invoices Table (Col Span 2) -->

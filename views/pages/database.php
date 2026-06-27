@@ -26,17 +26,49 @@
     <?php endif; ?>
 
     <div class="mb-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-                <h2 class="text-lg font-bold text-ink">Update Data 2026 Terbaru</h2>
-                <p class="mt-1 text-sm leading-6 text-stone-600">Sinkron invoice 2026, detail barang invoice 463/464, operational, dan posting ulang jurnal.</p>
+        <h2 class="text-lg font-bold text-ink mb-4">Aksi Database</h2>
+        <div class="divide-y divide-stone-100">
+            <!-- Update Data 2026 Terbaru -->
+            <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between first:pt-0">
+                <div class="max-w-2xl">
+                    <h3 class="font-semibold text-ink text-sm">Update Data 2026 Terbaru</h3>
+                    <p class="mt-1 text-xs leading-5 text-stone-600">Sinkronisasi invoice 2026, detail barang invoice 463/464, operasional, dan posting ulang jurnal dari file Excel.</p>
+                </div>
+                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan update data 2026 terbaru di database ini?">
+                    <input type="hidden" name="action" value="update-2026-latest-final">
+                    <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
+                        Jalankan Update
+                    </button>
+                </form>
             </div>
-            <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan update data 2026 terbaru di database ini?">
-                <input type="hidden" name="action" value="update-2026-latest-final">
-                <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
-                    Jalankan Update
-                </button>
-            </form>
+
+            <!-- Reset & Load Seeder -->
+            <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="max-w-2xl">
+                    <h3 class="font-semibold text-ink text-sm">Jalankan Migrate & Seed (Reset Data)</h3>
+                    <p class="mt-1 text-xs leading-5 text-stone-600">Menghapus semua tabel dan memulihkan data dari file snapshot seeder (<code class="bg-stone-100 px-1 py-0.5 rounded text-coral">database/seed-data.sql</code>).</p>
+                </div>
+                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="PERHATIAN! Tindakan ini akan menghapus dan menimpa database saat ini dengan file seeder. Lanjutkan?">
+                    <input type="hidden" name="action" value="migrate-seed">
+                    <button type="submit" class="rounded-lg bg-coral px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-850">
+                        Jalankan Migrate & Seed
+                    </button>
+                </form>
+            </div>
+
+            <!-- Ekspor Database ke Seeder -->
+            <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between last:pb-0">
+                <div class="max-w-2xl">
+                    <h3 class="font-semibold text-ink text-sm">Ekspor Database ke Seeder (Snapshot)</h3>
+                    <p class="mt-1 text-xs leading-5 text-stone-600">Mengambil snapshot kondisi database saat ini dan menyimpannya kembali ke file seeder (<code class="bg-stone-100 px-1 py-0.5 rounded text-brand">database/seed-data.sql</code>) agar bisa di-commit ke Git.</p>
+                </div>
+                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Simpan snapshot database saat ini ke file seeder lokal?">
+                    <input type="hidden" name="action" value="export-seeder">
+                    <button type="submit" class="rounded-lg bg-stone-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-stone-900">
+                        Ekspor ke Seeder
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
 

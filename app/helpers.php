@@ -304,7 +304,7 @@ function seed_default_admin_users(): array
 {
     $users = [
         ['Ferdy', 'ferdy@gmail.com', 'busamas123', 'admin'],
-        ['Ricky', 'ricky@gmail.comm', 'busamas123', 'admin'],
+        ['Ricky', 'ricky@gmail.com', 'busamas123', 'admin'],
     ];
     $created = 0;
     $failed = [];
@@ -667,6 +667,9 @@ function fetch_database_maintenance(?string $action = null): array
         $counts = database_table_counts();
     } elseif ($action === 'delete-test-data') {
         $result = run_delete_test_data();
+        $counts = database_table_counts();
+    } elseif ($action === 'export-seeder') {
+        $result = run_export_database_seed();
         $counts = database_table_counts();
     }
 
@@ -5925,6 +5928,120 @@ function fetch_laporan_penjualan(string $type = 'invoice', string $month = '', s
     ];
 }
 
+function fetch_laporan_penjualan_sales_detail(string $salesCode, string $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    }
+
+    if ($year === '') {
+        $year = date('Y');
+    }
+
+    // 1. Get Sales details
+    $stmt = $pdo->prepare('SELECT nama_sales FROM master_sales WHERE kode_sales = ? LIMIT 1');
+    $stmt->execute([$salesCode]);
+    $salesName = $stmt->fetchColumn() ?: 'Unknown Sales';
+
+    // 2. Get all invoices matching salesCode
+    $invoices = db_all('
+        SELECT nomor_invoice, tanggal_invoice, COALESCE(nama_customer_master, nama_laundry_invoice) AS nama_customer, 
+               total_harga_jual, total_qty, status_pembayaran,
+               kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2,
+               komisi_sales_1_persen, komisi_sales_2_persen,
+               komisi_sales_terbayar, komisi_sales_belum_terbayar
+        FROM invoices
+        WHERE kode_sales_1 = :code1 OR kode_sales_2 = :code2
+    ', ['code1' => $salesCode, 'code2' => $salesCode]);
+
+    $filteredInvoices = [];
+    $totalPenjualan = 0.0;
+    $totalKomisi = 0.0;
+    $totalQty = 0.0;
+
+    $monthlySales = array_fill(1, 12, 0.0);
+    $monthlyCommission = array_fill(1, 12, 0.0);
+    $customerSales = [];
+
+    foreach ($invoices ?? [] as $inv) {
+        $invNo = $inv['nomor_invoice'] ?? '';
+        if (invoice_year($invNo) !== $year) {
+            continue;
+        }
+
+        $m = invoice_month_number($invNo);
+        $rev = (float)($inv['total_harga_jual'] ?? 0);
+        $qty = (float)($inv['total_qty'] ?? 0);
+        $customerName = $inv['nama_customer'] ?? 'Unknown Customer';
+
+        // Determine commission percentage and amount for this sales
+        $comPct = 0.0;
+        if ($inv['kode_sales_1'] === $salesCode) {
+            $comPct = (float)($inv['komisi_sales_1_persen'] ?? 0);
+        } elseif ($inv['kode_sales_2'] === $salesCode) {
+            $comPct = (float)($inv['komisi_sales_2_persen'] ?? 0);
+        }
+        $komisi = $rev * ($comPct / 100);
+
+        $totalPenjualan += $rev;
+        $totalKomisi += $komisi;
+        $totalQty += $qty;
+
+        if ($m >= 1 && $m <= 12) {
+            $monthlySales[$m] += $rev;
+            $monthlyCommission[$m] += $komisi;
+        }
+
+        if (! isset($customerSales[$customerName])) {
+            $customerSales[$customerName] = 0.0;
+        }
+        $customerSales[$customerName] += $rev;
+
+        $filteredInvoices[] = [
+            'nomor_invoice' => $invNo,
+            'tanggal_invoice' => $inv['tanggal_invoice'],
+            'nama_customer' => $customerName,
+            'total_harga_jual' => $rev,
+            'total_qty' => $qty,
+            'status_pembayaran' => $inv['status_pembayaran'],
+            'komisi_persen' => $comPct,
+            'komisi_nilai' => $komisi,
+        ];
+    }
+
+    // Sort invoices newest first
+    sort_invoices_newest_first($filteredInvoices);
+
+    // Get top customers for this sales agent
+    $topCustomers = [];
+    foreach ($customerSales as $name => $total) {
+        $topCustomers[] = ['nama_customer' => $name, 'total_penjualan' => $total];
+    }
+    usort($topCustomers, static fn ($a, $b) => $b['total_penjualan'] <=> $a['total_penjualan']);
+    $topCustomers = array_slice($topCustomers, 0, 5);
+
+    return [
+        'ok' => true,
+        'kode_sales' => $salesCode,
+        'nama_sales' => $salesName,
+        'year' => $year,
+        'summary' => [
+            'jumlah_invoice' => count($filteredInvoices),
+            'total_penjualan' => $totalPenjualan,
+            'total_komisi' => $totalKomisi,
+            'total_qty' => $totalQty,
+        ],
+        'monthly_trends' => [
+            'labels' => ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'],
+            'sales' => array_values($monthlySales),
+            'commission' => array_values($monthlyCommission),
+        ],
+        'invoices' => $filteredInvoices,
+        'top_customers' => $topCustomers,
+    ];
+}
+
 function fetch_laporan_profit_loss(string $month = '', string $year = ''): array
 {
     $pdo = db();
@@ -6340,6 +6457,30 @@ function fetch_laporan_profit(string $type = 'produk', string $month = '', strin
     ];
 }
 
+function fetch_dashboard_trends(string $year = ''): array
+{
+    if ($year === '') {
+        $year = date('Y');
+    }
+
+    $labels = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'];
+    $revenueData = [];
+    $profitData = [];
+
+    for ($m = 1; $m <= 12; $m++) {
+        $pl = fetch_laporan_profit_loss((string)$m, $year);
+        $revenueData[] = (float)($pl['pendapatan'] ?? 0.0);
+        $profitData[] = (float)($pl['laba_bersih'] ?? 0.0);
+    }
+
+    return [
+        'labels' => $labels,
+        'revenue' => $revenueData,
+        'profit' => $profitData,
+        'year' => $year,
+    ];
+}
+
 function fetch_dashboard_summary(string $month = '', string $year = ''): array
 {
     $pl = fetch_laporan_profit_loss($month, $year);
@@ -6358,6 +6499,9 @@ function fetch_dashboard_summary(string $month = '', string $year = ''): array
     $invoiceRep = fetch_laporan_penjualan('invoice', $month, $year);
     $recentInvoices = array_slice($invoiceRep['items'] ?? [], 0, 5);
 
+    $selectedYear = $year !== '' ? $year : date('Y');
+    $trends = fetch_dashboard_trends($selectedYear);
+
     return [
         'ok' => true,
         'revenue' => (float)($pl['pendapatan'] ?? 0.0),
@@ -6367,6 +6511,7 @@ function fetch_dashboard_summary(string $month = '', string $year = ''): array
         'top_produk' => $topProduk,
         'top_customer' => $topCustomer,
         'recent_invoices' => $recentInvoices,
+        'trends' => $trends,
     ];
 }
 
@@ -7377,6 +7522,31 @@ function run_hosting_update(): array
         return [
             'ok' => false,
             'message' => 'Update hosting gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
+function run_export_database_seed(): array
+{
+    $cliPhp = 'php';
+    $scriptPath = dirname(__DIR__) . '/scripts/export-database-seed.php';
+    $cmd = '"' . $cliPhp . '" "' . $scriptPath . '" 2>&1';
+    $output = shell_exec($cmd);
+    
+    if (str_contains((string)$output, 'Seed SQL dibuat')) {
+        return [
+            'ok' => true,
+            'message' => 'Ekspor snapshot database ke seeder berhasil.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+            'output' => $output,
+        ];
+    } else {
+        return [
+            'ok' => false,
+            'message' => 'Ekspor snapshot database gagal: ' . $output,
             'statements' => 0,
             'counts' => database_table_counts(),
         ];

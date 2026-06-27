@@ -7,7 +7,6 @@
         '/prive' => 'Prive',
         '/laporan' => 'Laporan',
         '/db-maintenance' => 'Database',
-        '/settings' => 'Settings',
     ];
 ?>
 <header class="border-b border-stone-200 bg-white/90 backdrop-blur">

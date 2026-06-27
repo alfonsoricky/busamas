@@ -3539,6 +3539,7 @@ function run_seed_legacy_2025_journal(): array
         $legacyEnsureResults = [
             '0001/BM-INV/III/2025' => ensure_legacy_2025_invoice_from_excel($pdo, '0001/BM-INV/III/2025', 'INV-00000'),
             '0028/BM-INV/VII/2025' => ensure_legacy_2025_invoice_from_excel($pdo, '0028/BM-INV/VII/2025', 'INV-LEGACY-0028'),
+            '0029/BM-INV/VII/2025' => ensure_legacy_2025_invoice_from_excel($pdo, '0029/BM-INV/VII/2025', 'INV-00027'),
         ];
 
         $rows = $pdo->query('

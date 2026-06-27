@@ -260,7 +260,7 @@
                                             title="Update invoice"
                                             aria-label="Update invoice"
                                         >Update</a>
-                                        <form action="<?= e(url('/invoice-delete')) ?>" method="POST" class="inline" onsubmit="return confirm('Apakah Anda yakin ingin menghapus invoice ini?')">
+                                        <form action="<?= e(url('/invoice-delete')) ?>" method="POST" class="inline" data-confirm-message="Apakah Anda yakin ingin menghapus invoice ini?">
                                             <input type="hidden" name="kode_invoice" value="<?= e($invoice['kode_invoice'] ?? '') ?>">
                                             <button type="submit" class="inline-flex items-center rounded-md bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-800" title="Hapus invoice" aria-label="Hapus invoice">Hapus</button>
                                         </form>

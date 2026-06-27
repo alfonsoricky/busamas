@@ -381,7 +381,7 @@
 
             <div class="flex flex-col gap-3 sm:flex-row sm:justify-end">
                 <?php if ($isUpdate): ?>
-                    <button type="button" onclick="if(confirm('Apakah Anda yakin ingin menghapus invoice ini?')) document.getElementById('delete-invoice-form').submit();" class="inline-flex items-center justify-center rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-800">
+                    <button type="button" data-confirm-target="delete-invoice-form" data-confirm-message="Apakah Anda yakin ingin menghapus invoice ini?" class="inline-flex items-center justify-center rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-800">
                         Hapus Invoice
                     </button>
                 <?php endif; ?>

@@ -247,7 +247,7 @@ $months = [
                                             <a href="<?= e(url('/prive') . '?' . http_build_query(['month' => $selectedMonth, 'year' => $selectedYear, 'partner' => $selectedPartner, 'status' => $selectedStatus, 'edit_id' => $item['id'] ?? ''])) ?>" class="rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-brand transition hover:border-brand hover:bg-teal-50">
                                                 Edit
                                             </a>
-                                            <form method="POST" action="<?= e(url('/prive-delete')) ?>" onsubmit="return confirm('Hapus data prive ini beserta jurnalnya?')">
+                                            <form method="POST" action="<?= e(url('/prive-delete')) ?>" data-confirm-message="Hapus data prive ini beserta jurnalnya?">
                                                 <input type="hidden" name="prive_id" value="<?= e((string) ($item['id'] ?? '')) ?>">
                                                 <input type="hidden" name="filter_month" value="<?= e($selectedMonth) ?>">
                                                 <input type="hidden" name="filter_year" value="<?= e($selectedYear) ?>">

@@ -240,7 +240,7 @@ $months = [
                                             <a href="<?= e(url('/operational') . '?' . http_build_query(['month' => $selectedMonth, 'year' => $selectedYear, 'status' => $selectedStatus, 'search' => $searchQuery, 'edit_id' => $item['id'] ?? ''])) ?>" class="rounded-md border border-stone-300 px-3 py-1.5 text-xs font-semibold text-brand transition hover:border-brand hover:bg-teal-50">
                                                 Edit
                                             </a>
-                                            <form method="POST" action="<?= e(url('/operational-delete')) ?>" onsubmit="return confirm('Hapus pengeluaran operasional ini beserta jurnalnya?')">
+                                            <form method="POST" action="<?= e(url('/operational-delete')) ?>" data-confirm-message="Hapus pengeluaran operasional ini beserta jurnalnya?">
                                                 <input type="hidden" name="operational_id" value="<?= e((string) ($item['id'] ?? '')) ?>">
                                                 <input type="hidden" name="filter_month" value="<?= e((string) $selectedMonth) ?>">
                                                 <input type="hidden" name="filter_year" value="<?= e((string) $selectedYear) ?>">

@@ -34,6 +34,7 @@
         <?php require $viewPath; ?>
     </main>
 
+    <?php require dirname(__DIR__) . '/partials/confirm-dialog.php'; ?>
     <?php require dirname(__DIR__) . '/partials/footer.php'; ?>
 </body>
 </html>

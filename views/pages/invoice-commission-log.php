@@ -140,20 +140,20 @@ $otherLinks = [
 
         <div class="overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-stone-200 text-left text-sm">
+                <table class="min-w-full divide-y divide-stone-200 text-left text-sm" data-simple-datatable data-dt-unit="invoice" data-dt-empty="Tidak ada data komisi yang cocok.">
                     <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
                         <tr>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Invoice</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Customer</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Sales</th>
-                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Total Komisi</th>
-                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Terbayar</th>
-                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Belum Dibayar</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Customer</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Komisi</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Tgl Transfer</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Update</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Invoice</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="date">Tanggal</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Customer</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Sales</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold" data-sort-type="number">Total Komisi</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold" data-sort-type="number">Terbayar</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold" data-sort-type="number">Belum Dibayar</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Customer</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Komisi</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="date">Tgl Transfer</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="none">Update</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
@@ -176,7 +176,7 @@ $otherLinks = [
                                     $invoice['nama_sales_2'] ?? '',
                                 ]))) ?: '-';
                             ?>
-                            <tr class="<?= e($rowClass) ?>">
+                            <tr class="<?= e($rowClass) ?>" data-dt-row>
                                 <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand">
                                     <a href="<?= e(url('/invoice-create?code=' . ($invoice['kode_invoice'] ?? ''))) ?>" class="hover:underline"><?= e($invoice['nomor_invoice'] ?? '') ?></a>
                                 </td>
@@ -218,3 +218,5 @@ $otherLinks = [
         </div>
     <?php endif; ?>
 </section>
+
+<?php require dirname(__DIR__) . '/partials/simple-datatable.php'; ?>

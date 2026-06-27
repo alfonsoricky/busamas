@@ -115,19 +115,19 @@ $dateLabel = static function (?string $date): string {
 
         <div class="overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-stone-200 text-left text-sm">
+                <table class="min-w-full divide-y divide-stone-200 text-left text-sm" data-simple-datatable data-dt-unit="invoice" data-dt-empty="Tidak ada invoice pembayaran yang cocok.">
                     <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
                         <tr>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Invoice</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Customer</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Sales</th>
-                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Total</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Status</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Tgl Bayar</th>
-                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Sisa</th>
-                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold">Umur</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Update</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Invoice</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="date">Tanggal</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Customer</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Sales</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold" data-sort-type="number">Total</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Status</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="date">Tgl Bayar</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold" data-sort-type="number">Sisa</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold" data-sort-type="number">Umur</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="none">Update</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
@@ -147,7 +147,7 @@ $dateLabel = static function (?string $date): string {
                                     $invoice['nama_sales_2'] ?? '',
                                 ]))) ?: '-';
                             ?>
-                            <tr class="<?= $isPaid ? 'hover:bg-emerald-50/50' : 'bg-rose-50/40 hover:bg-rose-50' ?>">
+                            <tr class="<?= $isPaid ? 'hover:bg-emerald-50/50' : 'bg-rose-50/40 hover:bg-rose-50' ?>" data-dt-row>
                                 <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand">
                                     <a href="<?= e(url('/invoice-create?code=' . ($invoice['kode_invoice'] ?? ''))) ?>" class="hover:underline"><?= e($invoice['nomor_invoice'] ?? '') ?></a>
                                 </td>
@@ -183,3 +183,5 @@ $dateLabel = static function (?string $date): string {
         </div>
     <?php endif; ?>
 </section>
+
+<?php require dirname(__DIR__) . '/partials/simple-datatable.php'; ?>

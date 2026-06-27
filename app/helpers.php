@@ -171,6 +171,309 @@ function view(string $name, array $data = []): void
     require dirname(__DIR__) . '/views/layouts/app.php';
 }
 
+function ensure_users_table(?PDO $pdo = null): bool
+{
+    $pdo = $pdo ?: db();
+
+    if ($pdo === null) {
+        return false;
+    }
+
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS `users` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `name` VARCHAR(150) NOT NULL,
+            `email` VARCHAR(190) NOT NULL,
+            `password_hash` VARCHAR(255) NOT NULL,
+            `role` VARCHAR(50) NOT NULL DEFAULT 'admin',
+            `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `users_email_unique` (`email`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    return true;
+}
+
+function seed_system_user(string $name, string $email, string $password, string $role = 'admin'): bool
+{
+    $pdo = db();
+
+    if ($pdo === null || ! ensure_users_table($pdo)) {
+        return false;
+    }
+
+    $hash = password_hash($password, PASSWORD_DEFAULT);
+    $statement = $pdo->prepare('
+        INSERT INTO users (name, email, password_hash, role)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            name = VALUES(name),
+            password_hash = VALUES(password_hash),
+            role = VALUES(role),
+            updated_at = CURRENT_TIMESTAMP
+    ');
+
+    return $statement->execute([$name, strtolower(trim($email)), $hash, $role]);
+}
+
+function ensure_system_user_exists(string $name, string $email, string $password, string $role = 'admin'): bool
+{
+    $pdo = db();
+
+    if ($pdo === null || ! ensure_users_table($pdo)) {
+        return false;
+    }
+
+    $statement = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+    $statement->execute([strtolower(trim($email))]);
+    if ($statement->fetchColumn()) {
+        return true;
+    }
+
+    return seed_system_user($name, $email, $password, $role);
+}
+
+function seed_default_admin_users(): array
+{
+    $users = [
+        ['Ferdy', 'ferdy@gmail.com', 'busamas123', 'admin'],
+        ['Ricky', 'ricky@gmail.comm', 'busamas123', 'admin'],
+    ];
+    $created = 0;
+    $failed = [];
+
+    foreach ($users as [$name, $email, $password, $role]) {
+        if (ensure_system_user_exists($name, $email, $password, $role)) {
+            $created++;
+        } else {
+            $failed[] = $email;
+        }
+    }
+
+    return [
+        'ok' => empty($failed),
+        'created' => $created,
+        'failed' => $failed,
+    ];
+}
+
+function current_user(): ?array
+{
+    if (! is_array($_SESSION['user'] ?? null)) {
+        return null;
+    }
+
+    return $_SESSION['user'];
+}
+
+function is_logged_in(): bool
+{
+    return current_user() !== null;
+}
+
+function is_admin(): bool
+{
+    return (current_user()['role'] ?? '') === 'admin';
+}
+
+function login_user(string $email, string $password): array
+{
+    $pdo = db();
+
+    if ($pdo === null || ! ensure_users_table($pdo)) {
+        return ['ok' => false, 'message' => 'Database user belum bisa dibaca.'];
+    }
+
+    seed_default_admin_users();
+
+    $statement = $pdo->prepare('SELECT id, name, email, password_hash, role FROM users WHERE email = ? LIMIT 1');
+    $statement->execute([strtolower(trim($email))]);
+    $user = $statement->fetch();
+
+    if (! $user || ! password_verify($password, (string) ($user['password_hash'] ?? ''))) {
+        return ['ok' => false, 'message' => 'Email atau password tidak sesuai.'];
+    }
+
+    session_regenerate_id(true);
+    $_SESSION['user'] = [
+        'id' => (int) $user['id'],
+        'name' => (string) $user['name'],
+        'email' => (string) $user['email'],
+        'role' => (string) $user['role'],
+    ];
+
+    return ['ok' => true, 'message' => 'Login berhasil.'];
+}
+
+function logout_user(): void
+{
+    unset($_SESSION['user']);
+    session_regenerate_id(true);
+}
+
+function fetch_system_users(): array
+{
+    $pdo = db();
+
+    if ($pdo === null || ! ensure_users_table($pdo)) {
+        return ['ok' => false, 'items' => [], 'error' => 'Database user belum bisa dibaca.'];
+    }
+
+    seed_default_admin_users();
+
+    try {
+        $items = $pdo->query('SELECT id, name, email, role, created_at, updated_at FROM users ORDER BY name, email')->fetchAll();
+
+        return ['ok' => true, 'items' => $items, 'error' => null];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'items' => [], 'error' => $exception->getMessage()];
+    }
+}
+
+function accounting_mapping_settings(): array
+{
+    $pdo = db();
+    $accounts = [];
+
+    if ($pdo !== null) {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        if (accounting_tables_ready($pdo)) {
+            $rows = $pdo->query('SELECT code, name, type, normal_balance FROM chart_of_accounts ORDER BY code')->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as $row) {
+                $accounts[(string) $row['code']] = $row;
+            }
+        }
+    }
+
+    foreach (accounting_default_accounts() as $key => $account) {
+        if (! isset($accounts[$account[0]])) {
+            $accounts[$account[0]] = [
+                'code' => $account[0],
+                'name' => $account[1],
+                'type' => $account[2],
+                'normal_balance' => $account[3],
+            ];
+        }
+    }
+
+    $account = static function (string $key) use ($accounts): array {
+        $default = accounting_default_accounts()[$key] ?? ['', '-', '-', '-'];
+        return $accounts[$default[0]] ?? [
+            'code' => $default[0],
+            'name' => $default[1],
+            'type' => $default[2],
+            'normal_balance' => $default[3],
+        ];
+    };
+
+    return [
+        'ok' => $pdo !== null,
+        'groups' => [
+            [
+                'title' => 'Form Invoice - Penjualan',
+                'items' => [
+                    ['field' => 'Total invoice lunas', 'condition' => 'Status pembayaran Lunas', 'debit' => $account('cash'), 'credit' => $account('sales_revenue')],
+                    ['field' => 'Total invoice belum lunas', 'condition' => 'Status pembayaran bukan Lunas', 'debit' => $account('accounts_receivable'), 'credit' => $account('sales_revenue')],
+                    ['field' => 'Discount penjualan', 'condition' => 'discount_amount > 0', 'debit' => $account('sales_discount'), 'credit' => $account('sales_revenue')],
+                ],
+            ],
+            [
+                'title' => 'Form Invoice - Pembelian Barang',
+                'items' => [
+                    ['field' => 'Total pembelian barang', 'condition' => 'Ada nilai pembelian/HPP', 'debit' => $account('cogs'), 'credit' => null],
+                    ['field' => 'Pembelian barang terbayar', 'condition' => 'total_pembelian_barang dibayar', 'debit' => null, 'credit' => $account('cash')],
+                    ['field' => 'Utang pembelian barang', 'condition' => 'total_utang_pembelian_barang > 0', 'debit' => null, 'credit' => $account('purchase_payable')],
+                ],
+            ],
+            [
+                'title' => 'Form Invoice - Komisi',
+                'items' => [
+                    ['field' => 'Komisi sales', 'condition' => 'Terbayar atau belum terbayar', 'debit' => $account('sales_commission_expense'), 'credit' => $account('sales_commission_payable')],
+                    ['field' => 'Komisi sales terbayar', 'condition' => 'komisi_sales_terbayar > 0', 'debit' => null, 'credit' => $account('cash')],
+                    ['field' => 'Komisi manager', 'condition' => 'Terbayar atau belum terbayar', 'debit' => $account('manager_commission_expense'), 'credit' => $account('manager_commission_payable')],
+                    ['field' => 'Komisi admin', 'condition' => 'Terbayar atau belum terbayar', 'debit' => $account('admin_commission_expense'), 'credit' => $account('admin_commission_payable')],
+                ],
+            ],
+            [
+                'title' => 'Form Invoice - Biaya dan Pajak',
+                'items' => [
+                    ['field' => 'PPh final', 'condition' => 'pph_final_terbayar / pph_final_belum_terbayar', 'debit' => $account('tax_expense'), 'credit' => $account('tax_payable')],
+                    ['field' => 'PPh final terbayar', 'condition' => 'pph_final_terbayar > 0', 'debit' => null, 'credit' => $account('cash')],
+                    ['field' => 'Biaya kirim', 'condition' => 'biaya_kirim > 0', 'debit' => $account('delivery_expense'), 'credit' => $account('cash')],
+                    ['field' => 'Biaya admin bank', 'condition' => 'biaya_admin_bank > 0', 'debit' => $account('bank_admin_expense'), 'credit' => $account('cash')],
+                ],
+            ],
+            [
+                'title' => 'Form Operasional',
+                'items' => [
+                    ['field' => 'Pengeluaran operasional lunas', 'condition' => 'kategori operational dan status Lunas', 'debit' => $account('operational_expense'), 'credit' => $account('cash')],
+                    ['field' => 'Pengeluaran operasional hutang', 'condition' => 'kategori operational dan status bukan Lunas', 'debit' => $account('operational_expense'), 'credit' => $account('operational_payable')],
+                    ['field' => 'Bonus sales internal', 'condition' => 'kategori bonus', 'debit' => $account('bonus_expense'), 'credit' => $account('cash')],
+                ],
+            ],
+            [
+                'title' => 'Form Prive dan Legacy',
+                'items' => [
+                    ['field' => 'Prive partner lunas', 'condition' => 'status Lunas', 'debit' => $account('partner_prive'), 'credit' => $account('cash')],
+                    ['field' => 'Prive partner hutang', 'condition' => 'status bukan Lunas', 'debit' => $account('partner_prive'), 'credit' => $account('partner_prive_payable')],
+                    ['field' => 'Jurnal legacy direktur lama', 'condition' => 'periode legacy 2025', 'debit' => $account('legacy_transition'), 'credit' => $account('sales_revenue')],
+                ],
+            ],
+        ],
+    ];
+}
+
+function save_system_user_form(array $input): array
+{
+    $pdo = db();
+
+    if ($pdo === null || ! ensure_users_table($pdo)) {
+        return ['ok' => false, 'message' => 'Database user belum bisa dibaca.'];
+    }
+
+    $name = trim((string) ($input['name'] ?? ''));
+    $email = strtolower(trim((string) ($input['email'] ?? '')));
+    $password = (string) ($input['password'] ?? '');
+    $role = trim((string) ($input['role'] ?? 'admin')) ?: 'admin';
+    $id = (int) ($input['user_id'] ?? 0);
+
+    if ($name === '' || $email === '') {
+        return ['ok' => false, 'message' => 'Nama dan email wajib diisi.'];
+    }
+
+    if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => 'Format email tidak valid.'];
+    }
+
+    try {
+        if ($id > 0) {
+            if ($password !== '') {
+                $statement = $pdo->prepare('UPDATE users SET name = ?, email = ?, password_hash = ?, role = ? WHERE id = ?');
+                $statement->execute([$name, $email, password_hash($password, PASSWORD_DEFAULT), $role, $id]);
+            } else {
+                $statement = $pdo->prepare('UPDATE users SET name = ?, email = ?, role = ? WHERE id = ?');
+                $statement->execute([$name, $email, $role, $id]);
+            }
+
+            return ['ok' => true, 'message' => 'User berhasil diupdate.'];
+        }
+
+        if ($password === '') {
+            return ['ok' => false, 'message' => 'Password wajib diisi untuk user baru.'];
+        }
+
+        seed_system_user($name, $email, $password, $role);
+
+        return ['ok' => true, 'message' => 'User berhasil ditambahkan.'];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'message' => 'User gagal disimpan: ' . $exception->getMessage()];
+    }
+}
+
 function fetch_database_maintenance(?string $action = null): array
 {
     $result = null;

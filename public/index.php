@@ -16,7 +16,90 @@ if ($basePath !== '' && str_starts_with($requestPath, $basePath)) {
 $path = '/' . trim($path, '/');
 $path = $path === '/' ? '/' : rtrim($path, '/');
 
+if ($path !== '/login' && $path !== '/logout' && ! is_logged_in()) {
+    header('Location: ' . url('/login'));
+    exit;
+}
+
 $routes = [
+    '/login' => [
+        'view' => 'pages/login',
+        'title' => 'Login',
+        'data' => function (): array {
+            if (is_logged_in()) {
+                header('Location: ' . url('/'));
+                exit;
+            }
+
+            $error = '';
+            $email = '';
+
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+                $email = trim((string) ($_POST['email'] ?? ''));
+                $result = login_user($email, (string) ($_POST['password'] ?? ''));
+
+                if ($result['ok'] ?? false) {
+                    header('Location: ' . url('/'));
+                    exit;
+                }
+
+                $error = (string) ($result['message'] ?? 'Login gagal.');
+            }
+
+            return [
+                'loginError' => $error,
+                'loginEmail' => $email,
+            ];
+        },
+    ],
+    '/logout' => [
+        'view' => 'pages/login',
+        'title' => 'Logout',
+        'data' => function (): array {
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+                logout_user();
+            }
+
+            header('Location: ' . url('/login'));
+            exit;
+        },
+    ],
+    '/settings' => [
+        'view' => 'pages/settings',
+        'title' => 'Settings',
+        'data' => function (): array {
+            if (! is_admin()) {
+                http_response_code(403);
+                view('pages/404', ['title' => 'Akses Ditolak']);
+                exit;
+            }
+
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+                $_SESSION['user_management_flash'] = save_system_user_form($_POST);
+                header('Location: ' . url('/settings'));
+                exit;
+            }
+
+            $editUser = null;
+            $editId = (int) ($_GET['edit'] ?? 0);
+            $users = fetch_system_users();
+
+            if ($editId > 0) {
+                foreach (($users['items'] ?? []) as $item) {
+                    if ((int) ($item['id'] ?? 0) === $editId) {
+                        $editUser = $item;
+                        break;
+                    }
+                }
+            }
+
+            return [
+                'usersData' => $users,
+                'editUser' => $editUser,
+                'accountingSettings' => accounting_mapping_settings(),
+            ];
+        },
+    ],
     '/' => [
         'view' => 'pages/home',
         'title' => 'Dashboard',

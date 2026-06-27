@@ -200,6 +200,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-krisna-april-bonus') {
         $result = run_seed_krisna_april_bonus_status();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-prive-2025') {
+        $result = run_seed_partner_prive_2025();
+        $counts = database_table_counts();
     } elseif ($action === 'migrate-seed') {
         $result = run_database_migration_seed();
         $counts = database_table_counts();
@@ -2862,6 +2865,148 @@ function run_seed_krisna_april_bonus_status(): array
         'statements' => $updated,
         'output' => implode(PHP_EOL, array_merge($logs, $failed)),
     ];
+}
+
+function run_seed_partner_prive_2025(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+        ];
+    }
+
+    $monthlyPnl = [
+        7 => ['month' => 'July', 'amount' => 6190362, 'transfer_date' => '2025-03-11'],
+        8 => ['month' => 'Agustus', 'amount' => 18013413, 'transfer_date' => '2025-03-11'],
+        9 => ['month' => 'September', 'amount' => 12741783, 'transfer_date' => '2025-12-20'],
+        10 => ['month' => 'Oktober', 'amount' => 23880893, 'transfer_date' => '2025-12-20'],
+        11 => ['month' => 'November', 'amount' => 27086961, 'transfer_date' => '2026-02-16'],
+        12 => ['month' => 'Desember', 'amount' => 23440254, 'transfer_date' => '2026-03-28'],
+    ];
+
+    $created = 0;
+    $updated = 0;
+    $journalLines = 0;
+    $logs = [];
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_partner_prive_table($pdo);
+        ensure_default_chart_of_accounts($pdo);
+        $pdo->beginTransaction();
+
+        $find = $pdo->prepare('
+            SELECT id
+            FROM partner_prive
+            WHERE tahun_pnl = ?
+              AND bulan_pnl = ?
+              AND LOWER(partner) = LOWER(?)
+            ORDER BY id
+        ');
+        $insert = $pdo->prepare('
+            INSERT INTO partner_prive
+                (tanggal, bulan_pnl, tahun_pnl, partner, jumlah, status_pembayaran, tanggal_transfer, keterangan)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?)
+        ');
+        $update = $pdo->prepare('
+            UPDATE partner_prive
+            SET tanggal = ?,
+                jumlah = ?,
+                status_pembayaran = ?,
+                tanggal_transfer = ?,
+                keterangan = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ');
+        $delete = $pdo->prepare('DELETE FROM partner_prive WHERE id = ?');
+
+        foreach ($monthlyPnl as $monthNumber => $data) {
+            $total = (int) $data['amount'];
+            $rickyAmount = (int) round($total * 0.49);
+            $partnerRows = [
+                ['partner' => 'Ricky', 'percent' => 49, 'amount' => $rickyAmount],
+                ['partner' => 'James', 'percent' => 51, 'amount' => $total - $rickyAmount],
+            ];
+
+            foreach ($partnerRows as $row) {
+                $partner = $row['partner'];
+                $amount = $row['amount'];
+                $entryDate = '2025-' . str_pad((string) $monthNumber, 2, '0', STR_PAD_LEFT) . '-01';
+                $description = sprintf(
+                    'Seeder prive 2025 %s - Monthly PNL %s%% dari %s',
+                    $data['month'],
+                    $row['percent'],
+                    rupiah($total)
+                );
+
+                $find->execute([2025, $monthNumber, $partner]);
+                $ids = array_map('intval', $find->fetchAll(PDO::FETCH_COLUMN) ?: []);
+
+                if ($ids === []) {
+                    $insert->execute([
+                        $entryDate,
+                        $monthNumber,
+                        2025,
+                        $partner,
+                        $amount,
+                        'Lunas',
+                        $data['transfer_date'],
+                        $description,
+                    ]);
+                    $priveId = (int) $pdo->lastInsertId();
+                    $created++;
+                } else {
+                    $priveId = (int) array_shift($ids);
+                    $update->execute([
+                        $entryDate,
+                        $amount,
+                        'Lunas',
+                        $data['transfer_date'],
+                        $description,
+                        $priveId,
+                    ]);
+                    $updated++;
+
+                    foreach ($ids as $duplicateId) {
+                        delete_accounting_journal_source($pdo, 'partner_prive', (string) $duplicateId);
+                        $delete->execute([$duplicateId]);
+                    }
+                }
+
+                $journalLines += generate_partner_prive_journal($pdo, $priveId);
+                $logs[] = sprintf(
+                    '%s 2025 %s: %s, transfer %s',
+                    $data['month'],
+                    $partner,
+                    rupiah($amount),
+                    $data['transfer_date']
+                );
+            }
+        }
+
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Seeder prive partner 2025 berhasil. Dibuat ' . $created . ', diupdate ' . $updated . ', jurnal ' . $journalLines . ' baris.',
+            'statements' => $created + $updated,
+            'output' => implode(PHP_EOL, $logs),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Seeder prive partner 2025 gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
 }
 
 function invoice_customer_summary(array $invoices): array

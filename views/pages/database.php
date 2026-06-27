@@ -31,12 +31,20 @@
                 <h2 class="text-lg font-bold text-ink">Update Data Khusus</h2>
                 <p class="mt-1 text-sm leading-6 text-stone-600">Jalankan hanya saat perlu menyamakan data prive partner tahun 2025 di hosting.</p>
             </div>
-            <form method="POST" action="<?= e(url('/db-maintenance')) ?>" onsubmit="return confirm('Update prive partner 2025 dan posting ulang jurnal akuntansinya?')">
-                <input type="hidden" name="action" value="seed-prive-2025">
-                <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
-                    Update Prive 2025
-                </button>
-            </form>
+            <div class="flex flex-wrap gap-2">
+                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" onsubmit="return confirm('Update prive partner 2025 dan posting ulang jurnal akuntansinya?')">
+                    <input type="hidden" name="action" value="seed-prive-2025">
+                    <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
+                        Update Prive 2025
+                    </button>
+                </form>
+                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" onsubmit="return confirm('Update prive partner 2026 dan posting ulang jurnal akuntansinya?')">
+                    <input type="hidden" name="action" value="seed-prive-2026">
+                    <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
+                        Update Prive 2026
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
 

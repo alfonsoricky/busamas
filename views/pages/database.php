@@ -25,6 +25,21 @@
         </div>
     <?php endif; ?>
 
+    <div class="mb-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <h2 class="text-lg font-bold text-ink">Update Data 2026 Terbaru</h2>
+                <p class="mt-1 text-sm leading-6 text-stone-600">Sinkron invoice 2026, detail barang invoice 463/464, operational, dan posting ulang jurnal.</p>
+            </div>
+            <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan update data 2026 terbaru di database ini?">
+                <input type="hidden" name="action" value="update-2026-latest-final">
+                <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
+                    Jalankan Update
+                </button>
+            </form>
+        </div>
+    </div>
+
     <div class="grid gap-6 lg:grid-cols-[0.85fr_1fr]">
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
             <h2 class="text-lg font-bold text-ink">Seed Snapshot</h2>

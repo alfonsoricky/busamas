@@ -7634,6 +7634,8 @@ function run_2026_latest_final_update(): array
 
     try {
         $output = [];
+        $driveDir = dirname(__DIR__) . '/storage/drive';
+        $importScript = dirname(__DIR__) . '/scripts/import-drive25-invoices.php';
         $pdo->beginTransaction();
 
         $invoiceResult = update_2026_invoice_fields_from_excel($pdo, $excelPath);
@@ -7647,6 +7649,18 @@ function run_2026_latest_final_update(): array
             $createdInvoices[] = $invoiceNumber . ' ' . ensure_2026_invoice_header_from_excel($pdo, $excelPath, $invoiceNumber);
         }
         $output[] = '2. Invoice 463/464: ' . implode(', ', $createdInvoices);
+
+        if (is_dir($driveDir) && is_readable($importScript)) {
+            require_once $importScript;
+            $detailImport = import_drive25_invoices($pdo, $driveDir, $excelPath, 463, 464);
+            $output[] = "   Detail barang 463/464: {$detailImport['processed']} invoice diproses, {$detailImport['items']} item";
+            if (! empty($detailImport['warnings'])) {
+                $output[] = '   Peringatan detail 463/464: ' . implode(' | ', $detailImport['warnings']);
+            }
+        } else {
+            $detailImport = ['processed' => 0, 'items' => 0];
+            $output[] = '   Detail barang 463/464 dilewati karena storage/drive atau importer tidak tersedia.';
+        }
 
         $operationalResult = update_year_operational_from_excel($pdo, $excelPath, 2026);
         $output[] = "3. Operational 2026 dari Excel: {$operationalResult['deleted']} data lama dihapus, {$operationalResult['inserted']} data dimasukkan";
@@ -7666,6 +7680,7 @@ function run_2026_latest_final_update(): array
             'message'    => 'Update Data 2026 Terbaru berhasil. Invoice, operational, dan jurnal akuntansi sudah disinkronkan.',
             'statements' => (int) ($invoiceResult['matched'] ?? 0)
                 + 2
+                + (int) ($detailImport['items'] ?? 0)
                 + (int) ($operationalResult['inserted'] ?? 0)
                 + (int) ($manualOperational['created'] ?? 0)
                 + $removedBonusAggregate

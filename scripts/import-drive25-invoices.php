@@ -57,7 +57,7 @@ function run_drive25_invoice_import_cli(string $baseDir): void
     }
 }
 
-function import_drive25_invoices(PDO $pdo, string $driveDir, string $excelPath): array
+function import_drive25_invoices(PDO $pdo, string $driveDir, string $excelPath, int $minInvoiceNumber = 453, int $maxInvoiceNumber = 462): array
 {
     $excelRows = sales_rows_by_invoice($excelPath);
     $files = glob($driveDir . '/*.xlsx') ?: [];
@@ -86,11 +86,14 @@ function import_drive25_invoices(PDO $pdo, string $driveDir, string $excelPath):
     $processed = 0;
     $warnings = [];
 
-    $pdo->beginTransaction();
+    $startedTransaction = ! $pdo->inTransaction();
+    if ($startedTransaction) {
+        $pdo->beginTransaction();
+    }
 
     foreach ($files as $file) {
         $number = invoice_number_from_drive_file($file);
-        if ($number < 453 || $number > 462) {
+        if ($number < $minInvoiceNumber || $number > $maxInvoiceNumber) {
             continue;
         }
 
@@ -213,7 +216,9 @@ function import_drive25_invoices(PDO $pdo, string $driveDir, string $excelPath):
         $processed++;
     }
 
-    $pdo->commit();
+    if ($startedTransaction) {
+        $pdo->commit();
+    }
 
     return [
         'processed' => $processed,
@@ -360,6 +365,12 @@ function resolve_barang_for_import(array $barangRows, string $name, string $size
         'M-SOFT' => 'MSOFT',
     ];
     $nameKey = $aliases[$nameKey] ?? $nameKey;
+    $sizeAliases = [
+        'MCBLEACH' => [
+            '15L' => '5L',
+        ],
+    ];
+    $sizeKey = $sizeAliases[$nameKey][$sizeKey] ?? $sizeKey;
 
     foreach ($barangRows as $row) {
         $rowName = $aliases[barang_name_key_for_import((string) $row['nama_barang'])] ?? barang_name_key_for_import((string) $row['nama_barang']);

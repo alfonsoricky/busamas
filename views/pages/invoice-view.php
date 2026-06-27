@@ -10,15 +10,25 @@
             $items = $invoiceDetail['items'];
             $summary = $invoiceDetail['summary'];
             $printDate = $invoice['tanggal_invoice'] ?: '';
+            $exportUrl = url('/invoice-view') . '?' . http_build_query([
+                'code' => $invoice['kode_invoice'] ?? '',
+                'export' => 'pdf',
+            ]);
+            $autoExportPdf = ($_GET['export'] ?? '') === 'pdf';
         ?>
 
         <div class="mb-5 flex items-center justify-between print:hidden">
             <a href="<?= e(url('/invoices')) ?>" class="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
                 Kembali
             </a>
-            <button onclick="window.print()" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800">
-                Print
-            </button>
+            <div class="flex flex-wrap gap-2">
+                <a href="<?= e($exportUrl) ?>" target="_blank" rel="noopener" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white transition hover:bg-teal-800">
+                    Export PDF
+                </a>
+                <button onclick="window.print()" class="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                    Print
+                </button>
+            </div>
         </div>
 
         <div class="mx-auto bg-white p-8 text-[11px] text-black shadow-sm ring-1 ring-stone-200 print:p-0 print:shadow-none print:ring-0" style="width: 210mm; min-height: 297mm;">
@@ -123,5 +133,38 @@
                 </div>
             </div>
         </div>
+
+        <?php if ($autoExportPdf): ?>
+            <script>
+                window.addEventListener('load', () => {
+                    document.title = <?= json_encode('Invoice ' . ($invoice['nomor_invoice'] ?? ''), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+                    setTimeout(() => window.print(), 250);
+                });
+            </script>
+        <?php endif; ?>
     <?php endif; ?>
 </section>
+
+<style>
+    @media print {
+        @page {
+            size: A4;
+            margin: 10mm;
+        }
+
+        body {
+            background: #fff !important;
+        }
+
+        header,
+        footer {
+            display: none !important;
+        }
+
+        main,
+        section {
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+    }
+</style>

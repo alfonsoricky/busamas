@@ -623,7 +623,7 @@ $routes = [
         'data' => fn (): array => [
             'reportData' => fetch_laporan_hutang(
                 $_GET['month'] ?? '',
-                $_GET['year'] ?? date('Y'),
+                $_GET['year'] ?? '',
                 $_GET['tab'] ?? 'dagang',
                 $_GET['cust_pay'] ?? '',
                 $_GET['comm_pay'] ?? ''

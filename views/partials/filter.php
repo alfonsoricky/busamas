@@ -1,5 +1,5 @@
 <?php
-$selectedYear = $_GET['year'] ?? date('Y');
+$selectedYear = $_GET['year'] ?? (str_contains($_SERVER['REQUEST_URI'], '/laporan/hutang') ? '' : date('Y'));
 $selectedMonth = $_GET['month'] ?? '';
 $months = [
     1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',

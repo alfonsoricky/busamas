@@ -6485,7 +6485,7 @@ function fetch_laporan_profit_loss(string $month = '', string $year = ''): array
     ];
 }
 
-function fetch_laporan_hutang(string $month = '', string $year = '', string $type = 'dagang'): array
+function fetch_laporan_hutang(string $month = '', string $year = '', string $type = 'dagang', string $custPay = '', string $commPay = ''): array
 {
     $pdo = db();
     if ($pdo === null) {
@@ -6510,12 +6510,25 @@ function fetch_laporan_hutang(string $month = '', string $year = '', string $typ
     }
 
     if ($type === 'sales_commission') {
-        $invoices = db_all("SELECT nomor_invoice, tanggal_invoice, nama_sales_1, nama_sales_2, komisi_sales_belum_terbayar, status_pembayaran_komisi_sales, status_pembayaran FROM invoices WHERE komisi_sales_belum_terbayar > 0");
+        $invoices = db_all("SELECT nomor_invoice, tanggal_invoice, nama_sales_1, nama_sales_2, komisi_sales_belum_terbayar, status_pembayaran_komisi_sales, status_pembayaran, COALESCE(nama_customer_master, nama_laundry_invoice) AS nama_customer FROM invoices WHERE komisi_sales_belum_terbayar > 0");
         $data = [];
         foreach ($invoices ?? [] as $inv) {
             $invNo = $inv['nomor_invoice'] ?? '';
             if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
             if ($year !== '' && invoice_year($invNo) !== $year) continue;
+
+            // Filter by Customer Payment Status
+            if ($custPay !== '') {
+                $statusPay = $inv['status_pembayaran'] ?? '';
+                if (strtolower($statusPay) !== strtolower($custPay)) continue;
+            }
+
+            // Filter by Commission Payment Status
+            if ($commPay !== '') {
+                $statusComm = $inv['status_pembayaran_komisi_sales'] ?: 'Belum TF';
+                if (strtolower($statusComm) !== strtolower($commPay)) continue;
+            }
+
             $data[] = $inv;
         }
         usort($data, static fn ($a, $b) => (float)($b['komisi_sales_belum_terbayar'] ?? 0) <=> (float)($a['komisi_sales_belum_terbayar'] ?? 0));

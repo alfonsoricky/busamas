@@ -152,6 +152,7 @@ $activeTab = $reportData['type'] ?? 'dagang';
                         <tr>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">No. Invoice</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal Invoice</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Customer / Laundry</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Sales Agent</th>
                             <th class="text-right whitespace-nowrap px-4 py-3 font-semibold">Komisi Belum Terbayar</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Bayar Customer</th>
@@ -161,7 +162,7 @@ $activeTab = $reportData['type'] ?? 'dagang';
                     <tbody class="divide-y divide-stone-100">
                         <?php if (empty($items)): ?>
                             <tr>
-                                <td colspan="6" class="px-4 py-8 text-center text-stone-500">Tidak ada hutang komisi sales yang outstanding. Semua komisi lunas!</td>
+                                <td colspan="7" class="px-4 py-8 text-center text-stone-500">Tidak ada hutang komisi sales yang outstanding. Semua komisi lunas!</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($items as $item): ?>
@@ -173,6 +174,9 @@ $activeTab = $reportData['type'] ?? 'dagang';
                                     </td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700">
                                         <?= e($item['tanggal_invoice'] ?? '') ?>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3 text-stone-700 font-medium">
+                                        <?= e($item['nama_customer'] ?? '') ?>
                                     </td>
                                     <td class="whitespace-nowrap px-4 py-3 text-ink font-medium">
                                         <?php

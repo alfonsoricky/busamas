@@ -272,6 +272,10 @@
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">PPH Final Terbayar</span>
                                 <input type="number" step="0.01" name="pph_final_terbayar" id="pph-final-paid" value="<?= e((string) ($editInvoice['pph_final_terbayar'] ?? '')) ?>" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
                             </label>
+                            <label class="block" data-tax-paid-field>
+                                <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Bayar PPH Final</span>
+                                <input type="date" name="tanggal_pembayaran_pph_final" value="<?= e((string) ($editInvoice['tanggal_pembayaran_pph_final'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                            </label>
                             <label class="block" data-tax-debt-field>
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">PPH Final Belum Terbayar</span>
                                 <input type="number" step="0.01" name="pph_final_belum_terbayar" id="pph-final-unpaid" value="<?= e((string) ($editInvoice['pph_final_belum_terbayar'] ?? '')) ?>" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
@@ -315,8 +319,16 @@
                                 <input type="number" step="0.01" name="biaya_kirim" value="<?= e((string) ($editInvoice['biaya_kirim'] ?? '')) ?>" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                             <label class="block">
+                                <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Bayar Biaya Kirim</span>
+                                <input type="date" name="tanggal_pembayaran_biaya_kirim" value="<?= e((string) ($editInvoice['tanggal_pembayaran_biaya_kirim'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                            </label>
+                            <label class="block">
                                 <span class="mb-2 block text-sm font-semibold text-stone-700">Biaya Admin Bank</span>
                                 <input type="number" step="0.01" name="biaya_admin_bank" value="<?= e((string) ($editInvoice['biaya_admin_bank'] ?? '')) ?>" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                            </label>
+                            <label class="block">
+                                <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Bayar Admin Bank</span>
+                                <input type="date" name="tanggal_pembayaran_biaya_admin_bank" value="<?= e((string) ($editInvoice['tanggal_pembayaran_biaya_admin_bank'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                             </label>
                         </div>
                     </section>

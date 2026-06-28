@@ -673,6 +673,13 @@ $routes = [
             'reportData' => fetch_laporan_neraca($_GET['date'] ?? date('Y-m-d')),
         ],
     ],
+    '/laporan/arus-kas' => [
+        'view' => 'pages/laporan-arus-kas',
+        'title' => 'Laporan Arus Kas',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_arus_kas($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+        ],
+    ],
     '/invoice-delete' => [
         'view'  => 'pages/invoice-delete-result',
         'title' => 'Hapus Invoice',

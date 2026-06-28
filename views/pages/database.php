@@ -42,6 +42,20 @@
                 </form>
             </div>
 
+            <!-- Fix Bonus Internal Payable -->
+            <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="max-w-2xl">
+                    <h3 class="font-semibold text-ink text-sm">Fix Bonus Internal Belum Dibayar</h3>
+                    <p class="mt-1 text-xs leading-5 text-stone-600">Mengubah bonus internal yang Lunas tanpa tanggal pembayaran menjadi Hutang dan posting ulang jurnalnya.</p>
+                </div>
+                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan fix bonus internal belum dibayar di database ini?">
+                    <input type="hidden" name="action" value="fix-internal-bonus-payable">
+                    <button type="submit" class="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                        Jalankan Fix
+                    </button>
+                </form>
+            </div>
+
             <!-- Reset & Load Seeder -->
             <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div class="max-w-2xl">

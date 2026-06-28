@@ -635,6 +635,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-krisna-april-bonus') {
         $result = run_seed_krisna_april_bonus_status();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-internal-bonus-payable') {
+        $result = run_fix_internal_bonus_payable();
+        $counts = database_table_counts();
     } elseif ($action === 'seed-prive-2025') {
         $result = run_seed_partner_prive_2025();
         $counts = database_table_counts();
@@ -1269,6 +1272,25 @@ function ensure_journal_entries_posted_at_column(PDO $pdo): void
     $pdo->exec('UPDATE journal_entries SET posted_at = COALESCE(posted_at, created_at, NOW())');
 }
 
+function ensure_invoice_cash_date_columns(PDO $pdo): void
+{
+    if (! database_table_exists($pdo, 'invoices')) {
+        return;
+    }
+
+    $columns = [
+        'tanggal_pembayaran_pph_final' => 'ALTER TABLE invoices ADD COLUMN tanggal_pembayaran_pph_final DATE NULL AFTER pph_final_belum_terbayar',
+        'tanggal_pembayaran_biaya_kirim' => 'ALTER TABLE invoices ADD COLUMN tanggal_pembayaran_biaya_kirim DATE NULL AFTER biaya_kirim',
+        'tanggal_pembayaran_biaya_admin_bank' => 'ALTER TABLE invoices ADD COLUMN tanggal_pembayaran_biaya_admin_bank DATE NULL AFTER biaya_admin_bank',
+    ];
+
+    foreach ($columns as $column => $sql) {
+        if (! database_column_exists($pdo, 'invoices', $column)) {
+            $pdo->exec($sql);
+        }
+    }
+}
+
 function ensure_accounting_tables(PDO $pdo): void
 {
     if ($pdo->inTransaction()) {
@@ -1277,6 +1299,7 @@ function ensure_accounting_tables(PDO $pdo): void
 
     if (accounting_tables_ready($pdo)) {
         ensure_journal_entries_posted_at_column($pdo);
+        ensure_invoice_cash_date_columns($pdo);
         return;
     }
 
@@ -1286,6 +1309,7 @@ function ensure_accounting_tables(PDO $pdo): void
     }
 
     ensure_journal_entries_posted_at_column($pdo);
+    ensure_invoice_cash_date_columns($pdo);
 }
 
 function ensure_partner_prive_table(PDO $pdo): void
@@ -1500,7 +1524,6 @@ function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
     if ($netSales <= 0 && $storedNetSales > 0) {
         $netSales = $storedNetSales;
     }
-
     if ($subtotal > 0) {
         $assetAccount = strtolower(trim((string) ($invoice['status_pembayaran'] ?? ''))) === 'lunas'
             ? $a['cash']
@@ -1589,12 +1612,13 @@ function generate_operational_expense_journal(PDO $pdo, int $expenseId): int
     $amount = round((float) ($expense['jumlah'] ?? 0), 2);
     $lines = [];
     $name = trim((string) ($expense['nama_pengeluaran'] ?? 'Pengeluaran operasional'));
-    $expenseAccount = strtolower(trim((string) ($expense['kategori'] ?? 'operational'))) === 'bonus'
-        ? $a['bonus_expense']
-        : $a['operational_expense'];
-    $creditAccount = strtolower(trim((string) ($expense['status_pembayaran'] ?? ''))) === 'lunas'
-        ? $a['cash']
-        : $a['operational_payable'];
+    $category = strtolower(trim((string) ($expense['kategori'] ?? 'operational')));
+    $isBonus = $category === 'bonus';
+    $isPaidStatus = strtolower(trim((string) ($expense['status_pembayaran'] ?? ''))) === 'lunas';
+    $paymentDate = date_input_value((string) ($expense['tanggal_pembayaran'] ?? ''));
+    $isCashPaid = $isBonus ? ($isPaidStatus && $paymentDate !== '') : $isPaidStatus;
+    $expenseAccount = $isBonus ? $a['bonus_expense'] : $a['operational_expense'];
+    $creditAccount = $isCashPaid ? $a['cash'] : $a['operational_payable'];
 
     accounting_add_line($lines, $expenseAccount, $amount, 0, $name);
     accounting_add_line($lines, $creditAccount, 0, $amount, $name);
@@ -2022,6 +2046,211 @@ function fetch_laporan_neraca(string $asOfDate = ''): array
         ];
     } catch (Throwable $exception) {
         return ['ok' => false, 'error' => $exception->getMessage(), 'groups' => []];
+    }
+}
+
+function fetch_laporan_arus_kas(string $month = '', string $year = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Database belum bisa dikoneksi.', 'items' => [], 'groups' => [], 'summary' => []];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $year = preg_match('/^\d{4}$/', (string) $year) === 1 ? (string) $year : date('Y');
+        $month = preg_match('/^(0?[1-9]|1[0-2])$/', (string) $month) === 1 ? (string) ((int) $month) : '';
+
+        if ($month !== '') {
+            $startDate = sprintf('%04d-%02d-01', (int) $year, (int) $month);
+            $endDate = date('Y-m-t', strtotime($startDate));
+            $monthNames = [
+                1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+                5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+                9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember',
+            ];
+            $periodLabel = ($monthNames[(int) $month] ?? '') . ' ' . $year;
+        } else {
+            $startDate = $year . '-01-01';
+            $endDate = $year . '-12-31';
+            $periodLabel = 'Tahun ' . $year;
+        }
+
+        $cashStmt = $pdo->query("
+            SELECT id, code, name
+            FROM chart_of_accounts
+            WHERE code = '1100' AND is_active = 1
+            LIMIT 1
+        ");
+        $cashAccount = $cashStmt ? $cashStmt->fetch(PDO::FETCH_ASSOC) : false;
+
+        if (! $cashAccount) {
+            return [
+                'ok' => false,
+                'error' => 'Akun Kas / Bank 1100 belum tersedia di COA.',
+                'items' => [],
+                'groups' => [],
+                'summary' => [],
+            ];
+        }
+
+        $cashDateExpression = "
+            CASE
+                WHEN je.source_type = 'invoice' AND jl.debit > 0
+                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_pembayaran AS CHAR) <> '0000-00-00' THEN inv.tanggal_pembayaran END, je.entry_date)
+                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Pembelian barang dibayar%'
+                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_transfer_pembelian_barang AS CHAR) <> '0000-00-00' THEN inv.tanggal_transfer_pembelian_barang END, je.entry_date)
+                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Komisi sales dibayar%'
+                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_transfer_komisi_sales AS CHAR) <> '0000-00-00' THEN inv.tanggal_transfer_komisi_sales END, je.entry_date)
+                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Komisi manager dibayar%'
+                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_transfer_komisi_manager AS CHAR) <> '0000-00-00' THEN inv.tanggal_transfer_komisi_manager END, je.entry_date)
+                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Komisi admin dibayar%'
+                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_transfer_komisi_admin AS CHAR) <> '0000-00-00' THEN inv.tanggal_transfer_komisi_admin END, je.entry_date)
+                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'PPh final dibayar%'
+                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_pembayaran_pph_final AS CHAR) <> '0000-00-00' THEN inv.tanggal_pembayaran_pph_final END, je.entry_date)
+                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Biaya kirim dibayar%'
+                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_pembayaran_biaya_kirim AS CHAR) <> '0000-00-00' THEN inv.tanggal_pembayaran_biaya_kirim END, je.entry_date)
+                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Biaya admin bank dibayar%'
+                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_pembayaran_biaya_admin_bank AS CHAR) <> '0000-00-00' THEN inv.tanggal_pembayaran_biaya_admin_bank END, je.entry_date)
+                WHEN je.source_type = 'operational_expense'
+                    THEN COALESCE(CASE WHEN CAST(oe.tanggal_pembayaran AS CHAR) <> '0000-00-00' THEN oe.tanggal_pembayaran END, oe.tanggal, je.entry_date)
+                WHEN je.source_type = 'partner_prive'
+                    THEN COALESCE(CASE WHEN CAST(pp.tanggal_transfer AS CHAR) <> '0000-00-00' THEN pp.tanggal_transfer END, pp.tanggal, je.entry_date)
+                ELSE je.entry_date
+            END
+        ";
+
+        $cashMovementSql = "
+            FROM journal_lines jl
+            JOIN journal_entries je ON je.id = jl.journal_entry_id
+            LEFT JOIN invoices inv ON je.source_type = 'invoice' AND inv.kode_invoice = je.source_id
+            LEFT JOIN operational_expenses oe ON je.source_type = 'operational_expense' AND oe.id = CAST(je.source_id AS UNSIGNED)
+            LEFT JOIN partner_prive pp ON je.source_type = 'partner_prive' AND pp.id = CAST(je.source_id AS UNSIGNED)
+            WHERE jl.account_id = :account_id
+        ";
+
+        $openingStmt = $pdo->prepare("
+            SELECT COALESCE(SUM(movement.debit - movement.credit), 0) AS balance
+            FROM (
+                SELECT jl.debit, jl.credit, {$cashDateExpression} AS cash_date
+                {$cashMovementSql}
+            ) movement
+            WHERE movement.cash_date < :start_date
+        ");
+        $openingStmt->execute([
+            'account_id' => (int) $cashAccount['id'],
+            'start_date' => $startDate,
+        ]);
+        $openingBalance = (float) ($openingStmt->fetchColumn() ?: 0);
+
+        $stmt = $pdo->prepare("
+            SELECT
+                movement.id,
+                movement.entry_date,
+                movement.cash_date,
+                movement.posted_at,
+                movement.source_type,
+                movement.source_id,
+                movement.description,
+                movement.debit,
+                movement.credit,
+                movement.memo
+            FROM (
+                SELECT
+                    je.id,
+                    je.entry_date,
+                    {$cashDateExpression} AS cash_date,
+                    je.posted_at,
+                    je.source_type,
+                    je.source_id,
+                    je.description,
+                    jl.id AS line_id,
+                    jl.debit,
+                    jl.credit,
+                    jl.memo
+                {$cashMovementSql}
+            ) movement
+            WHERE movement.cash_date BETWEEN :start_date AND :end_date
+            ORDER BY movement.cash_date ASC, movement.id ASC, movement.line_id ASC
+        ");
+        $stmt->execute([
+            'account_id' => (int) $cashAccount['id'],
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+        ]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $items = [];
+        $groups = [
+            'operating' => ['label' => 'Arus Kas Operasional', 'cash_in' => 0.0, 'cash_out' => 0.0, 'net' => 0.0, 'items' => []],
+            'financing' => ['label' => 'Arus Kas Pendanaan', 'cash_in' => 0.0, 'cash_out' => 0.0, 'net' => 0.0, 'items' => []],
+            'other' => ['label' => 'Arus Kas Lainnya', 'cash_in' => 0.0, 'cash_out' => 0.0, 'net' => 0.0, 'items' => []],
+        ];
+
+        $cashIn = 0.0;
+        $cashOut = 0.0;
+        $runningBalance = $openingBalance;
+
+        foreach ($rows as $row) {
+            $debit = (float) $row['debit'];
+            $credit = (float) $row['credit'];
+            $in = max($debit, 0);
+            $out = max($credit, 0);
+            $runningBalance += $in - $out;
+            $groupKey = match ((string) $row['source_type']) {
+                'partner_prive' => 'financing',
+                'invoice', 'operational_expense' => 'operating',
+                default => 'other',
+            };
+
+            $item = [
+                'entry_date' => $row['cash_date'],
+                'journal_date' => $row['entry_date'],
+                'posted_at' => $row['posted_at'],
+                'source_type' => $row['source_type'],
+                'source_id' => $row['source_id'],
+                'description' => $row['description'],
+                'memo' => $row['memo'],
+                'cash_in' => $in,
+                'cash_out' => $out,
+                'balance' => $runningBalance,
+                'group' => $groupKey,
+            ];
+
+            $items[] = $item;
+            $groups[$groupKey]['items'][] = $item;
+            $groups[$groupKey]['cash_in'] += $in;
+            $groups[$groupKey]['cash_out'] += $out;
+            $groups[$groupKey]['net'] += $in - $out;
+            $cashIn += $in;
+            $cashOut += $out;
+        }
+
+        return [
+            'ok' => true,
+            'cash_account' => $cashAccount,
+            'period' => [
+                'month' => $month,
+                'year' => $year,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'label' => $periodLabel,
+            ],
+            'summary' => [
+                'opening_balance' => $openingBalance,
+                'cash_in' => $cashIn,
+                'cash_out' => $cashOut,
+                'net_cash_flow' => $cashIn - $cashOut,
+                'ending_balance' => $openingBalance + $cashIn - $cashOut,
+            ],
+            'groups' => $groups,
+            'items' => $items,
+            'error' => null,
+        ];
+    } catch (Throwable $exception) {
+        return ['ok' => false, 'error' => $exception->getMessage(), 'items' => [], 'groups' => [], 'summary' => []];
     }
 }
 
@@ -3687,6 +3916,74 @@ function run_seed_krisna_april_bonus_status(): array
     ];
 }
 
+function run_fix_internal_bonus_payable(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Koneksi database gagal.', 'statements' => 0];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        $pdo->beginTransaction();
+
+        $select = $pdo->query("
+            SELECT id, nama_pengeluaran, jumlah
+            FROM operational_expenses
+            WHERE kategori = 'bonus'
+              AND LOWER(status_pembayaran) = 'lunas'
+              AND (
+                    tanggal_pembayaran IS NULL
+                    OR CAST(tanggal_pembayaran AS CHAR) = ''
+                    OR CAST(tanggal_pembayaran AS CHAR) = '0000-00-00'
+              )
+            ORDER BY id
+        ");
+        $rows = $select->fetchAll(PDO::FETCH_ASSOC);
+
+        $update = $pdo->prepare("
+            UPDATE operational_expenses
+            SET status_pembayaran = 'Hutang',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ");
+
+        $journalLines = 0;
+        foreach ($rows as $row) {
+            $id = (int) ($row['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+
+            $update->execute([$id]);
+            delete_accounting_journal_source($pdo, 'operational_expense', (string) $id);
+            $journalLines += generate_operational_expense_journal($pdo, $id);
+        }
+
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Seeder bonus internal berhasil. ' . count($rows) . ' bonus tanpa tanggal pembayaran dijadikan hutang.',
+            'statements' => count($rows) + $journalLines,
+            'output' => implode(PHP_EOL, array_map(
+                static fn (array $row): string => ($row['id'] ?? '-') . ' - ' . ($row['nama_pengeluaran'] ?? '-') . ' - ' . rupiah($row['jumlah'] ?? 0),
+                $rows
+            )),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Seeder bonus internal gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
 function run_seed_partner_prive_2025(): array
 {
     $pdo = db();
@@ -4664,9 +4961,12 @@ function save_invoice_form(array $postData): array
     // Tax
     $pphFinalTerbayar = $cleanFloat($postData['pph_final_terbayar'] ?? 0);
     $pphFinalBelumTerbayar = $cleanFloat($postData['pph_final_belum_terbayar'] ?? 0);
+    $tanggalPembayaranPphFinal = !empty($postData['tanggal_pembayaran_pph_final']) ? $postData['tanggal_pembayaran_pph_final'] : null;
 
     $biayaKirim = $cleanFloat($postData['biaya_kirim'] ?? 0);
+    $tanggalPembayaranBiayaKirim = !empty($postData['tanggal_pembayaran_biaya_kirim']) ? $postData['tanggal_pembayaran_biaya_kirim'] : null;
     $biayaAdminBank = $cleanFloat($postData['biaya_admin_bank'] ?? 0);
+    $tanggalPembayaranBiayaAdminBank = !empty($postData['tanggal_pembayaran_biaya_admin_bank']) ? $postData['tanggal_pembayaran_biaya_admin_bank'] : null;
 
     $discountPersen = (float) ($postData['discount'] ?? 0);
     $discountAmount = $cleanFloat($postData['discount_amount'] ?? 0);
@@ -4681,7 +4981,33 @@ function save_invoice_form(array $postData): array
     $tanggalTransferPembelianBarang = !empty($postData['tanggal_transfer_pembelian_barang']) ? $postData['tanggal_transfer_pembelian_barang'] : null;
     $statusPembelianBarang = $tanggalTransferPembelianBarang !== null ? 'Lunas' : 'Utang';
 
+    if (strcasecmp($statusPembayaran, 'Lunas') === 0 && $tanggalPembayaran === null) {
+        return ['ok' => false, 'message' => 'Tanggal pembayaran invoice wajib diisi jika status invoice Lunas.'];
+    }
+    if ($totalPembelianBarang > 0 && $tanggalTransferPembelianBarang === null) {
+        return ['ok' => false, 'message' => 'Tanggal transfer pembelian barang wajib diisi jika pembelian barang terbayar.'];
+    }
+    if ($komisiSalesTerbayar > 0 && $tanggalTransferKomisiSales === null) {
+        return ['ok' => false, 'message' => 'Tanggal transfer komisi sales wajib diisi jika komisi sales terbayar.'];
+    }
+    if ($komisiManagerTerbayar > 0 && $tanggalTransferKomisiManager === null) {
+        return ['ok' => false, 'message' => 'Tanggal transfer komisi manager wajib diisi jika komisi manager terbayar.'];
+    }
+    if ($komisiAdminTerbayar > 0 && $tanggalTransferKomisiAdmin === null) {
+        return ['ok' => false, 'message' => 'Tanggal transfer komisi admin wajib diisi jika komisi admin terbayar.'];
+    }
+    if ($pphFinalTerbayar > 0 && $tanggalPembayaranPphFinal === null) {
+        return ['ok' => false, 'message' => 'Tanggal bayar PPH final wajib diisi jika PPH final terbayar.'];
+    }
+    if ($biayaKirim > 0 && $tanggalPembayaranBiayaKirim === null) {
+        return ['ok' => false, 'message' => 'Tanggal bayar biaya kirim wajib diisi jika biaya kirim terbayar.'];
+    }
+    if ($biayaAdminBank > 0 && $tanggalPembayaranBiayaAdminBank === null) {
+        return ['ok' => false, 'message' => 'Tanggal bayar admin bank wajib diisi jika biaya admin bank terbayar.'];
+    }
+
     try {
+        ensure_invoice_cash_date_columns($pdo);
         $pdo->beginTransaction();
 
         if ($isUpdate) {
@@ -4734,10 +5060,13 @@ function save_invoice_form(array $postData): array
                     tanggal_pembayaran = ?,
                     pph_final_terbayar = ?,
                     pph_final_belum_terbayar = ?,
+                    tanggal_pembayaran_pph_final = ?,
                     komisi_admin_terbayar = ?,
                     komisi_admin_belum_terbayar = ?,
                     biaya_kirim = ?,
+                    tanggal_pembayaran_biaya_kirim = ?,
                     biaya_admin_bank = ?,
+                    tanggal_pembayaran_biaya_admin_bank = ?,
                     total_pembelian_barang = ?,
                     total_utang_pembelian_barang = ?,
                     status_pembelian_barang = ?,
@@ -4754,9 +5083,9 @@ function save_invoice_form(array $postData): array
                 $namaCustomerInvoice, $namaLaundryInvoice, $noTelepon, $alamat,
                 $totalItem, $totalQty, $subtotal, $subtotal, $discountPersen, $discountAmount, $totalHargaJual,
                 $statusPembayaran, $tanggalPembayaran,
-                $pphFinalTerbayar, $pphFinalBelumTerbayar,
+                $pphFinalTerbayar, $pphFinalBelumTerbayar, $tanggalPembayaranPphFinal,
                 $komisiAdminTerbayar, $komisiAdminBelumTerbayar,
-                $biayaKirim, $biayaAdminBank,
+                $biayaKirim, $tanggalPembayaranBiayaKirim, $biayaAdminBank, $tanggalPembayaranBiayaAdminBank,
                 $totalPembelianBarang, $totalUtangPembelianBarang, $statusPembelianBarang,
                 $tanggalTransferPembelianBarang,
                 $kodeInvoice
@@ -4794,9 +5123,9 @@ function save_invoice_form(array $postData): array
                     nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat,
                     total_item, total_qty, subtotal, harga_normal_pricelist, discount_persen, discount_amount, total_harga_jual,
                     status_pembayaran, tanggal_pembayaran,
-                    pph_final_terbayar, pph_final_belum_terbayar,
+                    pph_final_terbayar, pph_final_belum_terbayar, tanggal_pembayaran_pph_final,
                     komisi_admin_terbayar, komisi_admin_belum_terbayar,
-                    biaya_kirim, biaya_admin_bank,
+                    biaya_kirim, tanggal_pembayaran_biaya_kirim, biaya_admin_bank, tanggal_pembayaran_biaya_admin_bank,
                     total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, tanggal_transfer_pembelian_barang, file_invoice
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?,
@@ -4808,9 +5137,9 @@ function save_invoice_form(array $postData): array
                     ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?,
                     ?, ?,
+                    ?, ?, ?,
                     ?, ?,
-                    ?, ?,
-                    ?, ?,
+                    ?, ?, ?, ?,
                     ?, ?, ?, ?, ?
                 )
             ');
@@ -4824,9 +5153,9 @@ function save_invoice_form(array $postData): array
                 $namaCustomerInvoice, $namaLaundryInvoice, $noTelepon, $alamat,
                 $totalItem, $totalQty, $subtotal, $subtotal, $discountPersen, $discountAmount, $totalHargaJual,
                 $statusPembayaran, $tanggalPembayaran,
-                $pphFinalTerbayar, $pphFinalBelumTerbayar,
+                $pphFinalTerbayar, $pphFinalBelumTerbayar, $tanggalPembayaranPphFinal,
                 $komisiAdminTerbayar, $komisiAdminBelumTerbayar,
-                $biayaKirim, $biayaAdminBank,
+                $biayaKirim, $tanggalPembayaranBiayaKirim, $biayaAdminBank, $tanggalPembayaranBiayaAdminBank,
                 $totalPembelianBarang, $totalUtangPembelianBarang, $statusPembelianBarang, $tanggalTransferPembelianBarang, $fileInvoice
             ]);
         }
@@ -7312,7 +7641,7 @@ function seed_bonus_expenses(PDO $pdo): int
         INSERT INTO operational_expenses
             (tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, keterangan)
         VALUES
-            (NULL, :bulan_pnl, :tahun_pnl, 'bonus', :nama_pengeluaran, :jumlah, 'Lunas', 'Bonus dari sheet Bonus Krisna')
+            (NULL, :bulan_pnl, :tahun_pnl, 'bonus', :nama_pengeluaran, :jumlah, 'Hutang', 'Bonus dari sheet Bonus Krisna')
     ");
 
     $count = 0;

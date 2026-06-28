@@ -137,6 +137,7 @@
                 '/laporan/jurnal' => ['Jurnal Umum', 'Jurnal otomatis dari invoice dan operasional.'],
                 '/laporan/buku-besar' => ['Buku Besar', 'Mutasi debit kredit dan saldo berjalan per akun.'],
                 '/laporan/neraca' => ['Neraca', 'Posisi aset, kewajiban, dan ekuitas dari jurnal.'],
+                '/laporan/arus-kas' => ['Arus Kas', 'Kas masuk, kas keluar, dan saldo kas dari jurnal Kas / Bank.'],
             ];
             ?>
             <?php foreach ($accountingReports as $href => [$label, $description]): ?>

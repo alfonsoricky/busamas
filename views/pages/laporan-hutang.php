@@ -154,13 +154,14 @@ $activeTab = $reportData['type'] ?? 'dagang';
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal Invoice</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Sales Agent</th>
                             <th class="text-right whitespace-nowrap px-4 py-3 font-semibold">Komisi Belum Terbayar</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Status Pembayaran</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Bayar Customer</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Transfer Komisi</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
                         <?php if (empty($items)): ?>
                             <tr>
-                                <td colspan="5" class="px-4 py-8 text-center text-stone-500">Tidak ada hutang komisi sales yang outstanding. Semua komisi lunas!</td>
+                                <td colspan="6" class="px-4 py-8 text-center text-stone-500">Tidak ada hutang komisi sales yang outstanding. Semua komisi lunas!</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($items as $item): ?>
@@ -183,6 +184,17 @@ $activeTab = $reportData['type'] ?? 'dagang';
                                     </td>
                                     <td class="text-right whitespace-nowrap px-4 py-3 font-bold text-coral">
                                         <?= rupiah($item['komisi_sales_belum_terbayar'] ?? 0) ?>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3">
+                                        <?php if (($item['status_pembayaran'] ?? '') === 'Lunas'): ?>
+                                            <span class="rounded bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-800">
+                                                Lunas
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="rounded bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800">
+                                                Belum Lunas
+                                            </span>
+                                        <?php endif; ?>
                                     </td>
                                     <td class="whitespace-nowrap px-4 py-3">
                                         <span class="rounded bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">

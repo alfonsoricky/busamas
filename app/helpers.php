@@ -6510,7 +6510,7 @@ function fetch_laporan_hutang(string $month = '', string $year = '', string $typ
     }
 
     if ($type === 'sales_commission') {
-        $invoices = db_all("SELECT nomor_invoice, tanggal_invoice, nama_sales_1, nama_sales_2, komisi_sales_belum_terbayar, status_pembayaran_komisi_sales FROM invoices WHERE komisi_sales_belum_terbayar > 0");
+        $invoices = db_all("SELECT nomor_invoice, tanggal_invoice, nama_sales_1, nama_sales_2, komisi_sales_belum_terbayar, status_pembayaran_komisi_sales, status_pembayaran FROM invoices WHERE komisi_sales_belum_terbayar > 0");
         $data = [];
         foreach ($invoices ?? [] as $inv) {
             $invNo = $inv['nomor_invoice'] ?? '';

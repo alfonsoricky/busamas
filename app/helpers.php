@@ -1364,6 +1364,11 @@ function ensure_default_chart_of_accounts(PDO $pdo): void
 
 function accounting_account_ids(PDO $pdo): array
 {
+    static $cachedIds = null;
+    if ($cachedIds !== null) {
+        return $cachedIds;
+    }
+
     ensure_default_chart_of_accounts($pdo);
 
     $rows = $pdo->query('SELECT id, code FROM chart_of_accounts')->fetchAll(PDO::FETCH_ASSOC);
@@ -1377,6 +1382,7 @@ function accounting_account_ids(PDO $pdo): array
         $ids[$key] = $byCode[$account[0]] ?? 0;
     }
 
+    $cachedIds = $ids;
     return $ids;
 }
 
@@ -1675,38 +1681,54 @@ function regenerate_all_accounting_journals(PDO $pdo): array
         return ['entries' => 0, 'lines' => 0];
     }
 
-    ensure_default_chart_of_accounts($pdo);
-    $entries = 0;
-    $lines = 0;
-
-    $invoiceCodes = $pdo->query('SELECT kode_invoice FROM invoices ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) ?: [];
-    foreach ($invoiceCodes as $kodeInvoice) {
-        $lineCount = generate_invoice_journal($pdo, (string) $kodeInvoice);
-        if ($lineCount > 0) {
-            $entries++;
-            $lines += $lineCount;
-        }
+    $useTransaction = !$pdo->inTransaction();
+    if ($useTransaction) {
+        $pdo->beginTransaction();
     }
 
-    $expenseIds = $pdo->query('SELECT id FROM operational_expenses ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) ?: [];
-    foreach ($expenseIds as $expenseId) {
-        $lineCount = generate_operational_expense_journal($pdo, (int) $expenseId);
-        if ($lineCount > 0) {
-            $entries++;
-            $lines += $lineCount;
-        }
-    }
+    try {
+        ensure_default_chart_of_accounts($pdo);
+        $entries = 0;
+        $lines = 0;
 
-    ensure_partner_prive_table($pdo);
-    if (database_table_exists($pdo, 'partner_prive')) {
-        $priveIds = $pdo->query('SELECT id FROM partner_prive ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) ?: [];
-        foreach ($priveIds as $priveId) {
-            $lineCount = generate_partner_prive_journal($pdo, (int) $priveId);
+        $invoiceCodes = $pdo->query('SELECT kode_invoice FROM invoices ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        foreach ($invoiceCodes as $kodeInvoice) {
+            $lineCount = generate_invoice_journal($pdo, (string) $kodeInvoice);
             if ($lineCount > 0) {
                 $entries++;
                 $lines += $lineCount;
             }
         }
+
+        $expenseIds = $pdo->query('SELECT id FROM operational_expenses ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+        foreach ($expenseIds as $expenseId) {
+            $lineCount = generate_operational_expense_journal($pdo, (int) $expenseId);
+            if ($lineCount > 0) {
+                $entries++;
+                $lines += $lineCount;
+            }
+        }
+
+        ensure_partner_prive_table($pdo);
+        if (database_table_exists($pdo, 'partner_prive')) {
+            $priveIds = $pdo->query('SELECT id FROM partner_prive ORDER BY id')->fetchAll(PDO::FETCH_COLUMN) ?: [];
+            foreach ($priveIds as $priveId) {
+                $lineCount = generate_partner_prive_journal($pdo, (int) $priveId);
+                if ($lineCount > 0) {
+                    $entries++;
+                    $lines += $lineCount;
+                }
+            }
+        }
+
+        if ($useTransaction) {
+            $pdo->commit();
+        }
+    } catch (Throwable $e) {
+        if ($useTransaction && $pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        throw $e;
     }
 
     return ['entries' => $entries, 'lines' => $lines];

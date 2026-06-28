@@ -19,12 +19,26 @@ $activeTab = $reportData['type'] ?? 'dagang';
         <div>
             <p class="mb-3 text-sm font-semibold uppercase tracking-wide text-brand">Laporan Hutang</p>
             <h1 class="text-3xl font-bold text-ink sm:text-4xl">
-                <?= $activeTab === 'operational' ? 'Hutang Operasional &amp; Bonus' : 'Hutang Dagang (Payables)' ?>
+                <?php
+                if ($activeTab === 'operational') {
+                    echo 'Hutang Operasional &amp; Bonus';
+                } elseif ($activeTab === 'sales_commission') {
+                    echo 'Hutang Komisi Sales';
+                } else {
+                    echo 'Hutang Dagang (Payables)';
+                }
+                ?>
             </h1>
             <p class="mt-2 max-w-2xl leading-7 text-stone-600">
-                <?= $activeTab === 'operational' 
-                    ? 'Daftar pengeluaran operasional dan komisi/bonus sales berstatus "Hutang" yang belum diselesaikan.' 
-                    : 'Daftar tagihan pembelian barang kepada vendor/supplier atas invoice yang belum dilunasi sepenuhnya.' ?>
+                <?php
+                if ($activeTab === 'operational') {
+                    echo 'Daftar pengeluaran operasional dan komisi/bonus sales berstatus "Hutang" yang belum diselesaikan.';
+                } elseif ($activeTab === 'sales_commission') {
+                    echo 'Daftar komisi sales agent dari data invoice yang belum ditransfer/dibayarkan.';
+                } else {
+                    echo 'Daftar tagihan pembelian barang kepada vendor/supplier atas invoice yang belum dilunasi sepenuhnya.';
+                }
+                ?>
             </p>
         </div>
     </div>
@@ -38,6 +52,7 @@ $activeTab = $reportData['type'] ?? 'dagang';
             $tabs = [
                 'dagang' => 'Hutang Dagang (Vendor)',
                 'operational' => 'Hutang Operasional &amp; Bonus',
+                'sales_commission' => 'Hutang Komisi Sales',
             ];
             foreach ($tabs as $key => $label):
                 $isActive = $activeTab === $key;
@@ -61,7 +76,15 @@ $activeTab = $reportData['type'] ?? 'dagang';
         </div>
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
             <p class="text-sm font-medium text-stone-500">
-                <?= $activeTab === 'operational' ? 'Jumlah Catatan Pengeluaran' : 'Jumlah Invoice Belum Lunas' ?>
+                <?php
+                if ($activeTab === 'operational') {
+                    echo 'Jumlah Catatan Pengeluaran';
+                } elseif ($activeTab === 'sales_commission') {
+                    echo 'Jumlah Tagihan Komisi';
+                } else {
+                    echo 'Jumlah Invoice Belum Lunas';
+                }
+                ?>
             </p>
             <p class="mt-2 text-3xl font-bold text-ink"><?= count($items) ?></p>
         </div>
@@ -116,6 +139,55 @@ $activeTab = $reportData['type'] ?? 'dagang';
                                     </td>
                                     <td class="px-4 py-3 text-stone-600 max-w-xs truncate" title="<?= e($item['keterangan'] ?? '') ?>">
                                         <?= e($item['keterangan'] ?? '-') ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            <?php elseif ($activeTab === 'sales_commission'): ?>
+                <!-- Sales Commission Debt Table -->
+                <table class="min-w-full divide-y divide-stone-200 text-left text-sm">
+                    <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
+                        <tr>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">No. Invoice</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal Invoice</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Sales Agent</th>
+                            <th class="text-right whitespace-nowrap px-4 py-3 font-semibold">Komisi Belum Terbayar</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Status Pembayaran</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-stone-100">
+                        <?php if (empty($items)): ?>
+                            <tr>
+                                <td colspan="5" class="px-4 py-8 text-center text-stone-500">Tidak ada hutang komisi sales yang outstanding. Semua komisi lunas!</td>
+                            </tr>
+                        <?php else: ?>
+                            <?php foreach ($items as $item): ?>
+                                <tr class="hover:bg-stone-50">
+                                    <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand">
+                                        <a href="<?= e(url('/invoice-view?code=' . ($item['nomor_invoice'] ?? ''))) ?>" class="hover:underline">
+                                            <?= e($item['nomor_invoice'] ?? '') ?>
+                                        </a>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3 text-stone-700">
+                                        <?= e($item['tanggal_invoice'] ?? '') ?>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3 text-ink font-medium">
+                                        <?php
+                                        $salesNames = [];
+                                        if (!empty($item['nama_sales_1'])) $salesNames[] = $item['nama_sales_1'];
+                                        if (!empty($item['nama_sales_2'])) $salesNames[] = $item['nama_sales_2'];
+                                        echo e(implode(' &amp; ', $salesNames) ?: '-');
+                                        ?>
+                                    </td>
+                                    <td class="text-right whitespace-nowrap px-4 py-3 font-bold text-coral">
+                                        <?= rupiah($item['komisi_sales_belum_terbayar'] ?? 0) ?>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3">
+                                        <span class="rounded bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">
+                                            <?= e($item['status_pembayaran_komisi_sales'] ?: 'Belum TF') ?>
+                                        </span>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>

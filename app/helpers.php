@@ -6509,6 +6509,24 @@ function fetch_laporan_hutang(string $month = '', string $year = '', string $typ
         ];
     }
 
+    if ($type === 'sales_commission') {
+        $invoices = db_all("SELECT nomor_invoice, tanggal_invoice, nama_sales_1, nama_sales_2, komisi_sales_belum_terbayar, status_pembayaran_komisi_sales FROM invoices WHERE komisi_sales_belum_terbayar > 0");
+        $data = [];
+        foreach ($invoices ?? [] as $inv) {
+            $invNo = $inv['nomor_invoice'] ?? '';
+            if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
+            if ($year !== '' && invoice_year($invNo) !== $year) continue;
+            $data[] = $inv;
+        }
+        usort($data, static fn ($a, $b) => (float)($b['komisi_sales_belum_terbayar'] ?? 0) <=> (float)($a['komisi_sales_belum_terbayar'] ?? 0));
+        return [
+            'ok' => true,
+            'type' => 'sales_commission',
+            'items' => $data,
+            'total_hutang' => array_sum(array_map(static fn ($item) => (float)($item['komisi_sales_belum_terbayar'] ?? 0), $data)),
+        ];
+    }
+
     // Default: dagang
     $invoices = db_all('SELECT nomor_invoice, tanggal_invoice, COALESCE(nama_customer_master, nama_laundry_invoice) AS nama_customer, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang FROM invoices WHERE total_utang_pembelian_barang > 0');
     $data = [];

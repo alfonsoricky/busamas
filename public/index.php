@@ -619,9 +619,9 @@ $routes = [
     ],
     '/laporan/hutang' => [
         'view' => 'pages/laporan-hutang',
-        'title' => 'Laporan Hutang Dagang',
+        'title' => 'Laporan Hutang',
         'data' => fn (): array => [
-            'reportData' => fetch_laporan_hutang($_GET['month'] ?? '', $_GET['year'] ?? date('Y')),
+            'reportData' => fetch_laporan_hutang($_GET['month'] ?? '', $_GET['year'] ?? date('Y'), $_GET['tab'] ?? 'dagang'),
         ],
     ],
     '/laporan/piutang' => [

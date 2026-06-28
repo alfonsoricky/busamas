@@ -6485,13 +6485,31 @@ function fetch_laporan_profit_loss(string $month = '', string $year = ''): array
     ];
 }
 
-function fetch_laporan_hutang(string $month = '', string $year = ''): array
+function fetch_laporan_hutang(string $month = '', string $year = '', string $type = 'dagang'): array
 {
     $pdo = db();
     if ($pdo === null) {
         return ['ok' => false, 'error' => 'Koneksi database gagal.'];
     }
 
+    if ($type === 'operational') {
+        $expenses = db_all("SELECT id, tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, keterangan FROM operational_expenses WHERE status_pembayaran = 'Hutang'");
+        $data = [];
+        foreach ($expenses ?? [] as $exp) {
+            if ($month !== '' && (int)($exp['bulan_pnl'] ?? 0) !== (int)$month) continue;
+            if ($year !== '' && (int)($exp['tahun_pnl'] ?? 0) !== (int)$year) continue;
+            $data[] = $exp;
+        }
+        usort($data, static fn ($a, $b) => (float)($b['jumlah'] ?? 0) <=> (float)($a['jumlah'] ?? 0));
+        return [
+            'ok' => true,
+            'type' => 'operational',
+            'items' => $data,
+            'total_hutang' => array_sum(array_map(static fn ($item) => (float)($item['jumlah'] ?? 0), $data)),
+        ];
+    }
+
+    // Default: dagang
     $invoices = db_all('SELECT nomor_invoice, tanggal_invoice, COALESCE(nama_customer_master, nama_laundry_invoice) AS nama_customer, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang FROM invoices WHERE total_utang_pembelian_barang > 0');
     $data = [];
 
@@ -6507,6 +6525,7 @@ function fetch_laporan_hutang(string $month = '', string $year = ''): array
 
     return [
         'ok' => true,
+        'type' => 'dagang',
         'items' => $data,
         'total_hutang' => array_sum(array_map(static fn ($item) => (float)($item['total_utang_pembelian_barang'] ?? 0), $data)),
     ];

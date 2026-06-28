@@ -95,162 +95,146 @@ $activeTab = $reportData['type'] ?? 'dagang';
         <div class="overflow-x-auto">
             <?php if ($activeTab === 'operational'): ?>
                 <!-- Operational Debt Table -->
-                <table class="min-w-full divide-y divide-stone-200 text-left text-sm">
+                <table class="min-w-full divide-y divide-stone-200 text-left text-sm" data-simple-datatable data-dt-unit="transaksi" data-dt-empty="Tidak ada hutang operasional yang cocok.">
                     <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
                         <tr>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Periode PNL</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Kategori</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Nama Pengeluaran</th>
-                            <th class="text-right whitespace-nowrap px-4 py-3 font-semibold">Jumlah Hutang</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Keterangan</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="date">Tanggal</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Periode PNL</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Kategori</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Nama Pengeluaran</th>
+                            <th class="text-right whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Jumlah Hutang</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Keterangan</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
-                        <?php if (empty($items)): ?>
-                            <tr>
-                                <td colspan="6" class="px-4 py-8 text-center text-stone-500">Tidak ada hutang operasional yang outstanding. Semua pengeluaran lunas!</td>
+                        <?php foreach ($items as $item): ?>
+                            <tr class="hover:bg-stone-50" data-dt-row>
+                                <td class="whitespace-nowrap px-4 py-3 text-stone-700">
+                                    <?= e($item['tanggal'] ?? '') ?>
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3 text-stone-600">
+                                    <?= e(invoice_months()[(int)($item['bulan_pnl'] ?? 0)] ?? '-') ?> <?= e($item['tahun_pnl'] ?? '') ?>
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3">
+                                    <?php if (($item['kategori'] ?? '') === 'bonus'): ?>
+                                        <span class="rounded bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-800">
+                                            Bonus
+                                        </span>
+                                    <?php else: ?>
+                                        <span class="rounded bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-800">
+                                            Operational
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3 font-medium text-ink">
+                                    <?= e($item['nama_pengeluaran'] ?? '') ?>
+                                </td>
+                                <td class="text-right whitespace-nowrap px-4 py-3 font-bold text-coral">
+                                    <?= rupiah($item['jumlah'] ?? 0) ?>
+                                </td>
+                                <td class="px-4 py-3 text-stone-600 max-w-xs truncate" title="<?= e($item['keterangan'] ?? '') ?>">
+                                    <?= e($item['keterangan'] ?? '-') ?>
+                                </td>
                             </tr>
-                        <?php else: ?>
-                            <?php foreach ($items as $item): ?>
-                                <tr class="hover:bg-stone-50">
-                                    <td class="whitespace-nowrap px-4 py-3 text-stone-700">
-                                        <?= e($item['tanggal'] ?? '') ?>
-                                    </td>
-                                    <td class="whitespace-nowrap px-4 py-3 text-stone-600">
-                                        <?= e(invoice_months()[(int)($item['bulan_pnl'] ?? 0)] ?? '-') ?> <?= e($item['tahun_pnl'] ?? '') ?>
-                                    </td>
-                                    <td class="whitespace-nowrap px-4 py-3">
-                                        <?php if (($item['kategori'] ?? '') === 'bonus'): ?>
-                                            <span class="rounded bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-800">
-                                                Bonus
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="rounded bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-800">
-                                                Operational
-                                            </span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="whitespace-nowrap px-4 py-3 font-medium text-ink">
-                                        <?= e($item['nama_pengeluaran'] ?? '') ?>
-                                    </td>
-                                    <td class="text-right whitespace-nowrap px-4 py-3 font-bold text-coral">
-                                        <?= rupiah($item['jumlah'] ?? 0) ?>
-                                    </td>
-                                    <td class="px-4 py-3 text-stone-600 max-w-xs truncate" title="<?= e($item['keterangan'] ?? '') ?>">
-                                        <?= e($item['keterangan'] ?? '-') ?>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
+                        <?php endforeach; ?>
                     </tbody>
                 </table>
             <?php elseif ($activeTab === 'sales_commission'): ?>
                 <!-- Sales Commission Debt Table -->
-                <table class="min-w-full divide-y divide-stone-200 text-left text-sm">
+                <table class="min-w-full divide-y divide-stone-200 text-left text-sm" data-simple-datatable data-dt-unit="invoice" data-dt-empty="Tidak ada hutang komisi sales yang cocok.">
                     <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
                         <tr>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">No. Invoice</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal Invoice</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Customer / Laundry</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Sales Agent</th>
-                            <th class="text-right whitespace-nowrap px-4 py-3 font-semibold">Komisi Belum Terbayar</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Bayar Customer</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Transfer Komisi</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">No. Invoice</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="date">Tanggal Invoice</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Customer / Laundry</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Sales Agent</th>
+                            <th class="text-right whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Komisi Belum Terbayar</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Bayar Customer</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Transfer Komisi</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
-                        <?php if (empty($items)): ?>
-                            <tr>
-                                <td colspan="7" class="px-4 py-8 text-center text-stone-500">Tidak ada hutang komisi sales yang outstanding. Semua komisi lunas!</td>
-                            </tr>
-                        <?php else: ?>
-                            <?php foreach ($items as $item): ?>
-                                <tr class="hover:bg-stone-50">
-                                    <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand">
-                                        <a href="<?= e(url('/invoice-view?code=' . ($item['nomor_invoice'] ?? ''))) ?>" class="hover:underline">
-                                            <?= e($item['nomor_invoice'] ?? '') ?>
-                                        </a>
-                                    </td>
-                                    <td class="whitespace-nowrap px-4 py-3 text-stone-700">
-                                        <?= e($item['tanggal_invoice'] ?? '') ?>
-                                    </td>
-                                    <td class="whitespace-nowrap px-4 py-3 text-stone-700 font-medium">
-                                        <?= e($item['nama_customer'] ?? '') ?>
-                                    </td>
-                                    <td class="whitespace-nowrap px-4 py-3 text-ink font-medium">
-                                        <?php
-                                        $salesNames = [];
-                                        if (!empty($item['nama_sales_1'])) $salesNames[] = $item['nama_sales_1'];
-                                        if (!empty($item['nama_sales_2'])) $salesNames[] = $item['nama_sales_2'];
-                                        echo e(implode(' &amp; ', $salesNames) ?: '-');
-                                        ?>
-                                    </td>
-                                    <td class="text-right whitespace-nowrap px-4 py-3 font-bold text-coral">
-                                        <?= rupiah($item['komisi_sales_belum_terbayar'] ?? 0) ?>
-                                    </td>
-                                    <td class="whitespace-nowrap px-4 py-3">
-                                        <?php if (($item['status_pembayaran'] ?? '') === 'Lunas'): ?>
-                                            <span class="rounded bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-800">
-                                                Lunas
-                                            </span>
-                                        <?php else: ?>
-                                            <span class="rounded bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800">
-                                                Belum Lunas
-                                            </span>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="whitespace-nowrap px-4 py-3">
-                                        <span class="rounded bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">
-                                            <?= e($item['status_pembayaran_komisi_sales'] ?: 'Belum TF') ?>
+                        <?php foreach ($items as $item): ?>
+                            <tr class="hover:bg-stone-50" data-dt-row>
+                                <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand">
+                                    <a href="<?= e(url('/invoice-view?code=' . ($item['nomor_invoice'] ?? ''))) ?>" class="hover:underline">
+                                        <?= e($item['nomor_invoice'] ?? '') ?>
+                                    </a>
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3 text-stone-700">
+                                    <?= e($item['tanggal_invoice'] ?? '') ?>
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3 text-stone-700 font-medium">
+                                    <?= e($item['nama_customer'] ?? '') ?>
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3 text-ink font-medium">
+                                    <?php
+                                    $salesNames = [];
+                                    if (!empty($item['nama_sales_1'])) $salesNames[] = $item['nama_sales_1'];
+                                    if (!empty($item['nama_sales_2'])) $salesNames[] = $item['nama_sales_2'];
+                                    echo e(implode(' &amp; ', $salesNames) ?: '-');
+                                    ?>
+                                </td>
+                                <td class="text-right whitespace-nowrap px-4 py-3 font-bold text-coral">
+                                    <?= rupiah($item['komisi_sales_belum_terbayar'] ?? 0) ?>
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3">
+                                    <?php if (($item['status_pembayaran'] ?? '') === 'Lunas'): ?>
+                                        <span class="rounded bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-800">
+                                            Lunas
                                         </span>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
+                                    <?php else: ?>
+                                        <span class="rounded bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-800">
+                                            Belum Lunas
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3">
+                                    <span class="rounded bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">
+                                        <?= e($item['status_pembayaran_komisi_sales'] ?: 'Belum TF') ?>
+                                    </span>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
                     </tbody>
                 </table>
             <?php else: ?>
                 <!-- Trade Debt Table (Original) -->
-                <table class="min-w-full divide-y divide-stone-200 text-left text-sm">
+                <table class="min-w-full divide-y divide-stone-200 text-left text-sm" data-simple-datatable data-dt-unit="invoice" data-dt-empty="Tidak ada hutang dagang yang cocok.">
                     <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
                         <tr>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">No. Invoice</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Customer / Laundry</th>
-                            <th class="text-right whitespace-nowrap px-4 py-3 font-semibold">Total Modal (COGS)</th>
-                            <th class="text-right whitespace-nowrap px-4 py-3 font-semibold">Sisa Hutang (HPP)</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Status Pembelian</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">No. Invoice</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="date">Tanggal</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Customer / Laundry</th>
+                            <th class="text-right whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Total Modal (COGS)</th>
+                            <th class="text-right whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Sisa Hutang (HPP)</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Status Pembelian</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
-                        <?php if (empty($items)): ?>
-                            <tr>
-                                <td colspan="6" class="px-4 py-8 text-center text-stone-500">Tidak ada hutang dagang yang outstanding. Semua tagihan pembelian lunas!</td>
+                        <?php foreach ($items as $item): ?>
+                            <tr class="hover:bg-stone-50" data-dt-row>
+                                <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand">
+                                    <a href="<?= e(url('/invoice-view?code=' . ($item['nomor_invoice'] ?? ''))) ?>" class="hover:underline">
+                                        <?= e($item['nomor_invoice'] ?? '') ?>
+                                    </a>
+                                </td>
+                                <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['tanggal_invoice'] ?? '') ?></td>
+                                <td class="whitespace-nowrap px-4 py-3 font-medium text-ink"><?= e($item['nama_customer'] ?? '') ?></td>
+                                <td class="text-right whitespace-nowrap px-4 py-3 text-stone-700"><?= rupiah($item['total_pembelian_barang'] ?? 0) ?></td>
+                                <td class="text-right whitespace-nowrap px-4 py-3 font-bold text-coral"><?= rupiah($item['total_utang_pembelian_barang'] ?? 0) ?></td>
+                                <td class="whitespace-nowrap px-4 py-3">
+                                    <span class="rounded bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">
+                                        <?= e($item['status_pembelian_barang'] ?? 'Belum Lunas') ?>
+                                    </span>
+                                </td>
                             </tr>
-                        <?php else: ?>
-                            <?php foreach ($items as $item): ?>
-                                <tr class="hover:bg-stone-50">
-                                    <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand">
-                                        <a href="<?= e(url('/invoice-view?code=' . ($item['nomor_invoice'] ?? ''))) ?>" class="hover:underline">
-                                            <?= e($item['nomor_invoice'] ?? '') ?>
-                                        </a>
-                                    </td>
-                                    <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['tanggal_invoice'] ?? '') ?></td>
-                                    <td class="whitespace-nowrap px-4 py-3 font-medium text-ink"><?= e($item['nama_customer'] ?? '') ?></td>
-                                    <td class="text-right whitespace-nowrap px-4 py-3 text-stone-700"><?= rupiah($item['total_pembelian_barang'] ?? 0) ?></td>
-                                    <td class="text-right whitespace-nowrap px-4 py-3 font-bold text-coral"><?= rupiah($item['total_utang_pembelian_barang'] ?? 0) ?></td>
-                                    <td class="whitespace-nowrap px-4 py-3">
-                                        <span class="rounded bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">
-                                            <?= e($item['status_pembelian_barang'] ?? 'Belum Lunas') ?>
-                                        </span>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
+                        <?php endforeach; ?>
                     </tbody>
                 </table>
             <?php endif; ?>
         </div>
     </div>
 </section>
+
+<?php require dirname(__DIR__) . '/partials/simple-datatable.php'; ?>

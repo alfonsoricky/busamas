@@ -1587,15 +1587,25 @@ function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
     }
 
     $delivery = round((float) ($invoice['biaya_kirim'] ?? 0), 2);
+    $hasDeliveryPayment = !empty($invoice['tanggal_pembayaran_biaya_kirim']) && $invoice['tanggal_pembayaran_biaya_kirim'] !== '0000-00-00';
     if ($delivery > 0) {
         accounting_add_line($lines, $a['delivery_expense'], $delivery, 0, 'Biaya kirim ' . $nomor);
-        accounting_add_line($lines, $a['cash'], 0, $delivery, 'Biaya kirim dibayar ' . $nomor);
+        if ($hasDeliveryPayment) {
+            accounting_add_line($lines, $a['cash'], 0, $delivery, 'Biaya kirim dibayar ' . $nomor);
+        } else {
+            accounting_add_line($lines, $a['operational_payable'], 0, $delivery, 'Hutang biaya kirim ' . $nomor);
+        }
     }
 
     $bankAdmin = round((float) ($invoice['biaya_admin_bank'] ?? 0), 2);
+    $hasBankAdminPayment = !empty($invoice['tanggal_pembayaran_biaya_admin_bank']) && $invoice['tanggal_pembayaran_biaya_admin_bank'] !== '0000-00-00';
     if ($bankAdmin > 0) {
         accounting_add_line($lines, $a['bank_admin_expense'], $bankAdmin, 0, 'Biaya admin bank ' . $nomor);
-        accounting_add_line($lines, $a['cash'], 0, $bankAdmin, 'Biaya admin bank dibayar ' . $nomor);
+        if ($hasBankAdminPayment) {
+            accounting_add_line($lines, $a['cash'], 0, $bankAdmin, 'Biaya admin bank dibayar ' . $nomor);
+        } else {
+            accounting_add_line($lines, $a['operational_payable'], 0, $bankAdmin, 'Hutang biaya admin bank ' . $nomor);
+        }
     }
 
     return accounting_replace_journal($pdo, 'invoice', $kodeInvoice, $entryDate, 'Jurnal otomatis invoice ' . $nomor, $lines);

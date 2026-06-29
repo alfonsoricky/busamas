@@ -7106,6 +7106,10 @@ function save_operational_expense_form(array $postData): array
         $journalLines = generate_operational_expense_journal($pdo, $expenseId);
 
         $pdo->commit();
+        
+        // Sinkronisasi otomatis ke Google Sheets di background
+        queue_operational_google_sync($expenseId, 'save');
+
         activity_log($isUpdate ? 'update' : 'insert', 'operational', (string) $expenseId, ($isUpdate ? 'Update' : 'Tambah') . ' pengeluaran operasional ' . $nama, $isUpdate ? $oldExpense : null, [
             'tanggal' => $tanggal,
             'bulan_pnl' => $bulanPnl,
@@ -7156,6 +7160,10 @@ function delete_operational_expense(int $id): array
         $delete->execute([$id]);
 
         $pdo->commit();
+        
+        // Hapus otomatis di Google Sheets di background
+        queue_operational_google_sync($id, 'delete');
+
         activity_log('delete', 'operational', (string) $id, 'Hapus pengeluaran operasional ' . ($expense['nama_pengeluaran'] ?? ''), $expense, null);
 
         return ['ok' => true, 'message' => 'Pengeluaran operasional ' . ($expense['nama_pengeluaran'] ?? '') . ' berhasil dihapus beserta jurnalnya.'];
@@ -9615,31 +9623,203 @@ function sheets_append_invoice_row(array $invoice): bool
     $spreadsheetId = google_sheet_config('spreadsheet_id');
     $sheetName     = google_sheet_config('penjualan_sheet_name', 'Penjualan');
 
-    // Langkah 1: Hitung baris yang sudah terisi di kolom A mulai dari A3
-    // agar kita tahu row number sebelum menulis (untuk formula dinamis di kolom T)
-    $countRange = urlencode($sheetName . '!A3:A');
-    $countUrl   = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$countRange}";
-    $countResp  = http_get($countUrl, ['Authorization: Bearer ' . $token['access_token']]);
+    // Langkah 1: Ambil data kolom A & B mulai dari baris 3 untuk analisa data dan deteksi bulan baru
+    $dataRange = urlencode($sheetName . '!A3:B');
+    $dataUrl   = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$dataRange}";
+    $dataResp  = http_get($dataUrl, ['Authorization: Bearer ' . $token['access_token']]);
     $existingRows = [];
-    if ($countResp['ok']) {
-        $existingRows = json_decode($countResp['body'], true)['values'] ?? [];
+    if ($dataResp['ok']) {
+        $existingRows = json_decode($dataResp['body'], true)['values'] ?? [];
     }
-    // Baris data mulai dari row 3; row berikutnya = jumlah baris terisi + 3
-    $nextRow = count($existingRows) + 3;
 
-    // Langkah 2: Gunakan endpoint :append dengan insertDataOption=INSERT_ROWS
-    // agar Google Sheets menyisipkan baris baru dan mewariskan dropdown dari baris atasnya.
-    // Kami tetap mendefinisikan range A:AI agar dia tahu tabelnya berada di kolom mana.
-    $range = urlencode($sheetName . '!A:AI');
-    $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$range}:append"
-         . '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS';
+    $lastRow = count($existingRows) + 2; // Baris fisik terakhir yang terisi (A3 is index 0 -> row 3)
 
-    $row  = build_sheets_invoice_row($invoice, $nextRow);
-    $body = json_encode(['values' => [$row]]);
+    // Helper untuk mengubah format tanggal Indonesia/Inggris ke format Y-m (Month-Year)
+    $parseMonthYear = static function ($dateVal) {
+        if (empty($dateVal)) return null;
+        $indoMonths = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        $engMonths  = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        $replaced = str_ireplace($indoMonths, $engMonths, trim((string)$dateVal));
+        $time = strtotime($replaced);
+        return $time ? date('Y-m', $time) : null;
+    };
 
-    return http_post_json($url, $body, [
-        'Authorization: Bearer ' . $token['access_token'],
-    ]);
+    // Temukan baris data terakhir yang valid (memiliki nomor invoice dan tanggal)
+    $lastDataIdx = null;
+    for ($i = count($existingRows) - 1; $i >= 0; $i--) {
+        $rowCells = $existingRows[$i] ?? [];
+        $invoiceNum = trim((string)($rowCells[0] ?? ''));
+        $dateVal = trim((string)($rowCells[1] ?? ''));
+        if ($invoiceNum !== '' && $parseMonthYear($dateVal) !== null) {
+            $lastDataIdx = $i;
+            break;
+        }
+    }
+
+    $isNewMonth = false;
+    $lastInvoiceRow = null;
+    if ($lastDataIdx !== null) {
+        $lastInvoiceRow = $lastDataIdx + 3; // baris fisik terakhir
+        $lastMonthYear = $parseMonthYear($existingRows[$lastDataIdx][1]);
+        $newMonthYear  = $parseMonthYear($invoice['tanggal_invoice']);
+        
+        if ($lastMonthYear !== null && $newMonthYear !== null && $lastMonthYear !== $newMonthYear) {
+            $isNewMonth = true;
+        }
+    }
+
+    if ($isNewMonth) {
+        // --- TRANSISI BULAN BARU ---
+        
+        // 1. Cari baris subtotal terbuka terakhir dengan memindai rumus kolom H ke atas
+        $subtotalRow = null;
+        $formulaRange = urlencode("{$sheetName}!H3:H{$lastInvoiceRow}");
+        $formulaUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$formulaRange}?valueRenderOption=FORMULA";
+        $formulaResp = http_get($formulaUrl, ['Authorization: Bearer ' . $token['access_token']]);
+        if ($formulaResp['ok']) {
+            $hFormulas = json_decode($formulaResp['body'], true)['values'] ?? [];
+            for ($i = count($hFormulas) - 1; $i >= 0; $i--) {
+                $fVal = trim((string)($hFormulas[$i][0] ?? ''));
+                if (str_starts_with($fVal, '=SUBTOTAL(109') && str_ends_with($fVal, ':H)')) {
+                    $subtotalRow = $i + 3;
+                    break;
+                }
+            }
+        }
+
+        // Helper untuk menutup formula open-ended
+        $closeFormula = static function ($formula, $colLetter, $endRow) {
+            if (!is_string($formula)) return $formula;
+            $formula = trim($formula);
+            if (!str_starts_with($formula, '=')) return $formula;
+            $suffix = ':' . $colLetter . ')';
+            if (str_ends_with($formula, $suffix)) {
+                return substr($formula, 0, -1) . $endRow . ')';
+            }
+            $suffixLower = ':' . strtolower($colLetter) . ')';
+            if (str_ends_with($formula, $suffixLower)) {
+                return substr($formula, 0, -1) . $endRow . ')';
+            }
+            return $formula;
+        };
+
+        // 2. Kunci subtotal lama (ubah rumus :H menjadi :H[lastInvoiceRow])
+        if ($subtotalRow !== null) {
+            $subtotalRange = urlencode("{$sheetName}!A{$subtotalRow}:AI{$subtotalRow}");
+            $subtotalUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$subtotalRange}?valueRenderOption=FORMULA";
+            $subtotalResp = http_get($subtotalUrl, ['Authorization: Bearer ' . $token['access_token']]);
+            if ($subtotalResp['ok']) {
+                $subtotalCells = json_decode($subtotalResp['body'], true)['values'][0] ?? [];
+                $closedCells = [];
+                $cols = array_merge(range('A','Z'), ['AA','AB','AC','AD','AE','AF','AG','AH','AI']);
+                foreach ($subtotalCells as $cIdx => $cellVal) {
+                    $colLetter = $cols[$cIdx] ?? '';
+                    $closedCells[] = $closeFormula($cellVal, $colLetter, $lastInvoiceRow);
+                }
+                
+                // Tulis kembali baris subtotal yang tertutup
+                $updateUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$subtotalRange}?valueInputOption=USER_ENTERED";
+                $updateBody = json_encode(['range' => "{$sheetName}!A{$subtotalRow}:AI{$subtotalRow}", 'values' => [$closedCells]]);
+                http_put_json($updateUrl, $updateBody, ['Authorization: Bearer ' . $token['access_token']]);
+            }
+        }
+
+        // 3. Tulis Baris Subtotal Baru & Invoice Baru
+        $newSubtotalRow = $lastRow + 1;
+        $newInvoiceRow  = $newSubtotalRow + 1;
+
+        $newSubtotalCells = [];
+        $cols = array_merge(range('A','Z'), ['AA','AB','AC','AD','AE','AF','AG','AH','AI']);
+        $subtotalCols = ['H', 'J', 'K', 'N', 'O', 'S', 'T', 'W', 'X', 'Z', 'AA', 'AB', 'AC', 'AE', 'AF', 'AG', 'AH'];
+        
+        foreach ($cols as $colLetter) {
+            if (in_array($colLetter, $subtotalCols, true)) {
+                $newSubtotalCells[] = "=SUBTOTAL(109;{$colLetter}{$newInvoiceRow}:{$colLetter})";
+            } else {
+                $newSubtotalCells[] = "";
+            }
+        }
+
+        $newInvoiceCells = build_sheets_invoice_row($invoice, $newInvoiceRow);
+
+        $range = urlencode("{$sheetName}!A{$newSubtotalRow}:AI{$newInvoiceRow}");
+        $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$range}?valueInputOption=USER_ENTERED";
+        $body = json_encode([
+            'range' => "{$sheetName}!A{$newSubtotalRow}:AI{$newInvoiceRow}",
+            'values' => [$newSubtotalCells, $newInvoiceCells]
+        ]);
+        
+        $syncOk = http_put_json($url, $body, ['Authorization: Bearer ' . $token['access_token']]);
+
+        // 4. Kirim batchUpdate API untuk mewarnai Baris Subtotal Baru menjadi hitam bold dengan teks putih
+        if ($syncOk) {
+            // Cari sheetId dari nama sheet
+            $sheetGid = (int) google_sheet_config('gid', '0');
+            $metaUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}?fields=sheets(properties)";
+            $metaResp = http_get($metaUrl, ['Authorization: Bearer ' . $token['access_token']]);
+            if ($metaResp['ok']) {
+                $meta = json_decode($metaResp['body'], true);
+                foreach ($meta['sheets'] ?? [] as $s) {
+                    if (($s['properties']['title'] ?? '') === $sheetName) {
+                        $sheetGid = (int) $s['properties']['sheetId'];
+                        break;
+                    }
+                }
+            }
+
+            // Panggil batchUpdate
+            $batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}:batchUpdate";
+            $payload = json_encode([
+                'requests' => [[
+                    'repeatCell' => [
+                        'range' => [
+                            'sheetId'          => $sheetGid,
+                            'startRowIndex'    => $newSubtotalRow - 1, // 0-based
+                            'endRowIndex'      => $newSubtotalRow,
+                            'startColumnIndex' => 0,
+                            'endColumnIndex'   => 35, // A s.d. AI
+                        ],
+                        'cell' => [
+                            'userEnteredFormat' => [
+                                'backgroundColor' => [
+                                    'red'   => 0.0,
+                                    'green' => 0.0,
+                                    'blue'  => 0.0,
+                                ],
+                                'textFormat' => [
+                                    'foregroundColor' => [
+                                        'red'   => 1.0,
+                                        'green' => 1.0,
+                                        'blue'  => 1.0,
+                                    ],
+                                    'bold' => true,
+                                ],
+                            ],
+                        ],
+                        'fields' => 'userEnteredFormat(backgroundColor,textFormat)',
+                    ],
+                ]],
+            ]);
+            http_post_json($batchUrl, $payload, ['Authorization: Bearer ' . $token['access_token']]);
+        }
+
+        return $syncOk;
+
+    } else {
+        // --- BULAN YANG SAMA ---
+        // Jalankan append biasa di baris berikutnya
+        $nextRow = $lastRow + 1;
+        $range = urlencode($sheetName . '!A:AI');
+        $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$range}:append"
+             . '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS';
+
+        $row  = build_sheets_invoice_row($invoice, $nextRow);
+        $body = json_encode(['values' => [$row]]);
+
+        return http_post_json($url, $body, [
+            'Authorization: Bearer ' . $token['access_token'],
+        ]);
+    }
 }
 
 /**
@@ -10493,4 +10673,329 @@ function run_delete_test_data(): array
             'counts' => database_table_counts(),
         ];
     }
+}
+
+function queue_operational_google_sync(int $expenseId, string $action): array
+{
+    $scriptPath = dirname(__DIR__) . '/scripts/sync-operational-google.php';
+    if (!is_file($scriptPath)) {
+        return [
+            'queued' => false,
+            'errors' => ['Penyimpanan lokal berhasil, namun script sync Google tidak ditemukan.'],
+        ];
+    }
+
+    if (!function_exists('exec')) {
+        return [
+            'queued' => false,
+            'errors' => ['Penyimpanan lokal berhasil, namun fungsi exec tidak aktif untuk menjalankan sync Google.'],
+        ];
+    }
+
+    $logDir = dirname(__DIR__) . '/storage/logs';
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
+    }
+
+    $php = PHP_BINARY ?: 'php';
+    $logPath = $logDir . '/google-sync-operational.log';
+    $command = escapeshellarg($php)
+        . ' ' . escapeshellarg($scriptPath)
+        . ' ' . escapeshellarg((string)$expenseId)
+        . ' ' . escapeshellarg($action)
+        . ' >> ' . escapeshellarg($logPath)
+        . ' 2>&1 &';
+
+    exec($command);
+
+    return [
+        'queued' => true,
+        'errors' => [],
+    ];
+}
+
+function sheets_sync_operational_save(int $expenseId): bool
+{
+    $pdo = db();
+    if ($pdo === null) return false;
+
+    $stmt = $pdo->prepare("SELECT * FROM operational_expenses WHERE id = ? LIMIT 1");
+    $stmt->execute([$expenseId]);
+    $expense = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$expense) return false;
+
+    $token = google_service_account_access_token();
+    if (!$token['ok']) return false;
+
+    $spreadsheetId = google_sheet_config('spreadsheet_id');
+    $sheetName     = 'operational';
+
+    // 1. Format baris data
+    $buildOperationalRow = static function (array $expense) {
+        $fmtDate = static function ($v): string {
+            if (empty($v)) return '';
+            $time = strtotime((string)$v);
+            return $time ? date('d-M-Y', $time) : '';
+        };
+
+        return [
+            $fmtDate($expense['tanggal'] ?? null),          // A: TANGGAL
+            (string) ($expense['nama_pengeluaran'] ?? ''),   // B: NAMA PENGELUARAN
+            (float) ($expense['jumlah'] ?? 0),             // C: JUMLAH
+            (string) ($expense['status_pembayaran'] ?? ''),  // D: STATUS
+            $fmtDate($expense['tanggal_pembayaran'] ?? null),// E: TANGGAL PEMBAYARAN
+            (string) ($expense['keterangan'] ?? ''),        // F: KETERANGAN
+            "",                                             // G: TOTAL (empty for data rows)
+            (string) ($expense['id'] ?? ''),               // H: ID
+        ];
+    };
+
+    // 2. Cari baris berdasarkan ID di kolom H
+    $rangeH = urlencode("{$sheetName}!H3:H");
+    $urlH = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$rangeH}";
+    $respH = http_get($urlH, ['Authorization: Bearer ' . $token['access_token']]);
+    
+    $existingIds = [];
+    if ($respH['ok']) {
+        $existingIds = json_decode($respH['body'], true)['values'] ?? [];
+    }
+
+    $foundRow = null;
+    foreach ($existingIds as $idx => $rowVal) {
+        $idVal = trim((string)($rowVal[0] ?? ''));
+        if ($idVal === (string)$expenseId) {
+            $foundRow = $idx + 3; // H3 is index 0 -> row 3
+            break;
+        }
+    }
+
+    if ($foundRow !== null) {
+        // --- UPDATE BARIS YANG ADA ---
+        $writeRange = urlencode("{$sheetName}!A{$foundRow}:H{$foundRow}");
+        $writeUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$writeRange}?valueInputOption=USER_ENTERED";
+        $rowData = $buildOperationalRow($expense);
+        $writeBody = json_encode(['range' => "{$sheetName}!A{$foundRow}:H{$foundRow}", 'values' => [$rowData]]);
+        
+        return http_put_json($writeUrl, $writeBody, ['Authorization: Bearer ' . $token['access_token']]);
+    } else {
+        // --- TAMBAH BARIS BARU (INSERT) ---
+        $rangeData = urlencode("{$sheetName}!A3:H");
+        $urlData = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$rangeData}";
+        $respData = http_get($urlData, ['Authorization: Bearer ' . $token['access_token']]);
+        $existingRows = [];
+        if ($respData['ok']) {
+            $existingRows = json_decode($respData['body'], true)['values'] ?? [];
+        }
+        $lastRow = count($existingRows) + 2;
+
+        $parseMonthYear = static function ($dateVal) {
+            if (empty($dateVal)) return null;
+            $time = strtotime((string)$dateVal);
+            return $time ? date('Y-m', $time) : null;
+        };
+
+        $lastMonthYear = null;
+        for ($i = count($existingRows) - 1; $i >= 0; $i--) {
+            $rowCells = $existingRows[$i] ?? [];
+            $idVal = trim((string)($rowCells[7] ?? ''));
+            $dateVal = trim((string)($rowCells[0] ?? ''));
+            if ($idVal !== '' && $parseMonthYear($dateVal) !== null) {
+                $lastMonthYear = $parseMonthYear($dateVal);
+                break;
+            }
+        }
+
+        $lastExpenseRow = null;
+        for ($i = count($existingRows) - 1; $i >= 0; $i--) {
+            $rowCells = $existingRows[$i] ?? [];
+            $idVal = trim((string)($rowCells[7] ?? ''));
+            if ($idVal !== '') {
+                $lastExpenseRow = $i + 3;
+                break;
+            }
+        }
+
+        $isNewMonth = false;
+        if ($lastMonthYear !== null && $lastExpenseRow !== null) {
+            $newMonthYear  = $parseMonthYear($expense['tanggal']);
+            if ($newMonthYear !== null && $lastMonthYear !== $newMonthYear) {
+                $isNewMonth = true;
+            }
+        }
+
+        if ($isNewMonth) {
+            // A. Cari baris subtotal terbuka terakhir di kolom G
+            $subtotalRow = null;
+            $formulaRange = urlencode("{$sheetName}!G3:G{$lastExpenseRow}");
+            $formulaUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$formulaRange}?valueRenderOption=FORMULA";
+            $formulaResp = http_get($formulaUrl, ['Authorization: Bearer ' . $token['access_token']]);
+            if ($formulaResp['ok']) {
+                $gFormulas = json_decode($formulaResp['body'], true)['values'] ?? [];
+                for ($i = count($gFormulas) - 1; $i >= 0; $i--) {
+                    $fVal = trim((string)($gFormulas[$i][0] ?? ''));
+                    if (str_starts_with($fVal, '=SUBTOTAL(109') && str_ends_with($fVal, ':C)')) {
+                        $subtotalRow = $i + 3;
+                        break;
+                    }
+                }
+            }
+
+            // B. Kunci subtotal lama
+            if ($subtotalRow !== null) {
+                $subtotalRange = urlencode("{$sheetName}!G{$subtotalRow}");
+                $subtotalUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$subtotalRange}?valueRenderOption=FORMULA";
+                $subtotalResp = http_get($subtotalUrl, ['Authorization: Bearer ' . $token['access_token']]);
+                if ($subtotalResp['ok']) {
+                    $fVal = trim((string)(json_decode($subtotalResp['body'], true)['values'][0][0] ?? ''));
+                    if (str_starts_with($fVal, '=SUBTOTAL(109') && str_ends_with($fVal, ':C)')) {
+                        $closedFormula = substr($fVal, 0, -1) . $lastExpenseRow . ')';
+                        
+                        $updateUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$subtotalRange}?valueInputOption=USER_ENTERED";
+                        $updateBody = json_encode(['range' => "{$sheetName}!G{$subtotalRow}", 'values' => [[$closedFormula]]]);
+                        http_put_json($updateUrl, $updateBody, ['Authorization: Bearer ' . $token['access_token']]);
+                    }
+                }
+            }
+
+            // C. Tulis Subtotal Baru & Pengeluaran Baru
+            $newSubtotalRow = $lastRow + 1;
+            $newExpenseRow  = $newSubtotalRow + 1;
+
+            $newSubtotalCells = ["", "", "", "", "", "", "=SUBTOTAL(109;C{$newExpenseRow}:C)", ""];
+            $newExpenseCells  = $buildOperationalRow($expense);
+
+            $range = urlencode("{$sheetName}!A{$newSubtotalRow}:H{$newExpenseRow}");
+            $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$range}?valueInputOption=USER_ENTERED";
+            $body = json_encode([
+                'range' => "{$sheetName}!A{$newSubtotalRow}:H{$newExpenseRow}",
+                'values' => [$newSubtotalCells, $newExpenseCells]
+            ]);
+            
+            $syncOk = http_put_json($url, $body, ['Authorization: Bearer ' . $token['access_token']]);
+
+            // D. Warnai sekat baru menjadi hitam bold
+            if ($syncOk) {
+                $sheetGid = 498057824;
+                $metaUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}?fields=sheets(properties)";
+                $metaResp = http_get($metaUrl, ['Authorization: Bearer ' . $token['access_token']]);
+                if ($metaResp['ok']) {
+                    $meta = json_decode($metaResp['body'], true);
+                    foreach ($meta['sheets'] ?? [] as $s) {
+                        if (($s['properties']['title'] ?? '') === $sheetName) {
+                            $sheetGid = (int) $s['properties']['sheetId'];
+                            break;
+                        }
+                    }
+                }
+
+                $batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}:batchUpdate";
+                $payload = json_encode([
+                    'requests' => [[
+                        'repeatCell' => [
+                            'range' => [
+                                'sheetId'          => $sheetGid,
+                                'startRowIndex'    => $newSubtotalRow - 1,
+                                'endRowIndex'      => $newSubtotalRow,
+                                'startColumnIndex' => 0,
+                                'endColumnIndex'   => 8,
+                            ],
+                            'cell' => [
+                                'userEnteredFormat' => [
+                                    'backgroundColor' => [
+                                        'red'   => 0.0,
+                                        'green' => 0.0,
+                                        'blue'  => 0.0,
+                                    ],
+                                    'textFormat' => [
+                                        'foregroundColor' => [
+                                            'red'   => 1.0,
+                                            'green' => 1.0,
+                                            'blue'  => 1.0,
+                                        ],
+                                        'bold' => true,
+                                    ],
+                                ],
+                            ],
+                            'fields' => 'userEnteredFormat(backgroundColor,textFormat)',
+                        ],
+                    ]],
+                ]);
+                http_post_json($batchUrl, $payload, ['Authorization: Bearer ' . $token['access_token']]);
+            }
+
+            return $syncOk;
+        } else {
+            // B. Jalankan append biasa di baris berikutnya
+            $newRow = $lastRow + 1;
+            $range = urlencode("{$sheetName}!A{$newRow}:H{$newRow}");
+            $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$range}?valueInputOption=USER_ENTERED";
+            $rowData = $buildOperationalRow($expense);
+            $body = json_encode(['range' => "{$sheetName}!A{$newRow}:H{$newRow}", 'values' => [$rowData]]);
+            
+            return http_put_json($url, $body, ['Authorization: Bearer ' . $token['access_token']]);
+        }
+    }
+}
+
+function sheets_sync_operational_delete(int $expenseId): bool
+{
+    $token = google_service_account_access_token();
+    if (!$token['ok']) return false;
+
+    $spreadsheetId = google_sheet_config('spreadsheet_id');
+    $sheetName     = 'operational';
+
+    // 1. Cari baris berdasarkan ID di kolom H
+    $rangeH = urlencode("{$sheetName}!H3:H");
+    $urlH = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$rangeH}";
+    $respH = http_get($urlH, ['Authorization: Bearer ' . $token['access_token']]);
+    
+    $existingIds = [];
+    if ($respH['ok']) {
+        $existingIds = json_decode($respH['body'], true)['values'] ?? [];
+    }
+
+    $foundRow = null;
+    foreach ($existingIds as $idx => $rowVal) {
+        $idVal = trim((string)($rowVal[0] ?? ''));
+        if ($idVal === (string)$expenseId) {
+            $foundRow = $idx + 3; // H3 is index 0 -> row 3
+            break;
+        }
+    }
+
+    if ($foundRow === null) return true; // Sudah terhapus
+
+    // 2. Dapatkan sheetGid
+    $sheetGid = 498057824;
+    $metaUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}?fields=sheets(properties)";
+    $metaResp = http_get($metaUrl, ['Authorization: Bearer ' . $token['access_token']]);
+    if ($metaResp['ok']) {
+        $meta = json_decode($metaResp['body'], true);
+        foreach ($meta['sheets'] ?? [] as $s) {
+            if (($s['properties']['title'] ?? '') === $sheetName) {
+                $sheetGid = (int) $s['properties']['sheetId'];
+                break;
+            }
+        }
+    }
+
+    // 3. Kirim deleteDimension request
+    $batchUrl = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}:batchUpdate";
+    $payload = json_encode([
+        'requests' => [[
+            'deleteDimension' => [
+                'range' => [
+                    'sheetId'    => $sheetGid,
+                    'dimension'  => 'ROWS',
+                    'startIndex' => $foundRow - 1, // 0-based
+                    'endIndex'   => $foundRow,
+                ],
+            ],
+        ]],
+    ]);
+
+    return http_post_json($batchUrl, $payload, [
+        'Authorization: Bearer ' . $token['access_token'],
+    ]);
 }

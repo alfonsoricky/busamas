@@ -2940,6 +2940,9 @@ function update_invoice_payment_status(string $kodeInvoice, string $statusPembay
             'tanggal_pembayaran' => $tanggalPembayaran !== '' ? $tanggalPembayaran : null,
         ]);
 
+        // Sinkronisasi otomatis ke Google Sheets di background
+        queue_invoice_google_sync($kodeInvoice, true);
+
         return [
             'ok' => true,
             'message' => 'Pembayaran invoice ' . ($invoice['nomor_invoice'] ?? $kodeInvoice) . ' berhasil diperbarui.',
@@ -3154,6 +3157,9 @@ function update_invoice_purchase_status(string $kodeInvoice, string $statusPembe
             'status_pembelian_barang' => $statusPembelian,
             'tanggal_transfer_pembelian_barang' => $transferDate !== '' ? $transferDate : null,
         ]);
+
+        // Sinkronisasi otomatis ke Google Sheets di background
+        queue_invoice_google_sync($kodeInvoice, true);
 
         return [
             'ok' => true,
@@ -3479,6 +3485,9 @@ function update_invoice_commission_status(string $type, string $kodeInvoice, str
             $dateColumn => $transferDate !== '' ? $transferDate : null,
             'status' => $statusValue,
         ]);
+
+        // Sinkronisasi otomatis ke Google Sheets di background
+        queue_invoice_google_sync($kodeInvoice, true);
 
         return [
             'ok' => true,
@@ -9425,6 +9434,11 @@ function google_drive_delete_file(string $fileId): bool
 /**
  * Cari baris di Google Sheets berdasarkan nilai di kolom A (nomor invoice).
  * Kembalikan 1-based row index atau null jika tidak ditemukan.
+ *
+ * Catatan struktur sheet:
+ * - Baris 1 = TOTAL/SUMMARY (bukan data, dilewati)
+ * - Baris 2 = HEADER kolom (bukan data, dilewati)
+ * - Baris 3+ = Data invoice sesungguhnya
  */
 function sheets_find_invoice_row(string $nomorInvoice): ?int
 {
@@ -9433,7 +9447,8 @@ function sheets_find_invoice_row(string $nomorInvoice): ?int
 
     $spreadsheetId = google_sheet_config('spreadsheet_id');
     $sheetName = google_sheet_config('penjualan_sheet_name', 'Penjualan');
-    $range = urlencode($sheetName . '!A:A');
+    // Mulai dari A3 (baris 1=total, baris 2=header)
+    $range = urlencode($sheetName . '!A3:A');
 
     $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$range}";
     $response = http_get($url, ['Authorization: Bearer ' . $token['access_token']]);
@@ -9446,7 +9461,8 @@ function sheets_find_invoice_row(string $nomorInvoice): ?int
     foreach ($values as $rowIdx => $rowData) {
         $cellVal = trim((string) ($rowData[0] ?? ''));
         if ($cellVal === $nomorInvoice) {
-            return $rowIdx + 1; // 1-based
+            // rowIdx=0 berarti baris ke-3 di sheet (1-based), dst.
+            return $rowIdx + 3; // offset +3 karena mulai dari A3
         }
     }
 
@@ -9455,56 +9471,141 @@ function sheets_find_invoice_row(string $nomorInvoice): ?int
 
 /**
  * Bangun array baris untuk Google Sheets berdasarkan data invoice.
- * Kolom mengikuti urutan PENJUALAN-2026.xlsx: A (nomor_invoice), B (tgl_invoice),
- * C (nomor_sj), D (tgl_sj), E (kode_customer/nama), ... dst.
+ * Struktur kolom sheet:
+ * Baris 1 = TOTAL/SUMMARY (formula)
+ * Baris 2 = HEADER nama kolom
+ * Baris 3+ = Data invoice
+ *
+ * Mapping kolom (sesuai header baris 2 di sheet):
+ * A  = Nomor Invoice
+ * B  = Tanggal Invoice
+ * C  = Nomor Surat Jalan
+ * D  = Tanggal Surat Jalan
+ * E  = Nama Laundry
+ * F  = Nama Sales 1
+ * G  = Nama Sales 2
+ * H  = Harga Normal Pricelist
+ * I  = Discount (%)
+ * J  = Discount Amount
+ * K  = Total Harga Jual
+ * L  = Status Pembayaran
+ * M  = Tanggal Pembayaran
+ * N  = Jumlah Terutang (Piutang)
+ * O  = Jumlah Terbayar (Pendapatan)
+ * P  = Komisi Sales 1 (%)
+ * Q  = Komisi Sales 2 (%)
+ * R  = Total Komisi (%)
+ * S  = Komisi Sales Terbayar
+ * T  = Komisi Sales Belum Terbayar
+ * U  = Status Pembayaran Sales
+ * V  = Tanggal Transfer Komisi Sales
+ * W  = Komisi Manager Terbayar
+ * X  = Komisi Manager Utang
+ * Y  = Tanggal Transfer Manager
+ * Z  = PPH Final Terbayar
+ * AA = PPH Final Belum Terbayar
+ * AB = Komisi Admin Terbayar
+ * AC = Komisi Admin Belum Terbayar
+ * AD = Tanggal Transfer Komisi Admin
+ * AE = Biaya Kirim
+ * AF = Biaya Admin Bank
+ * AG = Pembelian Barang
+ * AH = Jumlah Utang Pembelian Barang
+ * AI = Tanggal Transfer Pembelian Barang
  */
-function build_sheets_invoice_row(array $invoice): array
+function build_sheets_invoice_row(array $invoice, ?int $rowNum = null): array
 {
-    $fmt = static fn($v) => $v !== null ? (string) $v : '';
+    $fmt    = static fn($v) => $v !== null ? (string) $v : '';
     $fmtNum = static fn($v) => $v !== null ? number_format((float) $v, 0, ',', '.') : '0';
+    // Angka persen bersih + lambang %: 15.0000 → 15%, 7.5000 → 7.5%
+    $fmtPct = static fn($v) => $v !== null && (float) $v != 0
+        ? rtrim(rtrim(number_format((float) $v, 4, '.', ''), '0'), '.') . '%'
+        : '';
+    // Cek status pembayaran komisi sales: jika 'Transfer', komisi sudah terbayar
+    $isCommissionPaid = trim((string) ($invoice['status_pembayaran_komisi_sales'] ?? '')) === 'Transfer';
+
+    // Konversi status pembayaran invoice untuk kolom L:
+    // "Lunas" → "Lunas", semua lainnya (Belum Lunas, kosong, dll) → "Hutang"
+    $fmtStatusBayar = static function ($v): string {
+        return trim((string) ($v ?? '')) === 'Lunas' ? 'Lunas' : 'Hutang';
+    };
+
+    // Kolom J (Discount Amount), K (Total Jual), N (Piutang), O (Terbayar), R (Total Komisi), S (Terbayar), T (Belum Terbayar) menggunakan rumus dinamis
+    if ($rowNum !== null) {
+        $discountAmount           = "=H{$rowNum}*I{$rowNum}";
+        $totalHargaJual           = "=H{$rowNum}-J{$rowNum}";
+        $jumlahTerutangPiutang    = "=IF(L{$rowNum}=\"Lunas\"; 0; IF(L{$rowNum}=\"Hutang\"; K{$rowNum}; \"\"))";
+        $jumlahTerbayarPendapatan = "=IF(L{$rowNum}=\"Lunas\"; K{$rowNum}; IF(L{$rowNum}=\"Hutang\"; 0; \"\"))";
+        $totalKomisiPersen        = "=P{$rowNum}+Q{$rowNum}";
+        $komisiSalesTerbayar      = "=IF(U{$rowNum}=\"Transfer\"; K{$rowNum}*R{$rowNum}; 0)";
+        $komisiSalesBelumTerbayar = "=IF(U{$rowNum}=\"Transfer\"; 0; K{$rowNum}*R{$rowNum})";
+    } else {
+        $discountAmount           = $fmtNum($invoice['discount_amount']);
+        $totalHargaJual           = $fmtNum($invoice['total_harga_jual']);
+        $jumlahTerutangPiutang    = $fmtNum($invoice['jumlah_terutang_piutang']);
+        $jumlahTerbayarPendapatan = $fmtNum($invoice['jumlah_terbayar_pendapatan']);
+        $totalKomisiPersen        = $fmtPct($invoice['total_komisi_persen']);
+        $komisiSalesTerbayar      = $fmtNum($invoice['komisi_sales_terbayar']);
+        $komisiSalesBelumTerbayar = $fmtNum($invoice['komisi_sales_belum_terbayar']);
+    }
+
+    // Format tanggal Indonesia/ISO menjadi format "d-M-Y" (contoh: "18-Jun-2026")
+    $fmtDate = static function ($v) use ($fmt): string {
+        $val = trim($fmt($v));
+        if ($val === '') return '';
+        
+        // Map bulan Indonesia ke Inggris
+        $indoMonths = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        $engMonths  = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        
+        $replaced = str_ireplace($indoMonths, $engMonths, $val);
+        $time = strtotime($replaced);
+        return $time ? date('d-M-Y', $time) : $val;
+    };
 
     return [
-        $fmt($invoice['nomor_invoice']),      // A
-        $fmt($invoice['tanggal_invoice']),    // B
-        $fmt($invoice['nomor_surat_jalan']),  // C
-        $fmt($invoice['tanggal_surat_jalan']),// D
+        $fmt($invoice['nomor_invoice']),                                             // A
+        $fmtDate($invoice['tanggal_invoice']),                                       // B
+        $fmt($invoice['nomor_surat_jalan']),                                         // C
+        $fmtDate($invoice['tanggal_surat_jalan']),                                   // D
         $fmt($invoice['nama_laundry_invoice'] ?: $invoice['nama_customer_invoice']), // E
-        $fmt($invoice['alamat']),             // F
-        $fmt($invoice['no_telepon']),         // G
-        '',                                   // H (reserved)
-        $fmtNum($invoice['subtotal']),        // I
-        $fmt($invoice['discount_persen']),    // J
-        $fmtNum($invoice['discount_amount']), // K
-        $fmtNum($invoice['total_harga_jual']),// L
-        $fmt($invoice['status_pembayaran']),  // M
-        $fmt($invoice['tanggal_pembayaran']), // N
-        $fmt($invoice['nama_sales_1']),       // O
-        $fmt($invoice['komisi_sales_1_persen']), // P
-        $fmt($invoice['nama_sales_2']),       // Q
-        $fmt($invoice['komisi_sales_2_persen']), // R
-        $fmtNum($invoice['komisi_sales_terbayar']),      // S
-        $fmtNum($invoice['komisi_sales_belum_terbayar']),// T
-        $fmt($invoice['status_pembayaran_komisi_sales']),// U
-        $fmt($invoice['tanggal_transfer_komisi_sales']), // V
-        $fmtNum($invoice['komisi_manager_terbayar']),    // W
-        $fmtNum($invoice['komisi_manager_utang']),       // X
-        $fmt($invoice['tanggal_transfer_komisi_manager']),// Y
-        $fmtNum($invoice['pph_final_terbayar']),         // Z
-        $fmtNum($invoice['pph_final_belum_terbayar']),   // AA
-        $fmtNum($invoice['komisi_admin_terbayar']),      // AB
-        $fmtNum($invoice['komisi_admin_belum_terbayar']),// AC
-        $fmt($invoice['tanggal_transfer_komisi_admin']), // AD
-        $fmtNum($invoice['biaya_kirim']),     // AE
-        $fmtNum($invoice['biaya_admin_bank']),// AF
-        $fmtNum($invoice['total_pembelian_barang']),     // AG
-        $fmtNum($invoice['total_utang_pembelian_barang']),// AH
-        $fmt($invoice['tanggal_transfer_pembelian_barang']),// AI
-        $fmt($invoice['po_number']),          // AJ
+        $fmt($invoice['nama_sales_1']),                                              // F
+        $fmt($invoice['nama_sales_2']),                                              // G
+        $fmtNum($invoice['harga_normal_pricelist']),                                 // H
+        $fmtPct($invoice['discount_persen']),                                        // I  (% bersih)
+        $discountAmount,                                                             // J  (=H{row}*I{row})
+        $totalHargaJual,                                                             // K  (=H{row}-J{row})
+        $fmtStatusBayar($invoice['status_pembayaran']),                              // L  (Lunas / Hutang)
+        $fmtDate($invoice['tanggal_pembayaran']),                                    // M
+        $jumlahTerutangPiutang,                                                      // N  (=IF(L{row}="Lunas"; 0; IF(L{row}="Hutang"; K{row}; "")))
+        $jumlahTerbayarPendapatan,                                                   // O  (=IF(L{row}="Lunas"; K{row}; IF(L{row}="Hutang"; 0; "")))
+        $fmtPct($invoice['komisi_sales_1_persen']),                                  // P  (% bersih)
+        $fmtPct($invoice['komisi_sales_2_persen']),                                  // Q  (% bersih)
+        $totalKomisiPersen,                                                          // R  (=P{row}+Q{row})
+        $komisiSalesTerbayar,                                                        // S  (=K{row}*R{row} jika Transfer, else 0)
+        $komisiSalesBelumTerbayar,                                                   // T  (=K{row}*R{row} jika Belum TF, else 0)
+        $fmt($invoice['status_pembayaran_komisi_sales']),                            // U
+        $fmtDate($invoice['tanggal_transfer_komisi_sales']),                         // V
+        $fmtNum($invoice['komisi_manager_terbayar']),                                // W
+        $fmtNum($invoice['komisi_manager_utang']),                                   // X
+        $fmtDate($invoice['tanggal_transfer_komisi_manager']),                       // Y
+        $fmtNum($invoice['pph_final_terbayar']),                                     // Z
+        $fmtNum($invoice['pph_final_belum_terbayar']),                               // AA
+        $fmtNum($invoice['komisi_admin_terbayar']),                                  // AB
+        $fmtNum($invoice['komisi_admin_belum_terbayar']),                            // AC
+        $fmtDate($invoice['tanggal_transfer_komisi_admin']),                         // AD
+        $fmtNum($invoice['biaya_kirim']),                                            // AE
+        $fmtNum($invoice['biaya_admin_bank']),                                       // AF
+        $fmtNum($invoice['total_pembelian_barang']),                                 // AG
+        $fmtNum($invoice['total_utang_pembelian_barang']),                           // AH
+        $fmtDate($invoice['tanggal_transfer_pembelian_barang']),                     // AI
     ];
 }
 
 /**
  * Append baris invoice baru ke Google Sheets (INSERT).
+ * Menentukan nomor baris terlebih dahulu agar formula di kolom T
+ * (=K{row}*R{row}) bisa mengacu ke baris yang tepat.
  */
 function sheets_append_invoice_row(array $invoice): bool
 {
@@ -9512,13 +9613,28 @@ function sheets_append_invoice_row(array $invoice): bool
     if (!$token['ok']) return false;
 
     $spreadsheetId = google_sheet_config('spreadsheet_id');
-    $sheetName = google_sheet_config('penjualan_sheet_name', 'Penjualan');
-    $range = urlencode($sheetName . '!A:AJ');
+    $sheetName     = google_sheet_config('penjualan_sheet_name', 'Penjualan');
 
+    // Langkah 1: Hitung baris yang sudah terisi di kolom A mulai dari A3
+    // agar kita tahu row number sebelum menulis (untuk formula dinamis di kolom T)
+    $countRange = urlencode($sheetName . '!A3:A');
+    $countUrl   = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$countRange}";
+    $countResp  = http_get($countUrl, ['Authorization: Bearer ' . $token['access_token']]);
+    $existingRows = [];
+    if ($countResp['ok']) {
+        $existingRows = json_decode($countResp['body'], true)['values'] ?? [];
+    }
+    // Baris data mulai dari row 3; row berikutnya = jumlah baris terisi + 3
+    $nextRow = count($existingRows) + 3;
+
+    // Langkah 2: Gunakan endpoint :append dengan insertDataOption=INSERT_ROWS
+    // agar Google Sheets menyisipkan baris baru dan mewariskan dropdown dari baris atasnya.
+    // Kami tetap mendefinisikan range A:AI agar dia tahu tabelnya berada di kolom mana.
+    $range = urlencode($sheetName . '!A:AI');
     $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$range}:append"
          . '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS';
 
-    $row = build_sheets_invoice_row($invoice);
+    $row  = build_sheets_invoice_row($invoice, $nextRow);
     $body = json_encode(['values' => [$row]]);
 
     return http_post_json($url, $body, [
@@ -9542,13 +9658,14 @@ function sheets_update_invoice_row(array $invoice): bool
     }
 
     $spreadsheetId = google_sheet_config('spreadsheet_id');
-    $sheetName = google_sheet_config('penjualan_sheet_name', 'Penjualan');
-    $cellRange = urlencode("{$sheetName}!A{$rowIndex}:AJ{$rowIndex}");
+    $sheetName     = google_sheet_config('penjualan_sheet_name', 'Penjualan');
+    $cellRange     = urlencode("{$sheetName}!A{$rowIndex}:AI{$rowIndex}");
     $url = "https://sheets.googleapis.com/v4/spreadsheets/{$spreadsheetId}/values/{$cellRange}"
          . '?valueInputOption=USER_ENTERED';
 
-    $row = build_sheets_invoice_row($invoice);
-    $body = json_encode(['range' => "{$sheetName}!A{$rowIndex}:AJ{$rowIndex}", 'values' => [$row]]);
+    // Kirim rowIndex agar kolom T pakai formula =K{rowIndex}*R{rowIndex}
+    $row  = build_sheets_invoice_row($invoice, $rowIndex);
+    $body = json_encode(['range' => "{$sheetName}!A{$rowIndex}:AI{$rowIndex}", 'values' => [$row]]);
 
     return http_put_json($url, $body, [
         'Authorization: Bearer ' . $token['access_token'],

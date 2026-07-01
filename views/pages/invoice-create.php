@@ -170,7 +170,6 @@
                                             <th class="px-3 py-3 font-semibold">Satuan</th>
                                             <th class="px-3 py-3 font-semibold">Harga <span class="text-rose-500">*</span></th>
                                             <th class="px-3 py-3 font-semibold">Total</th>
-                                            <th class="px-3 py-3 font-semibold">Aksi</th>
                                         </tr>
                                     </thead>
                                     <tbody id="item-rows" class="divide-y divide-stone-100"></tbody>
@@ -867,9 +866,12 @@
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td class="px-3 py-3">
-                        <select name="items[][kode_barang]" class="w-56 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-barang>
-                            ${barangOptionMarkup()}
-                        </select>
+                        <div class="flex min-w-72 items-center gap-2">
+                            <select name="items[][kode_barang]" class="w-52 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-barang>
+                                ${barangOptionMarkup()}
+                            </select>
+                            <button type="button" class="shrink-0 rounded-md border border-stone-300 px-3 py-2 text-xs font-semibold text-stone-600 transition hover:border-red-400 hover:text-red-700" data-remove-item aria-label="Hapus item barang">Hapus</button>
+                        </div>
                     </td>
                     <td class="px-3 py-3">
                         <input name="items[][isi]" class="w-24 rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-isi>
@@ -885,9 +887,6 @@
                     </td>
                     <td class="px-3 py-3">
                         <input type="text" inputmode="decimal" name="items[][total]" class="w-36 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold outline-none border-stone-300" readonly data-item-total>
-                    </td>
-                    <td class="px-3 py-3">
-                        <button type="button" class="rounded-md border border-stone-300 px-3 py-2 text-xs font-semibold text-stone-600 transition hover:border-red-400 hover:text-red-700" data-remove-item aria-label="Hapus item barang">Hapus</button>
                     </td>
                 `;
 

@@ -824,6 +824,32 @@ function run_fix_june_2026_pnl(): array
         delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
         $journalLines = generate_invoice_journal($pdo, $kodeInvoice);
 
+        $invoiceItems = [
+            ['nama' => 'E-951', 'harga' => 1980000, 'total' => 3960000, 'baris' => 23],
+            ['nama' => 'M-SOUR', 'harga' => 1320000, 'total' => 2640000, 'baris' => 25],
+            ['nama' => 'N-IRON', 'harga' => 2310000, 'total' => 2310000, 'baris' => 27],
+        ];
+        $updateItem = $pdo->prepare("
+            UPDATE invoice_items
+            SET harga = :harga,
+                total = :total,
+                baris = :baris,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE kode_invoice = :kode_invoice
+              AND UPPER(REPLACE(nama_barang_invoice, ' ', '')) = UPPER(REPLACE(:nama, ' ', ''))
+        ");
+        $updatedItems = 0;
+        foreach ($invoiceItems as $item) {
+            $updateItem->execute([
+                'harga' => $item['harga'],
+                'total' => $item['total'],
+                'baris' => $item['baris'],
+                'kode_invoice' => $kodeInvoice,
+                'nama' => $item['nama'],
+            ]);
+            $updatedItems += $updateItem->rowCount();
+        }
+
         $operationalRows = [
             [
                 'tanggal' => '2026-06-30',
@@ -911,6 +937,7 @@ function run_fix_june_2026_pnl(): array
             'statements' => 1 + $created + $updated + $journalLines,
             'output' => implode(PHP_EOL, [
                 'Invoice 458/BM-INV/VI/2026: subtotal Rp8.910.000, discount Rp891.000, total jual Rp8.019.000.',
+                'Detail item invoice 458 diperbarui: ' . $updatedItems . ' baris.',
                 'Operational dibuat: ' . $created . ', diupdate: ' . $updated . ' (ID: ' . implode(', ', $operationalIds) . ').',
                 'Baris jurnal dibuat ulang: ' . $journalLines . '.',
             ]),

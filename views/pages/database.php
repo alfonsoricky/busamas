@@ -30,7 +30,7 @@
             <div class="max-w-2xl">
                 <h2 class="text-lg font-bold text-ink">Update Data Master</h2>
                 <p class="mt-1 text-sm leading-6 text-stone-600">
-                    Memperbarui master barang, customer, dan sales dari snapshot <code class="rounded bg-stone-100 px-1 py-0.5 text-coral">database/seed-data.sql</code>.
+                    Menyiapkan tabel dan memperbarui master barang, customer, dan sales dari snapshot <code class="rounded bg-stone-100 px-1 py-0.5 text-coral">database/seed-data.sql</code>.
                 </p>
             </div>
             <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Update data master barang, customer, dan sales dari snapshot seeder?">

@@ -2437,12 +2437,13 @@ function run_seed_master_data(): array
         ];
     }
 
+    $schemaPath = dirname(__DIR__) . '/database/schema.sql';
     $seedPath = dirname(__DIR__) . '/database/seed-data.sql';
 
-    if (! is_readable($seedPath)) {
+    if (! is_readable($schemaPath) || ! is_readable($seedPath)) {
         return [
             'ok' => false,
-            'message' => 'File database/seed-data.sql belum tersedia.',
+            'message' => 'File database/schema.sql atau database/seed-data.sql belum tersedia.',
             'statements' => 0,
             'counts' => database_table_counts(),
         ];
@@ -2464,7 +2465,8 @@ function run_seed_master_data(): array
             ];
         }
 
-        $statementCount = execute_sql_statements($pdo, [
+        $statementCount = execute_sql_file($pdo, $schemaPath, true);
+        $statementCount += execute_sql_statements($pdo, [
             'SET FOREIGN_KEY_CHECKS = 0',
             'DELETE FROM `master_sales`',
             'DELETE FROM `master_barang`',

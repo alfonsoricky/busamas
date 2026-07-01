@@ -170,7 +170,7 @@
                                             <th class="px-3 py-3 font-semibold">Satuan</th>
                                             <th class="px-3 py-3 font-semibold">Harga <span class="text-rose-500">*</span></th>
                                             <th class="px-3 py-3 font-semibold">Total</th>
-                                            <th class="px-3 py-3 font-semibold"></th>
+                                            <th class="px-3 py-3 font-semibold">Aksi</th>
                                         </tr>
                                     </thead>
                                     <tbody id="item-rows" class="divide-y divide-stone-100"></tbody>
@@ -887,7 +887,7 @@
                         <input type="text" inputmode="decimal" name="items[][total]" class="w-36 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold outline-none border-stone-300" readonly data-item-total>
                     </td>
                     <td class="px-3 py-3">
-                        <button type="button" class="rounded-md border border-stone-300 px-3 py-2 text-xs font-semibold text-stone-600 transition hover:border-red-400 hover:text-red-700" data-remove-item>Hapus</button>
+                        <button type="button" class="rounded-md border border-stone-300 px-3 py-2 text-xs font-semibold text-stone-600 transition hover:border-red-400 hover:text-red-700" data-remove-item aria-label="Hapus item barang">Hapus</button>
                     </td>
                 `;
 

@@ -160,16 +160,16 @@
                                     Tambah Barang
                                 </button>
                             </div>
-                            <div class="overflow-x-auto">
-                                <table class="min-w-full divide-y divide-stone-200 text-left text-sm">
+                            <div>
+                                <table class="w-full table-fixed divide-y divide-stone-200 text-left text-sm">
                                     <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
                                         <tr>
-                                            <th class="px-3 py-3 font-semibold">Barang <span class="text-rose-500">*</span></th>
-                                            <th class="px-3 py-3 font-semibold">Isi</th>
-                                            <th class="px-3 py-3 font-semibold">Jumlah <span class="text-rose-500">*</span></th>
-                                            <th class="px-3 py-3 font-semibold">Satuan</th>
-                                            <th class="px-3 py-3 font-semibold">Harga <span class="text-rose-500">*</span></th>
-                                            <th class="px-3 py-3 font-semibold">Total</th>
+                                            <th class="w-[38%] px-2 py-3 font-semibold">Barang <span class="text-rose-500">*</span></th>
+                                            <th class="w-[13%] px-2 py-3 font-semibold">Isi</th>
+                                            <th class="w-[12%] px-2 py-3 font-semibold">Jumlah <span class="text-rose-500">*</span></th>
+                                            <th class="w-[13%] px-2 py-3 font-semibold">Satuan</th>
+                                            <th class="w-[16%] px-2 py-3 font-semibold">Harga <span class="text-rose-500">*</span></th>
+                                            <th class="hidden w-[16%] px-2 py-3 font-semibold xl:table-cell">Total</th>
                                         </tr>
                                     </thead>
                                     <tbody id="item-rows" class="divide-y divide-stone-100"></tbody>
@@ -865,28 +865,28 @@
             function addItemRow(item = {}) {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td class="px-3 py-3">
-                        <div class="flex min-w-72 items-center gap-2">
-                            <select name="items[][kode_barang]" class="w-52 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-barang>
+                    <td class="px-2 py-2">
+                        <div class="flex items-center gap-2">
+                            <select name="items[][kode_barang]" class="min-w-0 flex-1 rounded-lg border border-stone-300 bg-white px-2 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-barang>
                                 ${barangOptionMarkup()}
                             </select>
-                            <button type="button" class="shrink-0 rounded-md border border-stone-300 px-3 py-2 text-xs font-semibold text-stone-600 transition hover:border-red-400 hover:text-red-700" data-remove-item aria-label="Hapus item barang">Hapus</button>
+                            <button type="button" class="shrink-0 rounded-md border border-stone-300 px-2 py-2 text-xs font-semibold text-stone-600 transition hover:border-red-400 hover:text-red-700" data-remove-item aria-label="Hapus item barang">Hapus</button>
                         </div>
                     </td>
-                    <td class="px-3 py-3">
-                        <input name="items[][isi]" class="w-24 rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-isi>
+                    <td class="px-2 py-2">
+                        <input name="items[][isi]" class="w-full rounded-lg border border-stone-300 px-2 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-isi>
                     </td>
-                    <td class="px-3 py-3">
-                        <input type="number" step="0.01" name="items[][jumlah]" class="w-24 rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-jumlah>
+                    <td class="px-2 py-2">
+                        <input type="number" step="0.01" name="items[][jumlah]" class="w-full rounded-lg border border-stone-300 px-2 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-jumlah>
                     </td>
-                    <td class="px-3 py-3">
-                        <input name="items[][satuan]" class="w-24 rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-satuan>
+                    <td class="px-2 py-2">
+                        <input name="items[][satuan]" class="w-full rounded-lg border border-stone-300 px-2 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-satuan>
                     </td>
-                    <td class="px-3 py-3">
-                        <input type="text" inputmode="decimal" name="items[][harga]" class="w-32 rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-harga>
+                    <td class="px-2 py-2">
+                        <input type="text" inputmode="decimal" name="items[][harga]" class="w-full rounded-lg border border-stone-300 px-2 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-harga>
                     </td>
-                    <td class="px-3 py-3">
-                        <input type="text" inputmode="decimal" name="items[][total]" class="w-36 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm font-semibold outline-none border-stone-300" readonly data-item-total>
+                    <td class="hidden px-2 py-2 xl:table-cell">
+                        <input type="text" inputmode="decimal" name="items[][total]" class="w-full rounded-lg border border-stone-200 bg-stone-50 px-2 py-2 text-sm font-semibold outline-none border-stone-300" readonly data-item-total>
                     </td>
                 `;
 

@@ -829,23 +829,39 @@ function run_fix_june_2026_pnl(): array
             ['nama' => 'M-SOUR', 'harga' => 1320000, 'total' => 2640000, 'baris' => 25],
             ['nama' => 'N-IRON', 'harga' => 2310000, 'total' => 2310000, 'baris' => 27],
         ];
+        $itemRowsStmt = $pdo->prepare("
+            SELECT id, nama_barang_invoice
+            FROM invoice_items
+            WHERE kode_invoice = ?
+        ");
+        $itemRowsStmt->execute([$kodeInvoice]);
+        $itemIdsByName = [];
+        foreach ($itemRowsStmt->fetchAll(PDO::FETCH_ASSOC) as $itemRow) {
+            $key = strtoupper(str_replace(' ', '', (string) ($itemRow['nama_barang_invoice'] ?? '')));
+            $itemIdsByName[$key] = (int) ($itemRow['id'] ?? 0);
+        }
+
         $updateItem = $pdo->prepare("
             UPDATE invoice_items
             SET harga = :harga,
                 total = :total,
                 baris = :baris,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE kode_invoice = :kode_invoice
-              AND UPPER(REPLACE(nama_barang_invoice, ' ', '')) = UPPER(REPLACE(:nama, ' ', ''))
+            WHERE id = :id
         ");
         $updatedItems = 0;
         foreach ($invoiceItems as $item) {
+            $itemKey = strtoupper(str_replace(' ', '', $item['nama']));
+            $itemId = $itemIdsByName[$itemKey] ?? 0;
+            if ($itemId <= 0) {
+                continue;
+            }
+
             $updateItem->execute([
                 'harga' => $item['harga'],
                 'total' => $item['total'],
                 'baris' => $item['baris'],
-                'kode_invoice' => $kodeInvoice,
-                'nama' => $item['nama'],
+                'id' => $itemId,
             ]);
             $updatedItems += $updateItem->rowCount();
         }

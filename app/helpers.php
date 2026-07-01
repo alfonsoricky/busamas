@@ -680,6 +680,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-manager-commission-taki') {
         $result = run_fix_manager_commission_taki();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-june-2026-pnl') {
+        $result = run_fix_june_2026_pnl();
+        $counts = database_table_counts();
     }
 
     return [
@@ -751,6 +754,177 @@ function run_fix_manager_commission_taki(): array
             $pdo->rollBack();
         }
         return ['ok' => false, 'message' => 'Error: ' . $e->getMessage(), 'statements' => 0];
+    }
+}
+
+function run_fix_june_2026_pnl(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $pdo->beginTransaction();
+
+        $invoiceStmt = $pdo->prepare("
+            SELECT kode_invoice
+            FROM invoices
+            WHERE nomor_invoice = ?
+            LIMIT 1
+        ");
+        $invoiceStmt->execute(['458/BM-INV/VI/2026']);
+        $kodeInvoice = (string) ($invoiceStmt->fetchColumn() ?: '');
+
+        if ($kodeInvoice === '') {
+            throw new RuntimeException('Invoice 458/BM-INV/VI/2026 tidak ditemukan.');
+        }
+
+        $updateInvoice = $pdo->prepare("
+            UPDATE invoices
+            SET subtotal = :subtotal,
+                harga_normal_pricelist = :harga_normal_pricelist,
+                discount_persen = :discount_persen,
+                discount_amount = :discount_amount,
+                total_harga_jual = :total_harga_jual,
+                status_pembayaran = :status_pembayaran,
+                tanggal_pembayaran = NULL,
+                komisi_manager_terbayar = 0,
+                komisi_manager_utang = :komisi_manager_utang,
+                pph_final_terbayar = 0,
+                pph_final_belum_terbayar = :pph_final_belum_terbayar,
+                komisi_admin_terbayar = 0,
+                komisi_admin_belum_terbayar = :komisi_admin_belum_terbayar,
+                biaya_kirim = :biaya_kirim,
+                total_pembelian_barang = 0,
+                total_utang_pembelian_barang = :total_utang_pembelian_barang,
+                status_pembelian_barang = 'Utang',
+                tanggal_transfer_pembelian_barang = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE nomor_invoice = :nomor_invoice
+        ");
+        $updateInvoice->execute([
+            'subtotal' => 8910000,
+            'harga_normal_pricelist' => 8910000,
+            'discount_persen' => 10,
+            'discount_amount' => 891000,
+            'total_harga_jual' => 8019000,
+            'status_pembayaran' => 'Hutang',
+            'komisi_manager_utang' => 400950,
+            'pph_final_belum_terbayar' => 40095,
+            'komisi_admin_belum_terbayar' => 400950,
+            'biaya_kirim' => 150000,
+            'total_utang_pembelian_barang' => 3650000,
+            'nomor_invoice' => '458/BM-INV/VI/2026',
+        ]);
+
+        delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+        $journalLines = generate_invoice_journal($pdo, $kodeInvoice);
+
+        $operationalRows = [
+            [
+                'tanggal' => '2026-06-30',
+                'bulan_pnl' => 6,
+                'tahun_pnl' => 2026,
+                'kategori' => 'operational',
+                'nama_pengeluaran' => 'JERIGEN 21 PCS',
+                'jumlah' => 210000,
+                'status_pembayaran' => 'Lunas',
+                'tanggal_pembayaran' => '2026-06-30',
+                'keterangan' => 'Seeder fix PNL Juni 2026 dari PENJUALAN-2026 (6).xlsx',
+            ],
+            [
+                'tanggal' => '2026-06-30',
+                'bulan_pnl' => 6,
+                'tahun_pnl' => 2026,
+                'kategori' => 'operational',
+                'nama_pengeluaran' => 'ongkos campur bulan Juni',
+                'jumlah' => 1510000,
+                'status_pembayaran' => 'Hutang',
+                'tanggal_pembayaran' => null,
+                'keterangan' => 'Seeder fix PNL Juni 2026 dari PENJUALAN-2026 (6).xlsx',
+            ],
+        ];
+
+        $findOperational = $pdo->prepare("
+            SELECT id
+            FROM operational_expenses
+            WHERE kategori = 'operational'
+              AND bulan_pnl = ?
+              AND tahun_pnl = ?
+              AND nama_pengeluaran = ?
+            LIMIT 1
+        ");
+        $insertOperational = $pdo->prepare("
+            INSERT INTO operational_expenses
+                (tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran, keterangan)
+            VALUES
+                (:tanggal, :bulan_pnl, :tahun_pnl, :kategori, :nama_pengeluaran, :jumlah, :status_pembayaran, :tanggal_pembayaran, :keterangan)
+        ");
+        $updateOperational = $pdo->prepare("
+            UPDATE operational_expenses
+            SET tanggal = :tanggal,
+                bulan_pnl = :bulan_pnl,
+                tahun_pnl = :tahun_pnl,
+                kategori = :kategori,
+                nama_pengeluaran = :nama_pengeluaran,
+                jumlah = :jumlah,
+                status_pembayaran = :status_pembayaran,
+                tanggal_pembayaran = :tanggal_pembayaran,
+                keterangan = :keterangan,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id
+        ");
+
+        $created = 0;
+        $updated = 0;
+        $operationalIds = [];
+
+        foreach ($operationalRows as $row) {
+            $findOperational->execute([$row['bulan_pnl'], $row['tahun_pnl'], $row['nama_pengeluaran']]);
+            $id = (int) ($findOperational->fetchColumn() ?: 0);
+
+            if ($id > 0) {
+                $payload = $row;
+                $payload['id'] = $id;
+                $updateOperational->execute($payload);
+                $updated++;
+            } else {
+                $insertOperational->execute($row);
+                $id = (int) $pdo->lastInsertId();
+                $created++;
+            }
+
+            delete_accounting_journal_source($pdo, 'operational_expense', (string) $id);
+            $journalLines += generate_operational_expense_journal($pdo, $id);
+            $operationalIds[] = $id;
+        }
+
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Fix PNL Juni 2026 berhasil. Invoice 458 dan operational Juni sudah diperbarui.',
+            'statements' => 1 + $created + $updated + $journalLines,
+            'output' => implode(PHP_EOL, [
+                'Invoice 458/BM-INV/VI/2026: subtotal Rp8.910.000, discount Rp891.000, total jual Rp8.019.000.',
+                'Operational dibuat: ' . $created . ', diupdate: ' . $updated . ' (ID: ' . implode(', ', $operationalIds) . ').',
+                'Baris jurnal dibuat ulang: ' . $journalLines . '.',
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Fix PNL Juni 2026 gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
     }
 }
 

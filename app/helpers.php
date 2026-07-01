@@ -680,7 +680,7 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-manager-commission-taki') {
         $result = run_fix_manager_commission_taki();
         $counts = database_table_counts();
-    } elseif ($action === 'fix-june-2026-pnl') {
+    } elseif ($action === 'fix-june-2026-pnl' || $action === 'fix-june-2026-pnl-v2') {
         $result = run_fix_june_2026_pnl();
         $counts = database_table_counts();
     }

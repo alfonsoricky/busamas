@@ -26,77 +26,19 @@
     <?php endif; ?>
 
     <div class="mb-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-        <h2 class="text-lg font-bold text-ink mb-4">Aksi Database</h2>
-        <div class="divide-y divide-stone-100">
-            <!-- Update Data 2026 Terbaru -->
-            <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between first:pt-0">
-                <div class="max-w-2xl">
-                    <h3 class="font-semibold text-ink text-sm">Update Data 2026 Terbaru</h3>
-                    <p class="mt-1 text-xs leading-5 text-stone-600">Sinkronisasi invoice 2026, detail barang invoice 463/464, operasional, dan posting ulang jurnal dari file Excel.</p>
-                </div>
-                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan update data 2026 terbaru di database ini?">
-                    <input type="hidden" name="action" value="update-2026-latest-final">
-                    <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
-                        Jalankan Update
-                    </button>
-                </form>
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div class="max-w-2xl">
+                <h2 class="text-lg font-bold text-ink">Update Data Master</h2>
+                <p class="mt-1 text-sm leading-6 text-stone-600">
+                    Memperbarui master barang, customer, dan sales dari snapshot <code class="rounded bg-stone-100 px-1 py-0.5 text-coral">database/seed-data.sql</code>.
+                </p>
             </div>
-
-            <!-- Fix Bonus Internal Payable -->
-            <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div class="max-w-2xl">
-                    <h3 class="font-semibold text-ink text-sm">Fix Bonus Internal Belum Dibayar</h3>
-                    <p class="mt-1 text-xs leading-5 text-stone-600">Mengubah bonus internal yang Lunas tanpa tanggal pembayaran menjadi Hutang dan posting ulang jurnalnya.</p>
-                </div>
-                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan fix bonus internal belum dibayar di database ini?">
-                    <input type="hidden" name="action" value="fix-internal-bonus-payable">
-                    <button type="submit" class="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
-                        Jalankan Fix
-                    </button>
-                </form>
-            </div>
-
-            <!-- Reset & Load Seeder -->
-            <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div class="max-w-2xl">
-                    <h3 class="font-semibold text-ink text-sm">Jalankan Migrate & Seed (Reset Data)</h3>
-                    <p class="mt-1 text-xs leading-5 text-stone-600">Menghapus semua tabel dan memulihkan data dari file snapshot seeder (<code class="bg-stone-100 px-1 py-0.5 rounded text-coral">database/seed-data.sql</code>).</p>
-                </div>
-                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="PERHATIAN! Tindakan ini akan menghapus dan menimpa database saat ini dengan file seeder. Lanjutkan?">
-                    <input type="hidden" name="action" value="migrate-seed">
-                    <button type="submit" class="rounded-lg bg-coral px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-850">
-                        Jalankan Migrate & Seed
-                    </button>
-                </form>
-            </div>
-
-            <!-- Ekspor Database ke Seeder -->
-            <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div class="max-w-2xl">
-                    <h3 class="font-semibold text-ink text-sm">Fix Komisi Sales &amp; Manager (Taki &amp; Indo Laundry)</h3>
-                    <p class="mt-1 text-xs leading-5 text-stone-600">Memperbaiki persentase &amp; nominal komisi sales invoice <strong>321/Maret</strong> dan <strong>397/Mei</strong> (Taki Laundry) dari 10% ke 5%, serta memperbarui komisi manager utang invoice <strong>458/Juni</strong> (Indo Laundry) menjadi Rp400.950. Lalu posting ulang jurnal akuntansi.</p>
-                </div>
-                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan perbaikan komisi sales &amp; manager untuk Taki Laundry dan Indo Laundry?">
-                    <input type="hidden" name="action" value="fix-manager-commission-taki">
-                    <button type="submit" class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 whitespace-nowrap">
-                        Jalankan Fix Komisi
-                    </button>
-                </form>
-            </div>
-
-            <!-- Ekspor Database ke Seeder -->
-            <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between last:pb-0">
-                <div class="max-w-2xl">
-                    <h3 class="font-semibold text-ink text-sm">Ekspor Database ke Seeder (Snapshot)</h3>
-                    <p class="mt-1 text-xs leading-5 text-stone-600">Mengambil snapshot kondisi database saat ini dan menyimpannya kembali ke file seeder (<code class="bg-stone-100 px-1 py-0.5 rounded text-brand">database/seed-data.sql</code>) agar bisa di-commit ke Git.</p>
-                </div>
-                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Simpan snapshot database saat ini ke file seeder lokal?">
-                    <input type="hidden" name="action" value="export-seeder">
-                    <button type="submit" class="rounded-lg bg-stone-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-stone-900">
-                        Ekspor ke Seeder
-                    </button>
-                </form>
-            </div>
+            <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Update data master barang, customer, dan sales dari snapshot seeder?">
+                <input type="hidden" name="action" value="seed-master-data">
+                <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
+                    Update Master
+                </button>
+            </form>
         </div>
     </div>
 

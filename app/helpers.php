@@ -629,6 +629,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'update-2026-latest-final') {
         $result = run_2026_latest_final_update();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-master-data') {
+        $result = run_seed_master_data();
+        $counts = database_table_counts();
     } elseif ($action === 'update-pnl-sales-commission') {
         $result = run_pnl_sales_commission_update();
         $counts = database_table_counts();
@@ -2415,6 +2418,87 @@ function run_database_migration_seed(): array
         return [
             'ok' => false,
             'message' => 'Migrate/seed gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
+function run_seed_master_data(): array
+{
+    $pdo = db();
+
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi. Cek konfigurasi DB_HOST, DB_DATABASE, DB_USERNAME, dan DB_PASSWORD.',
+            'statements' => 0,
+            'counts' => [],
+        ];
+    }
+
+    $seedPath = dirname(__DIR__) . '/database/seed-data.sql';
+
+    if (! is_readable($seedPath)) {
+        return [
+            'ok' => false,
+            'message' => 'File database/seed-data.sql belum tersedia.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    try {
+        $allStatements = split_sql_statements((string) file_get_contents($seedPath));
+        $masterInsertStatements = array_values(array_filter(
+            $allStatements,
+            static fn (string $statement): bool => preg_match('/^\s*INSERT\s+INTO\s+`?(master_barang|master_customers|master_sales)`?\b/i', $statement) === 1
+        ));
+
+        if ($masterInsertStatements === []) {
+            return [
+                'ok' => false,
+                'message' => 'Statement insert data master tidak ditemukan di database/seed-data.sql.',
+                'statements' => 0,
+                'counts' => database_table_counts(),
+            ];
+        }
+
+        $statementCount = execute_sql_statements($pdo, [
+            'SET FOREIGN_KEY_CHECKS = 0',
+            'DELETE FROM `master_sales`',
+            'DELETE FROM `master_barang`',
+            'DELETE FROM `master_customers`',
+        ]);
+
+        $statementCount += execute_sql_statements($pdo, $masterInsertStatements);
+        $statementCount += execute_sql_statements($pdo, [
+            'SET FOREIGN_KEY_CHECKS = 1',
+        ]);
+
+        $counts = database_table_counts();
+        $output = [
+            'master_barang: ' . (string) ($counts['master_barang'] ?? 0),
+            'master_customers: ' . (string) ($counts['master_customers'] ?? 0),
+            'master_sales: ' . (string) ($counts['master_sales'] ?? 0),
+        ];
+
+        return [
+            'ok' => true,
+            'message' => 'Seeder data master berhasil dijalankan.',
+            'statements' => $statementCount,
+            'counts' => $counts,
+            'output' => implode(PHP_EOL, $output),
+        ];
+    } catch (Throwable $exception) {
+        try {
+            $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+        } catch (Throwable) {
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Seeder data master gagal: ' . $exception->getMessage(),
             'statements' => 0,
             'counts' => database_table_counts(),
         ];

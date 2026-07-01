@@ -356,7 +356,7 @@ function resolve_customer_for_import(array $map, string $name): ?array
 function resolve_barang_for_import(array $barangRows, string $name, string $size): ?array
 {
     $nameKey = barang_name_key_for_import($name);
-    $sizeKey = strtoupper(str_replace(' ', '', $size));
+    $sizeKey = str_replace([' ', 'LITER'], ['', 'L'], strtoupper($size));
     $aliases = [
         'OXO' => 'OXOBLEACH',
         'MSOUR' => 'MSOUR',

@@ -71,6 +71,20 @@
             </div>
 
             <!-- Ekspor Database ke Seeder -->
+            <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div class="max-w-2xl">
+                    <h3 class="font-semibold text-ink text-sm">Fix Komisi Sales &amp; Manager (Taki &amp; Indo Laundry)</h3>
+                    <p class="mt-1 text-xs leading-5 text-stone-600">Memperbaiki persentase &amp; nominal komisi sales invoice <strong>321/Maret</strong> dan <strong>397/Mei</strong> (Taki Laundry) dari 10% ke 5%, serta memperbarui komisi manager utang invoice <strong>458/Juni</strong> (Indo Laundry) menjadi Rp400.950. Lalu posting ulang jurnal akuntansi.</p>
+                </div>
+                <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan perbaikan komisi sales &amp; manager untuk Taki Laundry dan Indo Laundry?">
+                    <input type="hidden" name="action" value="fix-manager-commission-taki">
+                    <button type="submit" class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 whitespace-nowrap">
+                        Jalankan Fix Komisi
+                    </button>
+                </form>
+            </div>
+
+            <!-- Ekspor Database ke Seeder -->
             <div class="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between last:pb-0">
                 <div class="max-w-2xl">
                     <h3 class="font-semibold text-ink text-sm">Ekspor Database ke Seeder (Snapshot)</h3>

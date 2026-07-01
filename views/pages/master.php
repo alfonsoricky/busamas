@@ -1,8 +1,17 @@
 <?php
 $tab = $tab ?? 'barang';
+$flash = $flash ?? null;
 ?>
 
 <section class="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+    <!-- Flash Messages -->
+    <?php if (is_array($flash)): ?>
+        <?php $flashOk = (bool) ($flash['ok'] ?? false); ?>
+        <div class="mb-6 rounded-lg border p-4 text-sm <?= $flashOk ? 'border-teal-200 bg-teal-50 text-teal-900' : 'border-rose-200 bg-rose-50 text-rose-900' ?>">
+            <?= e((string) ($flash['message'] ?? $flash['error'] ?? '')) ?>
+        </div>
+    <?php endif; ?>
+
     <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
             <p class="mb-3 text-sm font-semibold uppercase tracking-wide text-brand">Data Master</p>
@@ -10,6 +19,14 @@ $tab = $tab ?? 'barang';
             <p class="mt-2 max-w-2xl leading-7 text-stone-600">
                 Kelola data barang, customer/laundry, dan sales agent yang tersimpan dalam sistem Busamas.
             </p>
+        </div>
+        <div>
+            <button onclick="openAddModal()" class="rounded-md bg-brand px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand/90 transition shadow-sm flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+                Tambah <?= $tab === 'barang' ? 'Barang' : ($tab === 'customer' ? 'Customer' : 'Sales') ?>
+            </button>
         </div>
     </div>
 
@@ -62,6 +79,8 @@ $tab = $tab ?? 'barang';
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Harga</th>
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Transaksi</th>
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Invoice</th>
+                                <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Status</th>
+                                <th class="whitespace-nowrap px-4 py-3 font-semibold">Aksi</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-stone-100">
@@ -73,6 +92,48 @@ $tab = $tab ?? 'barang';
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e(rupiah($item['harga_default'] ?? 0)) ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['jumlah_transaksi'] ?? '0') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['jumlah_invoice'] ?? '0') ?></td>
+                                    <td class="whitespace-nowrap px-4 py-3">
+                                        <?php if ($item['is_active'] ?? 1): ?>
+                                            <span class="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">Aktif</span>
+                                        <?php else: ?>
+                                            <span class="inline-flex items-center rounded-full bg-stone-50 px-2.5 py-0.5 text-xs font-semibold text-stone-600 ring-1 ring-inset ring-stone-500/20">Non-aktif</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3 flex items-center gap-2">
+                                        <button type="button" onclick='openEditModal(<?= json_encode($item) ?>)' class="text-brand hover:text-brand-dark p-1" title="Ubah">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                            </svg>
+                                        </button>
+                                        
+                                        <form method="POST" action="<?= url('/master?tab=barang') ?>" class="inline">
+                                            <input type="hidden" name="action" value="toggle_active">
+                                            <input type="hidden" name="table" value="master_barang">
+                                            <input type="hidden" name="id" value="<?= $item['id'] ?>">
+                                            <button type="submit" class="text-stone-500 hover:text-brand p-1" title="<?= ($item['is_active'] ?? 1) ? 'Nonaktifkan' : 'Aktifkan' ?>">
+                                                <?php if ($item['is_active'] ?? 1): ?>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                                    </svg>
+                                                <?php else: ?>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                <?php endif; ?>
+                                            </button>
+                                        </form>
+
+                                        <form method="POST" action="<?= url('/master?tab=barang') ?>" class="inline" onsubmit="return confirm('Apakah Anda yakin ingin menghapus data ini?')">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="table" value="master_barang">
+                                            <input type="hidden" name="id" value="<?= $item['id'] ?>">
+                                            <button type="submit" class="text-rose-500 hover:text-rose-700 p-1" title="Hapus">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -114,6 +175,8 @@ $tab = $tab ?? 'barang';
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Telepon</th>
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Invoice</th>
                                 <th class="px-4 py-3 font-semibold" data-sort-type="text">Alamat</th>
+                                <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Status</th>
+                                <th class="whitespace-nowrap px-4 py-3 font-semibold">Aksi</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-stone-100">
@@ -125,6 +188,48 @@ $tab = $tab ?? 'barang';
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['no_telepon'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['jumlah_invoice'] ?? '0') ?></td>
                                     <td class="min-w-72 px-4 py-3 text-stone-600"><?= e($item['alamat_default'] ?? '') ?></td>
+                                    <td class="whitespace-nowrap px-4 py-3">
+                                        <?php if ($item['is_active'] ?? 1): ?>
+                                            <span class="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">Aktif</span>
+                                        <?php else: ?>
+                                            <span class="inline-flex items-center rounded-full bg-stone-50 px-2.5 py-0.5 text-xs font-semibold text-stone-600 ring-1 ring-inset ring-stone-500/20">Non-aktif</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3 flex items-center gap-2">
+                                        <button type="button" onclick='openEditModal(<?= json_encode($item) ?>)' class="text-brand hover:text-brand-dark p-1" title="Ubah">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                            </svg>
+                                        </button>
+                                        
+                                        <form method="POST" action="<?= url('/master?tab=customer') ?>" class="inline">
+                                            <input type="hidden" name="action" value="toggle_active">
+                                            <input type="hidden" name="table" value="master_customers">
+                                            <input type="hidden" name="id" value="<?= $item['id'] ?>">
+                                            <button type="submit" class="text-stone-500 hover:text-brand p-1" title="<?= ($item['is_active'] ?? 1) ? 'Nonaktifkan' : 'Aktifkan' ?>">
+                                                <?php if ($item['is_active'] ?? 1): ?>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                                    </svg>
+                                                <?php else: ?>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                <?php endif; ?>
+                                            </button>
+                                        </form>
+
+                                        <form method="POST" action="<?= url('/master?tab=customer') ?>" class="inline" onsubmit="return confirm('Apakah Anda yakin ingin menghapus data ini?')">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="table" value="master_customers">
+                                            <input type="hidden" name="id" value="<?= $item['id'] ?>">
+                                            <button type="submit" class="text-rose-500 hover:text-rose-700 p-1" title="Hapus">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -154,6 +259,8 @@ $tab = $tab ?? 'barang';
                             <tr>
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Kode</th>
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Nama Sales</th>
+                                <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Status</th>
+                                <th class="whitespace-nowrap px-4 py-3 font-semibold">Aksi</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-stone-100">
@@ -161,6 +268,48 @@ $tab = $tab ?? 'barang';
                                 <tr class="hover:bg-stone-50">
                                     <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand"><?= e($item['kode_sales'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 font-medium text-ink"><?= e($item['nama_sales'] ?? '') ?></td>
+                                    <td class="whitespace-nowrap px-4 py-3">
+                                        <?php if ($item['is_active'] ?? 1): ?>
+                                            <span class="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">Aktif</span>
+                                        <?php else: ?>
+                                            <span class="inline-flex items-center rounded-full bg-stone-50 px-2.5 py-0.5 text-xs font-semibold text-stone-600 ring-1 ring-inset ring-stone-500/20">Non-aktif</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="whitespace-nowrap px-4 py-3 flex items-center gap-2">
+                                        <button type="button" onclick='openEditModal(<?= json_encode($item) ?>)' class="text-brand hover:text-brand-dark p-1" title="Ubah">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                            </svg>
+                                        </button>
+                                        
+                                        <form method="POST" action="<?= url('/master?tab=sales') ?>" class="inline">
+                                            <input type="hidden" name="action" value="toggle_active">
+                                            <input type="hidden" name="table" value="master_sales">
+                                            <input type="hidden" name="id" value="<?= $item['id'] ?>">
+                                            <button type="submit" class="text-stone-500 hover:text-brand p-1" title="<?= ($item['is_active'] ?? 1) ? 'Nonaktifkan' : 'Aktifkan' ?>">
+                                                <?php if ($item['is_active'] ?? 1): ?>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                                                    </svg>
+                                                <?php else: ?>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                <?php endif; ?>
+                                            </button>
+                                        </form>
+
+                                        <form method="POST" action="<?= url('/master?tab=sales') ?>" class="inline" onsubmit="return confirm('Apakah Anda yakin ingin menghapus data ini?')">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="table" value="master_sales">
+                                            <input type="hidden" name="id" value="<?= $item['id'] ?>">
+                                            <button type="submit" class="text-rose-500 hover:text-rose-700 p-1" title="Hapus">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                </svg>
+                                            </button>
+                                        </form>
+                                    </td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -171,7 +320,125 @@ $tab = $tab ?? 'barang';
     <?php endif; ?>
 </section>
 
+<!-- Modal CRUD Container -->
+<div id="master-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center bg-black/60 p-4 transition-all duration-300">
+    <div class="relative w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl transition-all scale-95 duration-300">
+        <div class="mb-5 flex items-center justify-between border-b border-stone-100 pb-3">
+            <h3 class="text-xl font-bold text-ink" id="modal-title">Form Data Master</h3>
+            <button type="button" class="text-stone-400 hover:text-stone-700 transition text-2xl font-semibold" onclick="closeModal()">&times;</button>
+        </div>
+        
+        <form id="modal-form" method="POST" action="<?= url('/master?tab=' . $tab) ?>" class="space-y-4">
+            <input type="hidden" name="action" id="form-action" value="">
+            <input type="hidden" name="id" id="form-id" value="">
+            
+            <?php if ($tab === 'barang'): ?>
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 mb-1">Nama Barang</label>
+                    <input type="text" name="nama_barang" id="input-nama_barang" required class="w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 mb-1">Ukuran</label>
+                    <input type="text" name="ukuran" id="input-ukuran" required class="w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" placeholder="Contoh: 20 L, 5 L, 20 KG">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 mb-1">Harga Standar (Rp)</label>
+                    <input type="number" name="harga_default" id="input-harga_default" required min="0" step="0.01" class="w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                </div>
+                
+            <?php elseif ($tab === 'customer'): ?>
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 mb-1">Nama Laundry</label>
+                    <input type="text" name="nama_laundry" id="input-nama_laundry" required class="w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 mb-1">Nama Owner / Customer</label>
+                    <input type="text" name="nama_customer" id="input-nama_customer" class="w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 mb-1">No. Telepon / HP</label>
+                    <input type="text" name="no_telepon" id="input-no_telepon" class="w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 mb-1">Alamat Utama</label>
+                    <textarea name="alamat_default" id="input-alamat_default" rows="3" class="w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20"></textarea>
+                </div>
+                
+            <?php elseif ($tab === 'sales'): ?>
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 mb-1">Nama Sales Agent</label>
+                    <input type="text" name="nama_sales" id="input-nama_sales" required class="w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                </div>
+            <?php endif; ?>
+            
+            <div>
+                <label class="block text-sm font-semibold text-stone-700 mb-1">Status Keaktifan</label>
+                <select name="is_active" id="input-is_active" class="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                    <option value="1">Aktif</option>
+                    <option value="0">Non-aktif</option>
+                </select>
+            </div>
+            
+            <div class="mt-6 flex justify-end gap-3 border-t border-stone-100 pt-4">
+                <button type="button" onclick="closeModal()" class="rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-ink hover:bg-stone-50 transition">Batal</button>
+                <button type="submit" class="rounded-md bg-brand px-5 py-2 text-sm font-semibold text-white hover:bg-brand/90 transition shadow-sm">Simpan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
+    const modal = document.getElementById('master-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const formAction = document.getElementById('form-action');
+    const formId = document.getElementById('form-id');
+
+    function openAddModal() {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        modalTitle.textContent = 'Tambah <?= $tab === 'barang' ? 'Barang' : ($tab === 'customer' ? 'Customer' : 'Sales') ?>';
+        formAction.value = 'create_<?= $tab ?>';
+        formId.value = '';
+        
+        // Reset all inputs
+        const inputs = modal.querySelectorAll('input:not([type="hidden"]), textarea, select');
+        inputs.forEach(i => {
+            if (i.tagName === 'SELECT') {
+                i.value = '1';
+            } else {
+                i.value = '';
+            }
+        });
+    }
+
+    function openEditModal(data) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        modalTitle.textContent = 'Ubah <?= $tab === 'barang' ? 'Barang' : ($tab === 'customer' ? 'Customer' : 'Sales') ?>';
+        formAction.value = 'update_<?= $tab ?>';
+        formId.value = data.id;
+        
+        // Populate inputs
+        for (const key in data) {
+            const input = document.getElementById('input-' + key);
+            if (input) {
+                input.value = data[key] !== null ? data[key] : '';
+            }
+        }
+    }
+
+    function closeModal() {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    // Close on click outside modal content
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeModal();
+        }
+    });
+
     document.querySelectorAll('[data-master-datatable]').forEach((table) => {
         const tbody = table.tBodies[0];
         const headers = Array.from(table.tHead?.rows[0]?.cells || []);
@@ -232,7 +499,9 @@ $tab = $tab ?? 'barang';
         }
 
         function rowText(row) {
-            return Array.from(row.cells).map((cell) => cell.textContent.trim()).join(' ').toLowerCase();
+            // Exclude status and actions column from search text
+            const cells = Array.from(row.cells).slice(0, -2);
+            return cells.map((cell) => cell.textContent.trim()).join(' ').toLowerCase();
         }
 
         function filteredRows() {
@@ -282,6 +551,9 @@ $tab = $tab ?? 'barang';
 
             tbody.replaceChildren(...pageRows(rows));
             headers.forEach((header, index) => {
+                // Don't make actions column sortable
+                if (index === headers.length - 1) return;
+                
                 header.classList.add('cursor-pointer', 'select-none');
                 const base = header.dataset.label || header.textContent.replace(/[▲▼]/g, '').trim();
                 header.dataset.label = base;
@@ -343,6 +615,7 @@ $tab = $tab ?? 'barang';
         });
 
         headers.forEach((header, index) => {
+            if (index === headers.length - 1) return;
             header.addEventListener('click', () => {
                 if (state.sortIndex === index) {
                     state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';

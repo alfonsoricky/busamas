@@ -153,7 +153,38 @@ $routes = [
         'title' => 'Data Master',
         'data' => function (): array {
             $tab = $_GET['tab'] ?? 'barang';
-            $data = ['tab' => $tab];
+            
+            if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+                $action = $_POST['action'] ?? '';
+                $result = ['ok' => false, 'error' => 'Aksi tidak dikenal.'];
+                
+                if ($action === 'create_barang' || $action === 'update_barang') {
+                    $post = $_POST;
+                    $post['master_action'] = ($action === 'create_barang') ? 'create' : 'update';
+                    $result = save_master_barang_form($post);
+                } elseif ($action === 'create_customer' || $action === 'update_customer') {
+                    $post = $_POST;
+                    $post['master_action'] = ($action === 'create_customer') ? 'create' : 'update';
+                    $result = save_master_customer_form($post);
+                } elseif ($action === 'create_sales' || $action === 'update_sales') {
+                    $post = $_POST;
+                    $post['master_action'] = ($action === 'create_sales') ? 'create' : 'update';
+                    $result = save_master_sales_form($post);
+                } elseif ($action === 'toggle_active') {
+                    $result = toggle_master_active($_POST['table'] ?? '', (int)($_POST['id'] ?? 0));
+                } elseif ($action === 'delete') {
+                    $result = delete_master_record($_POST['table'] ?? '', (int)($_POST['id'] ?? 0));
+                }
+                
+                $_SESSION['master_flash'] = $result;
+                header('Location: ' . url('/master?tab=' . $tab));
+                exit;
+            }
+            
+            $flash = $_SESSION['master_flash'] ?? null;
+            unset($_SESSION['master_flash']);
+            
+            $data = ['tab' => $tab, 'flash' => $flash];
             if ($tab === 'customer') {
                 $data['masterCustomer'] = fetch_master_customer();
             } elseif ($tab === 'sales') {

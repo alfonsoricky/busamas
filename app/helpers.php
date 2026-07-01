@@ -674,6 +674,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'export-seeder') {
         $result = run_export_database_seed();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-manager-commission-taki') {
+        $result = run_fix_manager_commission_taki();
+        $counts = database_table_counts();
     }
 
     return [
@@ -683,6 +686,69 @@ function fetch_database_maintenance(?string $action = null): array
         'database_connected' => db() !== null,
         'result' => $result,
     ];
+}
+
+function run_fix_manager_commission_taki(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    try {
+        $updates = [
+            // Invoice 321 Maret 2026 - Taki Laundry: komisi Ngurah 5% (terbayar 341.000, TF 2026-06-30)
+            [
+                'nomor_invoice'                  => '321/BM-INV/III/2026',
+                'komisi_sales_1_persen'          => 5.0,
+                'komisi_sales_terbayar'          => 341000.0,
+                'komisi_sales_belum_terbayar'    => 0.0,
+                'status_pembayaran_komisi_sales' => 'Transfer',
+                'tanggal_transfer_komisi_sales'  => '2026-06-30',
+            ],
+            // Invoice 397 Mei 2026 - Taki Laundry: komisi Ngurah 5% (terbayar 341.000, TF 2026-06-30)
+            [
+                'nomor_invoice'                  => '397/BM-INV/V/2026',
+                'komisi_sales_1_persen'          => 5.0,
+                'komisi_sales_terbayar'          => 341000.0,
+                'komisi_sales_belum_terbayar'    => 0.0,
+                'status_pembayaran_komisi_sales' => 'Transfer',
+                'tanggal_transfer_komisi_sales'  => '2026-06-30',
+            ],
+            // Invoice 458 Juni 2026 - Indo Laundry: komisi manager utang 400.950
+            [
+                'nomor_invoice'           => '458/BM-INV/VI/2026',
+                'komisi_manager_utang'    => 400950.0,
+            ],
+        ];
+
+        $count = 0;
+        foreach ($updates as $upd) {
+            $nomor = $upd['nomor_invoice'];
+            unset($upd['nomor_invoice']);
+
+            $setClauses = implode(', ', array_map(fn($k) => "`$k` = :$k", array_keys($upd)));
+            $upd['nomor_invoice'] = $nomor;
+            $stmt = $pdo->prepare("UPDATE invoices SET $setClauses WHERE nomor_invoice = :nomor_invoice");
+            $stmt->execute($upd);
+            $count += $stmt->rowCount();
+        }
+
+        $pdo->beginTransaction();
+        $journal = regenerate_all_accounting_journals($pdo);
+        $pdo->commit();
+
+        return [
+            'ok'         => true,
+            'message'    => 'Fix komisi sales & manager berhasil. Jurnal akuntansi diperbarui.',
+            'statements' => $count + ($journal['entries'] ?? 0),
+        ];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        return ['ok' => false, 'message' => 'Error: ' . $e->getMessage(), 'statements' => 0];
+    }
 }
 
 function run_update_manager_commission(): array
@@ -2493,7 +2559,7 @@ function split_sql_statements(string $sql): array
 
 function fetch_master_barang(): array
 {
-    $dbItems = db_all('SELECT kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default, jumlah_alias, jumlah_transaksi, jumlah_invoice, alias FROM master_barang ORDER BY nama_barang, ukuran');
+    $dbItems = db_all('SELECT id, kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default, jumlah_alias, jumlah_transaksi, jumlah_invoice, alias, is_active FROM master_barang ORDER BY nama_barang, ukuran');
 
     if ($dbItems !== null) {
         return [
@@ -2553,7 +2619,7 @@ function fetch_master_barang(): array
 
 function fetch_master_customer(): array
 {
-    $dbItems = db_all('SELECT kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, jumlah_alias, jumlah_invoice, alias, alamat_lain FROM master_customers ORDER BY nama_laundry');
+    $dbItems = db_all('SELECT id, kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, jumlah_alias, jumlah_invoice, alias, alamat_lain, is_active FROM master_customers ORDER BY nama_laundry');
 
     if ($dbItems !== null) {
         return [
@@ -2613,7 +2679,7 @@ function fetch_master_customer(): array
 
 function fetch_master_sales(): array
 {
-    $items = db_all('SELECT kode_sales, nama_sales FROM master_sales ORDER BY kode_sales');
+    $items = db_all('SELECT id, kode_sales, nama_sales, is_active FROM master_sales ORDER BY kode_sales');
 
     if ($items === null) {
         return [
@@ -10998,4 +11064,244 @@ function sheets_sync_operational_delete(int $expenseId): bool
     return http_post_json($batchUrl, $payload, [
         'Authorization: Bearer ' . $token['access_token'],
     ]);
+}
+
+function next_kode_barang(): string
+{
+    $pdo = db();
+    $codes = $pdo->query("SELECT kode_barang FROM master_barang WHERE kode_barang LIKE 'BRG-%'")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    $max = 0;
+    foreach ($codes as $code) {
+        if (preg_match('/^BRG-(\d+)$/', (string) $code, $match)) {
+            $max = max($max, (int) $match[1]);
+        }
+    }
+    return 'BRG-' . str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
+}
+
+function next_kode_customer(): string
+{
+    $pdo = db();
+    $codes = $pdo->query("SELECT kode_customer FROM master_customers WHERE kode_customer LIKE 'CUST-%'")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    $max = 0;
+    foreach ($codes as $code) {
+        if (preg_match('/^CUST-(\d+)$/', (string) $code, $match)) {
+            $max = max($max, (int) $match[1]);
+        }
+    }
+    return 'CUST-' . str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
+}
+
+function next_kode_sales(): string
+{
+    $pdo = db();
+    $codes = $pdo->query("SELECT kode_sales FROM master_sales WHERE kode_sales LIKE 'SLS-%'")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    $max = 0;
+    foreach ($codes as $code) {
+        if (preg_match('/^SLS-(\d+)$/', (string) $code, $match)) {
+            $max = max($max, (int) $match[1]);
+        }
+    }
+    return 'SLS-' . str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
+}
+
+function save_master_barang_form(array $post): array
+{
+    $pdo = db();
+    if ($pdo === null) return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    
+    $action = $post['master_action'] ?? '';
+    $id = (int)($post['id'] ?? 0);
+    $namaBarang = trim($post['nama_barang'] ?? '');
+    $ukuran = trim($post['ukuran'] ?? '');
+    $hargaDefault = (float)($post['harga_default'] ?? 0);
+    $isActive = isset($post['is_active']) ? (int)$post['is_active'] : 1;
+    
+    if ($namaBarang === '' || $ukuran === '') {
+        return ['ok' => false, 'error' => 'Nama barang dan ukuran wajib diisi.'];
+    }
+    
+    if ($action === 'create') {
+        $kode = next_kode_barang();
+        $stmt = $pdo->prepare("
+            INSERT INTO master_barang (kode_barang, nama_barang, ukuran, harga_default, is_active) 
+            VALUES (:kode, :nama, :ukuran, :harga, :is_active)
+        ");
+        $stmt->execute([
+            'kode' => $kode,
+            'nama' => $namaBarang,
+            'ukuran' => $ukuran,
+            'harga' => $hargaDefault,
+            'is_active' => $isActive
+        ]);
+        activity_log('create', 'master_barang', $kode, 'Menambah master barang ' . $namaBarang);
+        return ['ok' => true, 'message' => 'Barang berhasil ditambahkan.'];
+    } elseif ($action === 'update') {
+        if ($id <= 0) return ['ok' => false, 'error' => 'ID tidak valid.'];
+        
+        $stmt = $pdo->prepare("
+            UPDATE master_barang 
+            SET nama_barang = :nama, 
+                ukuran = :ukuran, 
+                harga_default = :harga, 
+                is_active = :is_active 
+            WHERE id = :id
+        ");
+        $stmt->execute([
+            'nama' => $namaBarang,
+            'ukuran' => $ukuran,
+            'harga' => $hargaDefault,
+            'is_active' => $isActive,
+            'id' => $id
+        ]);
+        activity_log('update', 'master_barang', (string)$id, 'Mengubah master barang ' . $namaBarang);
+        return ['ok' => true, 'message' => 'Barang berhasil diubah.'];
+    }
+    
+    return ['ok' => false, 'error' => 'Aksi tidak valid.'];
+}
+
+function save_master_customer_form(array $post): array
+{
+    $pdo = db();
+    if ($pdo === null) return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    
+    $action = $post['master_action'] ?? '';
+    $id = (int)($post['id'] ?? 0);
+    $namaCustomer = trim($post['nama_customer'] ?? '');
+    $namaLaundry = trim($post['nama_laundry'] ?? '');
+    $noTelepon = trim($post['no_telepon'] ?? '');
+    $alamatDefault = trim($post['alamat_default'] ?? '');
+    $isActive = isset($post['is_active']) ? (int)$post['is_active'] : 1;
+    
+    if ($namaLaundry === '') {
+        return ['ok' => false, 'error' => 'Nama laundry wajib diisi.'];
+    }
+    
+    if ($action === 'create') {
+        $kode = next_kode_customer();
+        $stmt = $pdo->prepare("
+            INSERT INTO master_customers (kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, is_active) 
+            VALUES (:kode, :nama, :laundry, :telepon, :alamat, :is_active)
+        ");
+        $stmt->execute([
+            'kode' => $kode,
+            'nama' => $namaCustomer !== '' ? $namaCustomer : null,
+            'laundry' => $namaLaundry,
+            'telepon' => $noTelepon !== '' ? $noTelepon : null,
+            'alamat' => $alamatDefault !== '' ? $alamatDefault : null,
+            'is_active' => $isActive
+        ]);
+        activity_log('create', 'master_customers', $kode, 'Menambah master customer ' . $namaLaundry);
+        return ['ok' => true, 'message' => 'Customer berhasil ditambahkan.'];
+    } elseif ($action === 'update') {
+        if ($id <= 0) return ['ok' => false, 'error' => 'ID tidak valid.'];
+        
+        $stmt = $pdo->prepare("
+            UPDATE master_customers 
+            SET nama_customer = :nama, 
+                nama_laundry = :laundry, 
+                no_telepon = :telepon, 
+                alamat_default = :alamat, 
+                is_active = :is_active 
+            WHERE id = :id
+        ");
+        $stmt->execute([
+            'nama' => $namaCustomer !== '' ? $namaCustomer : null,
+            'laundry' => $namaLaundry,
+            'telepon' => $noTelepon !== '' ? $noTelepon : null,
+            'alamat' => $alamatDefault !== '' ? $alamatDefault : null,
+            'is_active' => $isActive,
+            'id' => $id
+        ]);
+        activity_log('update', 'master_customers', (string)$id, 'Mengubah master customer ' . $namaLaundry);
+        return ['ok' => true, 'message' => 'Customer berhasil diubah.'];
+    }
+    
+    return ['ok' => false, 'error' => 'Aksi tidak valid.'];
+}
+
+function save_master_sales_form(array $post): array
+{
+    $pdo = db();
+    if ($pdo === null) return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    
+    $action = $post['master_action'] ?? '';
+    $id = (int)($post['id'] ?? 0);
+    $namaSales = trim($post['nama_sales'] ?? '');
+    $isActive = isset($post['is_active']) ? (int)$post['is_active'] : 1;
+    
+    if ($namaSales === '') {
+        return ['ok' => false, 'error' => 'Nama sales wajib diisi.'];
+    }
+    
+    if ($action === 'create') {
+        $kode = next_kode_sales();
+        $stmt = $pdo->prepare("
+            INSERT INTO master_sales (kode_sales, nama_sales, is_active) 
+            VALUES (:kode, :nama, :is_active)
+        ");
+        $stmt->execute([
+            'kode' => $kode,
+            'nama' => $namaSales,
+            'is_active' => $isActive
+        ]);
+        activity_log('create', 'master_sales', $kode, 'Menambah master sales ' . $namaSales);
+        return ['ok' => true, 'message' => 'Sales agent berhasil ditambahkan.'];
+    } elseif ($action === 'update') {
+        if ($id <= 0) return ['ok' => false, 'error' => 'ID tidak valid.'];
+        
+        $stmt = $pdo->prepare("
+            UPDATE master_sales 
+            SET nama_sales = :nama, 
+                is_active = :is_active 
+            WHERE id = :id
+        ");
+        $stmt->execute([
+            'nama' => $namaSales,
+            'is_active' => $isActive,
+            'id' => $id
+        ]);
+        activity_log('update', 'master_sales', (string)$id, 'Mengubah master sales ' . $namaSales);
+        return ['ok' => true, 'message' => 'Sales agent berhasil diubah.'];
+    }
+    
+    return ['ok' => false, 'error' => 'Aksi tidak valid.'];
+}
+
+function toggle_master_active(string $table, int $id): array
+{
+    $pdo = db();
+    if ($pdo === null) return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    
+    $validTables = ['master_barang', 'master_customers', 'master_sales'];
+    if (!in_array($table, $validTables)) return ['ok' => false, 'error' => 'Tabel tidak valid.'];
+    
+    $stmt = $pdo->prepare("SELECT is_active FROM {$table} WHERE id = ?");
+    $stmt->execute([$id]);
+    $row = $stmt->fetch();
+    if (!$row) return ['ok' => false, 'error' => 'Data tidak ditemukan.'];
+    
+    $newStatus = $row['is_active'] ? 0 : 1;
+    
+    $updateStmt = $pdo->prepare("UPDATE {$table} SET is_active = ? WHERE id = ?");
+    $updateStmt->execute([$newStatus, $id]);
+    
+    activity_log('toggle_status', $table, (string)$id, 'Mengubah status keaktifan data master ID: ' . $id . ' menjadi ' . ($newStatus ? 'Aktif' : 'Non-aktif'));
+    return ['ok' => true, 'message' => 'Status berhasil diperbarui.'];
+}
+
+function delete_master_record(string $table, int $id): array
+{
+    $pdo = db();
+    if ($pdo === null) return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    
+    $validTables = ['master_barang', 'master_customers', 'master_sales'];
+    if (!in_array($table, $validTables)) return ['ok' => false, 'error' => 'Tabel tidak valid.'];
+    
+    $stmt = $pdo->prepare("DELETE FROM {$table} WHERE id = ?");
+    $stmt->execute([$id]);
+    
+    activity_log('delete', $table, (string)$id, 'Menghapus data master ID: ' . $id);
+    return ['ok' => true, 'message' => 'Data berhasil dihapus.'];
 }

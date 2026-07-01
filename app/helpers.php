@@ -1323,6 +1323,88 @@ function database_column_exists(PDO $pdo, string $table, string $column): bool
     return (int) $stmt->fetchColumn() > 0;
 }
 
+function ensure_master_tables(PDO $pdo): void
+{
+    execute_sql_statements($pdo, [
+        "CREATE TABLE IF NOT EXISTS `master_barang` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `kode_barang` VARCHAR(20) NOT NULL,
+            `nama_barang` VARCHAR(150) NOT NULL,
+            `ukuran` VARCHAR(50) NOT NULL,
+            `isi_default` VARCHAR(50) NULL,
+            `satuan_default` VARCHAR(50) NULL,
+            `harga_default` DECIMAL(15,2) NOT NULL DEFAULT 0,
+            `jumlah_alias` INT UNSIGNED NOT NULL DEFAULT 0,
+            `jumlah_transaksi` INT UNSIGNED NOT NULL DEFAULT 0,
+            `jumlah_invoice` INT UNSIGNED NOT NULL DEFAULT 0,
+            `alias` TEXT NULL,
+            `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `master_barang_kode_barang_unique` (`kode_barang`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "CREATE TABLE IF NOT EXISTS `master_customers` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `kode_customer` VARCHAR(20) NOT NULL,
+            `nama_customer` VARCHAR(150) NULL,
+            `nama_laundry` VARCHAR(150) NOT NULL,
+            `no_telepon` VARCHAR(50) NULL,
+            `alamat_default` TEXT NULL,
+            `jumlah_alias` INT UNSIGNED NOT NULL DEFAULT 0,
+            `jumlah_invoice` INT UNSIGNED NOT NULL DEFAULT 0,
+            `alias` TEXT NULL,
+            `alamat_lain` TEXT NULL,
+            `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `master_customers_kode_customer_unique` (`kode_customer`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+        "CREATE TABLE IF NOT EXISTS `master_sales` (
+            `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            `kode_sales` VARCHAR(20) NOT NULL,
+            `nama_sales` VARCHAR(150) NOT NULL,
+            `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+            `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `master_sales_kode_sales_unique` (`kode_sales`),
+            UNIQUE KEY `master_sales_nama_sales_unique` (`nama_sales`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    ]);
+
+    $columns = [
+        'master_barang' => [
+            'is_active' => 'ALTER TABLE `master_barang` ADD COLUMN `is_active` TINYINT(1) NOT NULL DEFAULT 1 AFTER `alias`',
+            'created_at' => 'ALTER TABLE `master_barang` ADD COLUMN `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+            'updated_at' => 'ALTER TABLE `master_barang` ADD COLUMN `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+        ],
+        'master_customers' => [
+            'is_active' => 'ALTER TABLE `master_customers` ADD COLUMN `is_active` TINYINT(1) NOT NULL DEFAULT 1 AFTER `alamat_lain`',
+            'created_at' => 'ALTER TABLE `master_customers` ADD COLUMN `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+            'updated_at' => 'ALTER TABLE `master_customers` ADD COLUMN `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+        ],
+        'master_sales' => [
+            'is_active' => 'ALTER TABLE `master_sales` ADD COLUMN `is_active` TINYINT(1) NOT NULL DEFAULT 1 AFTER `nama_sales`',
+            'created_at' => 'ALTER TABLE `master_sales` ADD COLUMN `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
+            'updated_at' => 'ALTER TABLE `master_sales` ADD COLUMN `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+        ],
+    ];
+
+    foreach ($columns as $table => $tableColumns) {
+        if (! database_table_exists($pdo, $table)) {
+            continue;
+        }
+
+        foreach ($tableColumns as $column => $sql) {
+            if (! database_column_exists($pdo, $table, $column)) {
+                $pdo->exec($sql);
+            }
+        }
+    }
+}
+
 function ensure_journal_entries_posted_at_column(PDO $pdo): void
 {
     if ($pdo->inTransaction()) {
@@ -2450,6 +2532,8 @@ function run_seed_master_data(): array
     }
 
     try {
+        ensure_master_tables($pdo);
+
         $allStatements = split_sql_statements((string) file_get_contents($seedPath));
         $masterInsertStatements = array_values(array_filter(
             $allStatements,
@@ -2645,6 +2729,14 @@ function split_sql_statements(string $sql): array
 
 function fetch_master_barang(): array
 {
+    $pdo = db();
+    if ($pdo !== null) {
+        try {
+            ensure_master_tables($pdo);
+        } catch (Throwable) {
+        }
+    }
+
     $dbItems = db_all('SELECT id, kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default, jumlah_alias, jumlah_transaksi, jumlah_invoice, alias, is_active FROM master_barang ORDER BY nama_barang, ukuran');
 
     if ($dbItems !== null) {
@@ -2705,6 +2797,14 @@ function fetch_master_barang(): array
 
 function fetch_master_customer(): array
 {
+    $pdo = db();
+    if ($pdo !== null) {
+        try {
+            ensure_master_tables($pdo);
+        } catch (Throwable) {
+        }
+    }
+
     $dbItems = db_all('SELECT id, kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, jumlah_alias, jumlah_invoice, alias, alamat_lain, is_active FROM master_customers ORDER BY nama_laundry');
 
     if ($dbItems !== null) {
@@ -2765,6 +2865,14 @@ function fetch_master_customer(): array
 
 function fetch_master_sales(): array
 {
+    $pdo = db();
+    if ($pdo !== null) {
+        try {
+            ensure_master_tables($pdo);
+        } catch (Throwable) {
+        }
+    }
+
     $items = db_all('SELECT id, kode_sales, nama_sales, is_active FROM master_sales ORDER BY kode_sales');
 
     if ($items === null) {

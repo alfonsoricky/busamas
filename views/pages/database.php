@@ -28,66 +28,15 @@
     <div class="mb-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div class="max-w-2xl">
-                <h2 class="text-lg font-bold text-ink">Update Data Master</h2>
+                <h2 class="text-lg font-bold text-ink">Sync Pembayaran PENJUALAN-2026 (7)</h2>
                 <p class="mt-1 text-sm leading-6 text-stone-600">
-                    Menyiapkan tabel dan memperbarui master barang, customer, dan sales dari snapshot <code class="rounded bg-stone-100 px-1 py-0.5 text-coral">database/seed-data.sql</code>.
+                    Memperbarui komisi sales, komisi admin, ongkos kirim, dan pembayaran pembelian barang dari hasil cek file PENJUALAN-2026 (7).xlsx.
                 </p>
             </div>
-            <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Update data master barang, customer, dan sales dari snapshot seeder?">
-                <input type="hidden" name="action" value="seed-master-data">
+            <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan sinkronisasi pembayaran dari PENJUALAN-2026 (7) dan posting ulang jurnal terkait?">
+                <input type="hidden" name="action" value="sync-penjualan-2026-7-payments">
                 <button type="submit" class="rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">
-                    Update Master
-                </button>
-            </form>
-        </div>
-    </div>
-
-    <div class="mb-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div class="max-w-2xl">
-                <h2 class="text-lg font-bold text-ink">Fix PNL Juni 2026 v2</h2>
-                <p class="mt-1 text-sm leading-6 text-stone-600">
-                    Memperbarui invoice 458 dan menambahkan dua operational Juni yang kurang sesuai file PENJUALAN-2026 (6).xlsx.
-                </p>
-            </div>
-            <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan fix PNL Juni 2026 v2 sesuai file Excel terbaru?">
-                <input type="hidden" name="action" value="fix-june-2026-pnl-v2">
-                <button type="submit" class="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
-                    Jalankan Fix
-                </button>
-            </form>
-        </div>
-    </div>
-
-    <div class="mb-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div class="max-w-2xl">
-                <h2 class="text-lg font-bold text-ink">Fix Surat Jalan 2026</h2>
-                <p class="mt-1 text-sm leading-6 text-stone-600">
-                    Mengisi nomor dan tanggal surat jalan invoice 453 sampai 470 dari file PENJUALAN-2026 (6).xlsx.
-                </p>
-            </div>
-            <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Update nomor dan tanggal surat jalan invoice 453 sampai 470?">
-                <input type="hidden" name="action" value="fix-2026-surat-jalan">
-                <button type="submit" class="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
-                    Jalankan Fix
-                </button>
-            </form>
-        </div>
-    </div>
-
-    <div class="mb-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div class="max-w-2xl">
-                <h2 class="text-lg font-bold text-ink">Seeder Invoice 471 Aviator</h2>
-                <p class="mt-1 text-sm leading-6 text-stone-600">
-                    Membuat atau memperbarui invoice 471 Aviator Hotel dari PENJUALAN-2026 (7).xlsx dan memposting jurnal akuntansinya.
-                </p>
-            </div>
-            <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Jalankan seeder invoice 471 Aviator Hotel dan posting ke akuntansi?">
-                <input type="hidden" name="action" value="seed-invoice-471-aviator">
-                <button type="submit" class="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
-                    Jalankan Seeder
+                    Jalankan Sync
                 </button>
             </form>
         </div>

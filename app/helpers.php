@@ -689,6 +689,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-invoice-471-aviator') {
         $result = run_seed_invoice_471_aviator();
         $counts = database_table_counts();
+    } elseif ($action === 'sync-penjualan-2026-7-payments') {
+        $result = run_sync_penjualan_2026_7_payments();
+        $counts = database_table_counts();
     }
 
     return [
@@ -1212,6 +1215,161 @@ function run_seed_invoice_471_aviator(): array
         return [
             'ok' => false,
             'message' => 'Seeder invoice 471 Aviator Hotel gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_sync_penjualan_2026_7_payments(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    $adminDateGroups = [
+        ['start' => 246, 'end' => 283, 'month' => 'I', 'date' => '2026-04-11', 'mark_paid' => false],
+        ['start' => 284, 'end' => 317, 'month' => 'II', 'date' => '2026-05-19', 'mark_paid' => false],
+        ['start' => 318, 'end' => 350, 'month' => 'III', 'date' => '2026-06-10', 'mark_paid' => false],
+        ['start' => 351, 'end' => 386, 'month' => 'IV', 'date' => '2026-06-29', 'mark_paid' => true],
+    ];
+    $purchasePayments = [
+        '290/BM-INV/II/2026' => ['amount' => 1700000, 'date' => '2026-06-29'],
+        '367/BM-INV/IV/2026' => ['amount' => 600000, 'date' => '2026-06-30'],
+        '404/BM-INV/V/2026' => ['amount' => 4200000, 'date' => '2026-06-29'],
+        '408/BM-INV/V/2026' => ['amount' => 325000, 'date' => '2026-07-01'],
+        '422/BM-INV/V/2026' => ['amount' => 1500000, 'date' => '2026-07-01'],
+        '467/BM-INV/VI/2026' => ['amount' => 2000000, 'date' => '2026-07-01'],
+    ];
+
+    $invoiceNumber = static function (int $number, string $month): string {
+        return $number . '/BM-INV/' . $month . '/2026';
+    };
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $pdo->beginTransaction();
+
+        $touched = [];
+        $missing = [];
+        $statements = 0;
+
+        $remember = static function (PDO $pdo, array &$touched, array &$missing, string $nomorInvoice): void {
+            $stmt = $pdo->prepare('SELECT kode_invoice FROM invoices WHERE nomor_invoice = ? LIMIT 1');
+            $stmt->execute([$nomorInvoice]);
+            $kodeInvoice = (string) ($stmt->fetchColumn() ?: '');
+            if ($kodeInvoice === '') {
+                $missing[] = $nomorInvoice;
+                return;
+            }
+            $touched[$kodeInvoice] = $nomorInvoice;
+        };
+
+        $updateSales = $pdo->prepare("
+            UPDATE invoices
+            SET komisi_sales_terbayar = 148500,
+                komisi_sales_belum_terbayar = 0,
+                status_pembayaran_komisi_sales = 'Transfer',
+                tanggal_transfer_komisi_sales = '2026-07-01',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE nomor_invoice = '467/BM-INV/VI/2026'
+        ");
+        $updateSales->execute();
+        $statements += max(1, $updateSales->rowCount());
+        $remember($pdo, $touched, $missing, '467/BM-INV/VI/2026');
+
+        $updateAdminDate = $pdo->prepare("
+            UPDATE invoices
+            SET tanggal_transfer_komisi_admin = :date,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE nomor_invoice = :nomor_invoice
+        ");
+        $updateAdminPaid = $pdo->prepare("
+            UPDATE invoices
+            SET komisi_admin_terbayar = komisi_admin_belum_terbayar,
+                komisi_admin_belum_terbayar = 0,
+                tanggal_transfer_komisi_admin = :date,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE nomor_invoice = :nomor_invoice
+        ");
+
+        foreach ($adminDateGroups as $group) {
+            for ($number = $group['start']; $number <= $group['end']; $number++) {
+                $nomorInvoice = $invoiceNumber($number, $group['month']);
+                $stmt = $group['mark_paid'] ? $updateAdminPaid : $updateAdminDate;
+                $stmt->execute([
+                    'date' => $group['date'],
+                    'nomor_invoice' => $nomorInvoice,
+                ]);
+                $statements += max(1, $stmt->rowCount());
+                $remember($pdo, $touched, $missing, $nomorInvoice);
+            }
+        }
+
+        $updateDelivery = $pdo->prepare("
+            UPDATE invoices
+            SET biaya_kirim = 48000,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE nomor_invoice = '470/BM-INV/VII/2026'
+        ");
+        $updateDelivery->execute();
+        $statements += max(1, $updateDelivery->rowCount());
+        $remember($pdo, $touched, $missing, '470/BM-INV/VII/2026');
+
+        $updatePurchase = $pdo->prepare("
+            UPDATE invoices
+            SET total_pembelian_barang = :amount,
+                total_utang_pembelian_barang = 0,
+                status_pembelian_barang = 'Lunas',
+                tanggal_transfer_pembelian_barang = :date,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE nomor_invoice = :nomor_invoice
+        ");
+        foreach ($purchasePayments as $nomorInvoice => $payment) {
+            $updatePurchase->execute([
+                'amount' => $payment['amount'],
+                'date' => $payment['date'],
+                'nomor_invoice' => $nomorInvoice,
+            ]);
+            $statements += max(1, $updatePurchase->rowCount());
+            $remember($pdo, $touched, $missing, $nomorInvoice);
+        }
+
+        $journalLines = 0;
+        foreach ($touched as $kodeInvoice => $nomorInvoice) {
+            delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+            $journalLines += generate_invoice_journal($pdo, $kodeInvoice);
+        }
+
+        $pdo->commit();
+
+        $message = 'Sinkronisasi PENJUALAN-2026 (7) berhasil. ' . count($touched) . ' invoice diperbarui dan jurnal diposting ulang.';
+        if ($missing !== []) {
+            $message .= ' Invoice tidak ditemukan: ' . implode(', ', array_unique($missing)) . '.';
+        }
+
+        return [
+            'ok' => $missing === [],
+            'message' => $message,
+            'statements' => $statements + $journalLines,
+            'output' => implode(PHP_EOL, [
+                'Komisi sales: 467/BM-INV/VI/2026.',
+                'Komisi admin: invoice 246-386, termasuk April dipindah ke terbayar.',
+                'Ongkos kirim: 470/BM-INV/VII/2026 Rp48.000.',
+                'Pembelian barang dibayar: 290, 367, 404, 408, 422, 467.',
+                'Baris jurnal dibuat ulang: ' . $journalLines . '.',
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Sinkronisasi PENJUALAN-2026 (7) gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

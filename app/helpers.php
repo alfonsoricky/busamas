@@ -701,6 +701,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-missing-invoice-dates') {
         $result = run_fix_missing_invoice_dates();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-delivery-payment-dates') {
+        $result = run_fix_delivery_payment_dates();
+        $counts = database_table_counts();
     }
 
     return [
@@ -1647,6 +1650,102 @@ function run_fix_missing_invoice_dates(): array
         return [
             'ok' => false,
             'message' => 'Seeder tanggal invoice gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_fix_delivery_payment_dates(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    $normalizeInvoiceDate = static function (mixed $value): string {
+        $raw = trim((string) ($value ?? ''));
+        if ($raw === '') {
+            return '';
+        }
+
+        if (is_numeric($raw)) {
+            return excel_date_2025($raw) ?? '';
+        }
+
+        $raw = str_ireplace('Februuari', 'Februari', $raw);
+        return date_input_value($raw);
+    };
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $rows = $pdo->query("
+            SELECT kode_invoice, nomor_invoice, tanggal_invoice
+            FROM invoices
+            WHERE biaya_kirim > 0
+              AND (
+                    tanggal_pembayaran_biaya_kirim IS NULL
+                    OR TRIM(CAST(tanggal_pembayaran_biaya_kirim AS CHAR)) = ''
+                    OR CAST(tanggal_pembayaran_biaya_kirim AS CHAR) = '0000-00-00'
+                  )
+              AND tanggal_invoice IS NOT NULL
+              AND TRIM(CAST(tanggal_invoice AS CHAR)) <> ''
+            ORDER BY nomor_invoice
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $update = $pdo->prepare("
+            UPDATE invoices
+            SET tanggal_pembayaran_biaya_kirim = :tanggal,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE kode_invoice = :kode_invoice
+        ");
+
+        $updated = 0;
+        $journalLines = 0;
+        $skipped = [];
+
+        foreach ($rows as $row) {
+            $tanggal = $normalizeInvoiceDate($row['tanggal_invoice'] ?? '');
+            if ($tanggal === '') {
+                $skipped[] = (string) ($row['nomor_invoice'] ?? $row['kode_invoice']);
+                continue;
+            }
+
+            $kodeInvoice = (string) ($row['kode_invoice'] ?? '');
+            if ($kodeInvoice === '') {
+                continue;
+            }
+
+            $update->execute([
+                'tanggal' => $tanggal,
+                'kode_invoice' => $kodeInvoice,
+            ]);
+            $updated += $update->rowCount();
+
+            delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+            $journalLines += generate_invoice_journal($pdo, $kodeInvoice);
+        }
+
+        $message = 'Seeder tanggal pembayaran ongkos kirim berhasil. ' . $updated . ' invoice diperbarui.';
+        if ($skipped !== []) {
+            $message .= ' Tanggal gagal dibaca: ' . implode(', ', $skipped) . '.';
+        }
+
+        return [
+            'ok' => $skipped === [],
+            'message' => $message,
+            'statements' => $updated + $journalLines,
+            'output' => implode(PHP_EOL, [
+                'Tanggal pembayaran ongkos kirim kosong diisi dari tanggal invoice.',
+                'Invoice diposting ulang: ' . count($rows) . '.',
+                'Baris jurnal dibuat ulang: ' . $journalLines . '.',
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Seeder tanggal pembayaran ongkos kirim gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

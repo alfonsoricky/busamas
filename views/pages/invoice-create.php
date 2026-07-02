@@ -870,7 +870,9 @@
                             <select name="items[][kode_barang]" class="min-w-0 flex-1 rounded-lg border border-stone-300 bg-white px-2 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20" data-item-barang>
                                 ${barangOptionMarkup()}
                             </select>
-                            <button type="button" class="shrink-0 rounded-md border border-stone-300 px-2 py-2 text-xs font-semibold text-stone-600 transition hover:border-red-400 hover:text-red-700" data-remove-item aria-label="Hapus item barang">Hapus</button>
+                            <button type="button" class="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-stone-300 text-stone-500 transition hover:border-red-400 hover:text-red-700" data-remove-item aria-label="Hapus item barang" title="Hapus item">
+                                <span class="text-lg leading-none">&times;</span>
+                            </button>
                         </div>
                     </td>
                     <td class="px-2 py-2">

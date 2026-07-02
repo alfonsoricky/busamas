@@ -707,6 +707,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-admin-commission-transfer-2025') {
         $result = run_fix_admin_commission_transfer_2025();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-operational-payment-dates') {
+        $result = run_fix_operational_payment_dates();
+        $counts = database_table_counts();
     }
 
     return [
@@ -1874,6 +1877,97 @@ function run_fix_admin_commission_transfer_2025(): array
         return [
             'ok' => false,
             'message' => 'Seeder tanggal transfer komisi admin 2025 gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_fix_operational_payment_dates(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $rows = $pdo->query("
+            SELECT id, tanggal, kategori, nama_pengeluaran
+            FROM operational_expenses
+            WHERE jumlah > 0
+              AND (
+                    tanggal_pembayaran IS NULL
+                    OR TRIM(CAST(tanggal_pembayaran AS CHAR)) = ''
+                    OR CAST(tanggal_pembayaran AS CHAR) = '0000-00-00'
+                  )
+              AND tanggal IS NOT NULL
+              AND TRIM(CAST(tanggal AS CHAR)) <> ''
+              AND CAST(tanggal AS CHAR) <> '0000-00-00'
+            ORDER BY tahun_pnl, bulan_pnl, tanggal, id
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $update = $pdo->prepare("
+            UPDATE operational_expenses
+            SET tanggal_pembayaran = :tanggal_pembayaran,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id
+        ");
+
+        $updated = 0;
+        $journalLines = 0;
+        $details = [];
+
+        foreach ($rows as $row) {
+            $tanggal = date_input_value((string) ($row['tanggal'] ?? ''));
+            $id = (int) ($row['id'] ?? 0);
+            if ($id <= 0 || $tanggal === '') {
+                continue;
+            }
+
+            $update->execute([
+                'tanggal_pembayaran' => $tanggal,
+                'id' => $id,
+            ]);
+            $updated += $update->rowCount();
+
+            delete_accounting_journal_source($pdo, 'operational_expense', (string) $id);
+            $journalLines += generate_operational_expense_journal($pdo, $id);
+
+            $details[] = '#' . $id . ' ' . (string) ($row['kategori'] ?? 'operational') . ' - ' . (string) ($row['nama_pengeluaran'] ?? '') . ': ' . $tanggal;
+        }
+
+        $remainingWithoutTransactionDate = (int) $pdo->query("
+            SELECT COUNT(*)
+            FROM operational_expenses
+            WHERE jumlah > 0
+              AND (
+                    tanggal_pembayaran IS NULL
+                    OR TRIM(CAST(tanggal_pembayaran AS CHAR)) = ''
+                    OR CAST(tanggal_pembayaran AS CHAR) = '0000-00-00'
+                  )
+              AND (
+                    tanggal IS NULL
+                    OR TRIM(CAST(tanggal AS CHAR)) = ''
+                    OR CAST(tanggal AS CHAR) = '0000-00-00'
+                  )
+        ")->fetchColumn();
+
+        return [
+            'ok' => true,
+            'message' => 'Seeder tanggal pembayaran operational berhasil. ' . $updated . ' data diperbarui.',
+            'statements' => $updated + $journalLines,
+            'output' => implode(PHP_EOL, array_merge([
+                'Tanggal pembayaran operational/bonus kosong diisi dari tanggal transaksi.',
+                'Baris jurnal dibuat ulang: ' . $journalLines . '.',
+                'Sisa tanpa tanggal transaksi: ' . $remainingWithoutTransactionDate . ' data.',
+            ], $details)),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Seeder tanggal pembayaran operational gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

@@ -704,6 +704,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-delivery-payment-dates') {
         $result = run_fix_delivery_payment_dates();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-admin-commission-transfer-2025') {
+        $result = run_fix_admin_commission_transfer_2025();
+        $counts = database_table_counts();
     }
 
     return [
@@ -1746,6 +1749,131 @@ function run_fix_delivery_payment_dates(): array
         return [
             'ok' => false,
             'message' => 'Seeder tanggal pembayaran ongkos kirim gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_fix_admin_commission_transfer_2025(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    $julyUpdates = [
+        '0033/BM-INV/VII/2025' => '2025-08-02',
+        '0034/BM-INV/VII/2025' => '2025-08-02',
+        '0035/BM-INV/VII/2025' => '2025-08-02',
+        '0036/BM-INV/VII/2025' => '2025-10-18',
+        '0037/BM-INV/VII/2025' => '2025-08-02',
+        '0038/BM-INV/VII/2025' => '2025-10-18',
+        '0039/BM-INV/VII/2025' => '2025-10-18',
+        '0040/BM-INV/VII/2025' => '2025-10-18',
+        '0041/BM-INV/VII/2025' => '2025-10-18',
+        '0042/BM-INV/VII/2025' => '2025-08-02',
+        '0043/BM-INV/VII/2025' => '2025-10-18',
+        '0044/BM-INV/VII/2025' => '2025-10-18',
+    ];
+    $monthUpdates = [
+        'VIII' => '2025-11-03',
+        'IX' => '2025-12-21',
+        'X' => '2026-01-01',
+        'XI' => '2026-02-05',
+        'XII' => '2026-02-28',
+    ];
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $findByNumber = $pdo->prepare('SELECT kode_invoice FROM invoices WHERE nomor_invoice = ? LIMIT 1');
+        $updateByNumber = $pdo->prepare("
+            UPDATE invoices
+            SET tanggal_transfer_komisi_admin = :tanggal,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE nomor_invoice = :nomor_invoice
+        ");
+        $selectByMonth = $pdo->prepare("
+            SELECT kode_invoice, nomor_invoice
+            FROM invoices
+            WHERE komisi_admin_terbayar > 0
+              AND nomor_invoice LIKE ?
+            ORDER BY nomor_invoice
+        ");
+        $updateByCode = $pdo->prepare("
+            UPDATE invoices
+            SET tanggal_transfer_komisi_admin = :tanggal,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE kode_invoice = :kode_invoice
+        ");
+
+        $updated = 0;
+        $journalLines = 0;
+        $missing = [];
+        $touched = [];
+        $details = [];
+
+        foreach ($julyUpdates as $nomorInvoice => $tanggalTransfer) {
+            $findByNumber->execute([$nomorInvoice]);
+            $kodeInvoice = (string) ($findByNumber->fetchColumn() ?: '');
+            if ($kodeInvoice === '') {
+                $missing[] = $nomorInvoice;
+                continue;
+            }
+
+            $updateByNumber->execute([
+                'tanggal' => $tanggalTransfer,
+                'nomor_invoice' => $nomorInvoice,
+            ]);
+            $updated += max(1, $updateByNumber->rowCount());
+            $touched[$kodeInvoice] = $nomorInvoice;
+        }
+        $details[] = 'Juli 2025 invoice 0033-0044: ' . count($julyUpdates) . ' invoice.';
+
+        foreach ($monthUpdates as $romanMonth => $tanggalTransfer) {
+            $selectByMonth->execute(['%/' . $romanMonth . '/2025']);
+            $rows = $selectByMonth->fetchAll(PDO::FETCH_ASSOC);
+            $monthCount = 0;
+            foreach ($rows as $row) {
+                $kodeInvoice = (string) ($row['kode_invoice'] ?? '');
+                if ($kodeInvoice === '') {
+                    continue;
+                }
+
+                $updateByCode->execute([
+                    'tanggal' => $tanggalTransfer,
+                    'kode_invoice' => $kodeInvoice,
+                ]);
+                $updated += max(1, $updateByCode->rowCount());
+                $monthCount++;
+                $touched[$kodeInvoice] = (string) ($row['nomor_invoice'] ?? $kodeInvoice);
+            }
+            $details[] = $romanMonth . '/2025: ' . $monthCount . ' invoice -> ' . $tanggalTransfer . '.';
+        }
+
+        foreach ($touched as $kodeInvoice => $nomorInvoice) {
+            delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+            $journalLines += generate_invoice_journal($pdo, $kodeInvoice);
+        }
+
+        $message = 'Seeder tanggal transfer komisi admin 2025 berhasil. ' . $updated . ' update, ' . count($touched) . ' invoice diposting ulang.';
+        if ($missing !== []) {
+            $message .= ' Invoice tidak ditemukan: ' . implode(', ', $missing) . '.';
+        }
+
+        return [
+            'ok' => $missing === [],
+            'message' => $message,
+            'statements' => $updated + $journalLines,
+            'output' => implode(PHP_EOL, array_merge($details, [
+                'Baris jurnal dibuat ulang: ' . $journalLines . '.',
+            ])),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Seeder tanggal transfer komisi admin 2025 gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

@@ -144,6 +144,23 @@
         </div>
     </div>
 
+    <div class="mb-6 rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div class="max-w-2xl">
+                <h2 class="text-lg font-bold text-ink">Fix Gaji Juni 2026</h2>
+                <p class="mt-1 text-sm leading-6 text-stone-600">
+                    Mengubah Gaji Krisna dan Gaji Wira bulan Juni 2026 menjadi lunas dengan tanggal pembayaran 1 Juli 2026.
+                </p>
+            </div>
+            <form method="POST" action="<?= e(url('/db-maintenance')) ?>" data-confirm-message="Update Gaji Krisna dan Wira Juni 2026 menjadi lunas dan posting ulang jurnal terkait?">
+                <input type="hidden" name="action" value="fix-june-2026-salary-payment">
+                <button type="submit" class="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-ink transition hover:border-brand hover:text-brand">
+                    Jalankan Fix
+                </button>
+            </form>
+        </div>
+    </div>
+
     <div class="grid gap-6 lg:grid-cols-[0.85fr_1fr]">
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
             <h2 class="text-lg font-bold text-ink">Seed Snapshot</h2>

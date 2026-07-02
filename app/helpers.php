@@ -710,6 +710,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-operational-payment-dates') {
         $result = run_fix_operational_payment_dates();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-june-2026-salary-payment') {
+        $result = run_fix_june_2026_salary_payment();
+        $counts = database_table_counts();
     }
 
     return [
@@ -1968,6 +1971,84 @@ function run_fix_operational_payment_dates(): array
         return [
             'ok' => false,
             'message' => 'Seeder tanggal pembayaran operational gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_fix_june_2026_salary_payment(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $names = ['Gaji Krisna', 'Gaji Wira'];
+        $placeholders = implode(',', array_fill(0, count($names), '?'));
+        $select = $pdo->prepare("
+            SELECT id, nama_pengeluaran
+            FROM operational_expenses
+            WHERE tahun_pnl = 2026
+              AND bulan_pnl = 6
+              AND kategori = 'operational'
+              AND nama_pengeluaran IN ($placeholders)
+            ORDER BY nama_pengeluaran
+        ");
+        $select->execute($names);
+        $rows = $select->fetchAll(PDO::FETCH_ASSOC);
+
+        $update = $pdo->prepare("
+            UPDATE operational_expenses
+            SET tanggal = '2026-06-30',
+                status_pembayaran = 'Lunas',
+                tanggal_pembayaran = '2026-07-01',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = :id
+        ");
+
+        $updated = 0;
+        $journalLines = 0;
+        $found = [];
+
+        foreach ($rows as $row) {
+            $id = (int) ($row['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+
+            $update->execute(['id' => $id]);
+            $updated += max(1, $update->rowCount());
+            $found[] = (string) ($row['nama_pengeluaran'] ?? ('ID ' . $id));
+
+            delete_accounting_journal_source($pdo, 'operational_expense', (string) $id);
+            $journalLines += generate_operational_expense_journal($pdo, $id);
+        }
+
+        $missing = array_values(array_diff($names, $found));
+        $message = 'Seeder gaji Juni 2026 berhasil. ' . $updated . ' data diperbarui.';
+        if ($missing !== []) {
+            $message .= ' Data tidak ditemukan: ' . implode(', ', $missing) . '.';
+        }
+
+        return [
+            'ok' => $missing === [],
+            'message' => $message,
+            'statements' => $updated + $journalLines,
+            'output' => implode(PHP_EOL, [
+                'Gaji Krisna dan Wira Juni 2026 diset Lunas.',
+                'Tanggal transaksi: 2026-06-30.',
+                'Tanggal pembayaran: 2026-07-01.',
+                'Baris jurnal dibuat ulang: ' . $journalLines . '.',
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Seeder gaji Juni 2026 gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

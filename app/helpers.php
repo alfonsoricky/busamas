@@ -1403,13 +1403,12 @@ function run_fix_invoice_payment_dates_cleanup(): array
         ensure_accounting_tables($pdo);
         ensure_default_chart_of_accounts($pdo);
 
-        $pdo->beginTransaction();
-
         $updated = 0;
         $deletedInvoices = 0;
         $deletedItems = 0;
         $journalLines = 0;
         $missingUpdates = [];
+        $deletedLogs = [];
 
         $find = $pdo->prepare('SELECT * FROM invoices WHERE nomor_invoice = ? LIMIT 1');
         $update = $pdo->prepare("
@@ -1458,11 +1457,13 @@ function run_fix_invoice_payment_dates_cleanup(): array
                 $deletedItems += $deleteItems->rowCount();
                 $deleteInvoice->execute([$kodeInvoice]);
                 $deletedInvoices += $deleteInvoice->rowCount();
-                activity_log('delete', 'invoice', $kodeInvoice, 'Seeder hapus invoice salah ' . $nomorInvoice, $invoice, null);
+                $deletedLogs[] = [$kodeInvoice, $nomorInvoice, $invoice];
             }
         }
 
-        $pdo->commit();
+        foreach ($deletedLogs as [$kodeInvoice, $nomorInvoice, $invoice]) {
+            activity_log('delete', 'invoice', $kodeInvoice, 'Seeder hapus invoice salah ' . $nomorInvoice, $invoice, null);
+        }
 
         $message = 'Seeder tanggal pelunasan dan hapus invoice salah berhasil. Update ' . $updated . ', hapus ' . $deletedInvoices . ' invoice.';
         if ($missingUpdates !== []) {

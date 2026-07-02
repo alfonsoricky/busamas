@@ -683,6 +683,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-june-2026-pnl' || $action === 'fix-june-2026-pnl-v2') {
         $result = run_fix_june_2026_pnl();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-2026-surat-jalan') {
+        $result = run_fix_2026_surat_jalan();
+        $counts = database_table_counts();
     }
 
     return [
@@ -966,6 +969,87 @@ function run_fix_june_2026_pnl(): array
         return [
             'ok' => false,
             'message' => 'Fix PNL Juni 2026 gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_fix_2026_surat_jalan(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    $rows = [
+        ['nomor_invoice' => '453/BM-INV/VI/2026', 'nomor_surat_jalan' => '453/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '19 Juni 2026'],
+        ['nomor_invoice' => '454/BM-INV/VI/2026', 'nomor_surat_jalan' => '454/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '20 Juni 2026'],
+        ['nomor_invoice' => '455/BM-INV/VI/2026', 'nomor_surat_jalan' => '455/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '21 Juni 2026'],
+        ['nomor_invoice' => '456/BM-INV/VI/2026', 'nomor_surat_jalan' => '456/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '22 Juni 2026'],
+        ['nomor_invoice' => '457/BM-INV/VI/2026', 'nomor_surat_jalan' => '457/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '22 Juni 2026'],
+        ['nomor_invoice' => '458/BM-INV/VI/2026', 'nomor_surat_jalan' => '458/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '22 Juni 2026'],
+        ['nomor_invoice' => '459/BM-INV/VI/2026', 'nomor_surat_jalan' => '459/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '22 Juni 2026'],
+        ['nomor_invoice' => '460/BM-INV/VI/2026', 'nomor_surat_jalan' => '460/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '24 Juni 2026'],
+        ['nomor_invoice' => '461/BM-INV/VI/2026', 'nomor_surat_jalan' => '461/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '25 Juni 2026'],
+        ['nomor_invoice' => '462/BM-INV/VI/2026', 'nomor_surat_jalan' => '462/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '25 Juni 2026'],
+        ['nomor_invoice' => '463/BM-INV/VI/2026', 'nomor_surat_jalan' => '463/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '26 Juni 2026'],
+        ['nomor_invoice' => '464/BM-INV/VI/2026', 'nomor_surat_jalan' => '464/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '27 Juni 2026'],
+        ['nomor_invoice' => '465/BM-INV/VI/2026', 'nomor_surat_jalan' => '465/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '29 Juni 2026'],
+        ['nomor_invoice' => '466/BM-INV/VI/2026', 'nomor_surat_jalan' => '466/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '29 Juni 2026'],
+        ['nomor_invoice' => '467/BM-INV/VI/2026', 'nomor_surat_jalan' => '467/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '30 Juni 2026'],
+        ['nomor_invoice' => '468/BM-INV/VI/2026', 'nomor_surat_jalan' => '468/CA-MURYATECH/SJ/VI/2026', 'tanggal_surat_jalan' => '30 Juni 2026'],
+        ['nomor_invoice' => '469/BM-INV/VII/2026', 'nomor_surat_jalan' => '469/CA-MURYATECH/SJ/VII/2026', 'tanggal_surat_jalan' => '1 Juli 2026'],
+        ['nomor_invoice' => '470/BM-INV/VII/2026', 'nomor_surat_jalan' => '470/CA-MURYATECH/SJ/VII/2026', 'tanggal_surat_jalan' => '1 Juli 2026'],
+    ];
+
+    try {
+        $pdo->beginTransaction();
+
+        $update = $pdo->prepare("
+            UPDATE invoices
+            SET nomor_surat_jalan = :nomor_surat_jalan,
+                tanggal_surat_jalan = :tanggal_surat_jalan,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE nomor_invoice = :nomor_invoice
+        ");
+
+        $updated = 0;
+        $missing = [];
+
+        foreach ($rows as $row) {
+            $update->execute($row);
+            if ($update->rowCount() > 0) {
+                $updated++;
+            } else {
+                $check = $pdo->prepare('SELECT COUNT(*) FROM invoices WHERE nomor_invoice = ?');
+                $check->execute([$row['nomor_invoice']]);
+                if ((int) $check->fetchColumn() === 0) {
+                    $missing[] = $row['nomor_invoice'];
+                }
+            }
+        }
+
+        $pdo->commit();
+
+        $message = 'Fix surat jalan 2026 berhasil. ' . $updated . ' invoice diperbarui.';
+        if (! empty($missing)) {
+            $message .= ' Invoice tidak ditemukan: ' . implode(', ', $missing) . '.';
+        }
+
+        return [
+            'ok' => empty($missing),
+            'message' => $message,
+            'statements' => $updated,
+            'output' => 'Sumber: storage/PENJUALAN-2026 (6).xlsx, invoice 453 sampai 470.',
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Fix surat jalan 2026 gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

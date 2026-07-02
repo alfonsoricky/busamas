@@ -695,6 +695,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-invoice-payment-dates-cleanup') {
         $result = run_fix_invoice_payment_dates_cleanup();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-purchase-sales-transfer-dates') {
+        $result = run_fix_purchase_sales_transfer_dates();
+        $counts = database_table_counts();
     }
 
     return [
@@ -1488,6 +1491,87 @@ function run_fix_invoice_payment_dates_cleanup(): array
         return [
             'ok' => false,
             'message' => 'Seeder tanggal pelunasan dan hapus invoice salah gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_fix_purchase_sales_transfer_dates(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $emptyPurchaseDate = "(tanggal_transfer_pembelian_barang IS NULL OR CAST(tanggal_transfer_pembelian_barang AS CHAR) = '0000-00-00' OR CAST(tanggal_transfer_pembelian_barang AS CHAR) = '')";
+        $emptySalesDate = "(tanggal_transfer_komisi_sales IS NULL OR CAST(tanggal_transfer_komisi_sales AS CHAR) = '0000-00-00' OR CAST(tanggal_transfer_komisi_sales AS CHAR) = '')";
+        $validPaymentDate = "(tanggal_pembayaran IS NOT NULL AND CAST(tanggal_pembayaran AS CHAR) <> '0000-00-00' AND CAST(tanggal_pembayaran AS CHAR) <> '')";
+
+        $findTouched = $pdo->query("
+            SELECT kode_invoice, nomor_invoice
+            FROM invoices
+            WHERE (
+                    total_pembelian_barang > 0
+                    AND {$emptyPurchaseDate}
+                    AND {$validPaymentDate}
+                )
+               OR (
+                    komisi_sales_terbayar > 0
+                    AND {$emptySalesDate}
+                    AND {$validPaymentDate}
+                )
+        ");
+        $touched = [];
+        foreach ($findTouched->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $kodeInvoice = (string) ($row['kode_invoice'] ?? '');
+            if ($kodeInvoice !== '') {
+                $touched[$kodeInvoice] = (string) ($row['nomor_invoice'] ?? $kodeInvoice);
+            }
+        }
+
+        $purchaseUpdated = $pdo->exec("
+            UPDATE invoices
+            SET tanggal_transfer_pembelian_barang = tanggal_pembayaran,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE total_pembelian_barang > 0
+              AND {$emptyPurchaseDate}
+              AND {$validPaymentDate}
+        ");
+
+        $salesUpdated = $pdo->exec("
+            UPDATE invoices
+            SET tanggal_transfer_komisi_sales = tanggal_pembayaran,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE komisi_sales_terbayar > 0
+              AND {$emptySalesDate}
+              AND {$validPaymentDate}
+        ");
+
+        $journalLines = 0;
+        foreach ($touched as $kodeInvoice => $nomorInvoice) {
+            delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+            $journalLines += generate_invoice_journal($pdo, $kodeInvoice);
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Seeder tanggal transfer pembelian barang dan komisi sales berhasil. Pembelian ' . (int) $purchaseUpdated . ', komisi sales ' . (int) $salesUpdated . '.',
+            'statements' => (int) $purchaseUpdated + (int) $salesUpdated + $journalLines,
+            'output' => implode(PHP_EOL, [
+                'Tanggal transfer pembelian barang kosong diisi dari tanggal pelunasan invoice.',
+                'Tanggal transfer komisi sales kosong diisi dari tanggal pelunasan invoice.',
+                'Invoice diposting ulang: ' . count($touched) . '.',
+                'Baris jurnal dibuat ulang: ' . $journalLines . '.',
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Seeder tanggal transfer pembelian barang dan komisi sales gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

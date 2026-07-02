@@ -686,6 +686,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-2026-surat-jalan') {
         $result = run_fix_2026_surat_jalan();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-invoice-471-aviator') {
+        $result = run_seed_invoice_471_aviator();
+        $counts = database_table_counts();
     }
 
     return [
@@ -1050,6 +1053,165 @@ function run_fix_2026_surat_jalan(): array
         return [
             'ok' => false,
             'message' => 'Fix surat jalan 2026 gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_seed_invoice_471_aviator(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    $kodeInvoice = 'INV-00473';
+    $nomorInvoice = '471/BM-INV/VII/2026';
+    $fileInvoice = '471_BM-INV_VII_2026  AVIATOR HOTEL.xlsx';
+    $invoice = [
+        'kode_invoice' => $kodeInvoice,
+        'nomor_invoice' => $nomorInvoice,
+        'tanggal_invoice' => '2 Juli 2026',
+        'nomor_surat_jalan' => '471/CA-MURYATECH/SJ/VII/2026',
+        'tanggal_surat_jalan' => '2 Juli 2026',
+        'po_number' => '',
+        'kode_sales_1' => null,
+        'nama_sales_1' => 'Krisna',
+        'kode_sales_2' => null,
+        'nama_sales_2' => null,
+        'komisi_sales_1_persen' => 0,
+        'komisi_sales_2_persen' => 0,
+        'komisi_sales_terbayar' => 0,
+        'komisi_sales_belum_terbayar' => 0,
+        'status_pembayaran_komisi_sales' => 'Transfer',
+        'tanggal_transfer_komisi_sales' => null,
+        'komisi_manager_terbayar' => 0,
+        'komisi_manager_utang' => 0,
+        'tanggal_transfer_komisi_manager' => null,
+        'tanggal_transfer_komisi_admin' => null,
+        'kode_customer' => 'CST-0009',
+        'nama_customer_master' => 'Ibu Rika',
+        'nama_customer_invoice' => 'AVIATOR HOTEL',
+        'nama_laundry_invoice' => 'Aviator Hotel',
+        'no_telepon' => '082346337798',
+        'alamat' => 'Jl. Tegal Sari Gang Kana No. 59',
+        'total_item' => 3,
+        'total_qty' => 5,
+        'subtotal' => 2612500,
+        'harga_normal_pricelist' => 2612500,
+        'discount_persen' => 0,
+        'discount_amount' => 0,
+        'total_harga_jual' => 2612500,
+        'status_pembayaran' => 'Belum Lunas',
+        'tanggal_pembayaran' => null,
+        'pph_final_terbayar' => 0,
+        'pph_final_belum_terbayar' => 13062.5,
+        'tanggal_pembayaran_pph_final' => null,
+        'komisi_admin_terbayar' => 0,
+        'komisi_admin_belum_terbayar' => 130625,
+        'biaya_kirim' => 0,
+        'tanggal_pembayaran_biaya_kirim' => null,
+        'biaya_admin_bank' => 0,
+        'tanggal_pembayaran_biaya_admin_bank' => null,
+        'total_pembelian_barang' => 0,
+        'total_utang_pembelian_barang' => 875000,
+        'status_pembelian_barang' => 'Utang',
+        'tanggal_transfer_pembelian_barang' => null,
+        'google_drive_file_id' => null,
+        'file_invoice' => $fileInvoice,
+    ];
+    $items = [
+        ['kode_barang' => 'BRG-0007', 'nama_barang_master' => 'E-951', 'ukuran_master' => '5 L', 'nama_barang_invoice' => 'E-951', 'isi_invoice' => '10 L', 'jumlah' => 2, 'satuan' => '5 liter', 'harga' => 605000, 'total' => 1210000, 'baris' => 18],
+        ['kode_barang' => 'BRG-0015', 'nama_barang_master' => 'Mc Bleach', 'ukuran_master' => '5 L', 'nama_barang_invoice' => 'MC BLEACH', 'isi_invoice' => '10 L', 'jumlah' => 2, 'satuan' => '5 liter', 'harga' => 357500, 'total' => 715000, 'baris' => 20],
+        ['kode_barang' => 'BRG-0025', 'nama_barang_master' => 'N-iron', 'ukuran_master' => '5 KG', 'nama_barang_invoice' => 'N-IRON', 'isi_invoice' => '5 kg', 'jumlah' => 1, 'satuan' => '5 kg', 'harga' => 687500, 'total' => 687500, 'baris' => 22],
+    ];
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+        $pdo->beginTransaction();
+
+        $findByInvoice = $pdo->prepare('SELECT kode_invoice FROM invoices WHERE nomor_invoice = ? LIMIT 1');
+        $findByInvoice->execute([$nomorInvoice]);
+        $existingKode = (string) ($findByInvoice->fetchColumn() ?: '');
+
+        if ($existingKode === '') {
+            $findByCode = $pdo->prepare('SELECT nomor_invoice FROM invoices WHERE kode_invoice = ? LIMIT 1');
+            $findByCode->execute([$kodeInvoice]);
+            $usedByInvoice = (string) ($findByCode->fetchColumn() ?: '');
+            if ($usedByInvoice !== '') {
+                throw new RuntimeException('Kode ' . $kodeInvoice . ' sudah dipakai oleh invoice ' . $usedByInvoice . '.');
+            }
+        } else {
+            $invoice['kode_invoice'] = $existingKode;
+            $kodeInvoice = $existingKode;
+        }
+
+        $columns = array_keys($invoice);
+        if ($existingKode === '') {
+            $sql = 'INSERT INTO invoices (' . implode(', ', $columns) . ') VALUES (:' . implode(', :', $columns) . ')';
+            $pdo->prepare($sql)->execute($invoice);
+            $mode = 'dibuat';
+            $invoiceStatements = 1;
+        } else {
+            $sets = [];
+            foreach ($columns as $column) {
+                if ($column === 'kode_invoice') {
+                    continue;
+                }
+                $sets[] = $column . ' = :' . $column;
+            }
+            $sql = 'UPDATE invoices SET ' . implode(', ', $sets) . ', updated_at = CURRENT_TIMESTAMP WHERE kode_invoice = :kode_invoice';
+            $updateInvoice = $pdo->prepare($sql);
+            $updateInvoice->execute($invoice);
+            $mode = 'diupdate';
+            $invoiceStatements = max(1, $updateInvoice->rowCount());
+        }
+
+        $deleteItems = $pdo->prepare('DELETE FROM invoice_items WHERE kode_invoice = ? OR nomor_invoice = ?');
+        $deleteItems->execute([$kodeInvoice, $nomorInvoice]);
+
+        $insertItem = $pdo->prepare("
+            INSERT INTO invoice_items
+                (kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, kode_barang, nama_barang_master, ukuran_master, nama_barang_invoice, isi_invoice, jumlah, satuan, harga, total, file_invoice, baris)
+            VALUES
+                (:kode_invoice, :nomor_invoice, :tanggal_invoice, :kode_customer, :kode_barang, :nama_barang_master, :ukuran_master, :nama_barang_invoice, :isi_invoice, :jumlah, :satuan, :harga, :total, :file_invoice, :baris)
+        ");
+
+        foreach ($items as $item) {
+            $insertItem->execute($item + [
+                'kode_invoice' => $kodeInvoice,
+                'nomor_invoice' => $nomorInvoice,
+                'tanggal_invoice' => '2 Juli 2026',
+                'kode_customer' => 'CST-0009',
+                'file_invoice' => $fileInvoice,
+            ]);
+        }
+
+        delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+        $journalLines = generate_invoice_journal($pdo, $kodeInvoice);
+
+        $pdo->commit();
+
+        return [
+            'ok' => true,
+            'message' => 'Invoice 471 Aviator Hotel berhasil ' . $mode . ' dan diposting ke akuntansi.',
+            'statements' => $invoiceStatements + $deleteItems->rowCount() + count($items) + $journalLines,
+            'output' => implode(PHP_EOL, [
+                $nomorInvoice . ' / ' . $kodeInvoice,
+                'Total invoice: Rp2.612.500, status Belum Lunas.',
+                'Detail barang: ' . count($items) . ' baris.',
+                'Baris jurnal: ' . $journalLines . '.',
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Seeder invoice 471 Aviator Hotel gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

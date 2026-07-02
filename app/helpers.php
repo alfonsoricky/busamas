@@ -698,6 +698,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-purchase-sales-transfer-dates') {
         $result = run_fix_purchase_sales_transfer_dates();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-missing-invoice-dates') {
+        $result = run_fix_missing_invoice_dates();
+        $counts = database_table_counts();
     }
 
     return [
@@ -1572,6 +1575,78 @@ function run_fix_purchase_sales_transfer_dates(): array
         return [
             'ok' => false,
             'message' => 'Seeder tanggal transfer pembelian barang dan komisi sales gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_fix_missing_invoice_dates(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    $updates = [
+        '0052/BM-INV/VIII/2025' => '8 Agustus 2025',
+        '0064/BM-INV/VIII/2025' => '15 Agustus 2025',
+        '310/BM-INV/II/2026' => '21 Februari 2026',
+    ];
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $find = $pdo->prepare('SELECT kode_invoice FROM invoices WHERE nomor_invoice = ? LIMIT 1');
+        $update = $pdo->prepare("
+            UPDATE invoices
+            SET tanggal_invoice = :tanggal_invoice,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE nomor_invoice = :nomor_invoice
+        ");
+
+        $updated = 0;
+        $missing = [];
+        $journalLines = 0;
+
+        foreach ($updates as $nomorInvoice => $tanggalInvoice) {
+            $find->execute([$nomorInvoice]);
+            $kodeInvoice = (string) ($find->fetchColumn() ?: '');
+            if ($kodeInvoice === '') {
+                $missing[] = $nomorInvoice;
+                continue;
+            }
+
+            $update->execute([
+                'tanggal_invoice' => $tanggalInvoice,
+                'nomor_invoice' => $nomorInvoice,
+            ]);
+            $updated += max(1, $update->rowCount());
+
+            delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+            $journalLines += generate_invoice_journal($pdo, $kodeInvoice);
+        }
+
+        $message = 'Seeder tanggal invoice berhasil. ' . $updated . ' invoice diperbarui.';
+        if ($missing !== []) {
+            $message .= ' Invoice tidak ditemukan: ' . implode(', ', $missing) . '.';
+        }
+
+        return [
+            'ok' => $missing === [],
+            'message' => $message,
+            'statements' => $updated + $journalLines,
+            'output' => implode(PHP_EOL, [
+                '0052/BM-INV/VIII/2025: 8 Agustus 2025.',
+                '0064/BM-INV/VIII/2025: 15 Agustus 2025.',
+                '310/BM-INV/II/2026: 21 Februari 2026.',
+                'Baris jurnal dibuat ulang: ' . $journalLines . '.',
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Seeder tanggal invoice gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

@@ -692,6 +692,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'sync-penjualan-2026-7-payments') {
         $result = run_sync_penjualan_2026_7_payments();
         $counts = database_table_counts();
+    } elseif ($action === 'fix-invoice-payment-dates-cleanup') {
+        $result = run_fix_invoice_payment_dates_cleanup();
+        $counts = database_table_counts();
     }
 
     return [
@@ -1370,6 +1373,120 @@ function run_sync_penjualan_2026_7_payments(): array
         return [
             'ok' => false,
             'message' => 'Sinkronisasi PENJUALAN-2026 (7) gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+        ];
+    }
+}
+
+function run_fix_invoice_payment_dates_cleanup(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    $paymentDates = [
+        '0012/BM-INV/VI/2025' => '2025-08-04',
+        '0028/BM-INV/VII/2025' => '2025-10-15',
+        '0029/BM-INV/VII/2025. Rev1' => '2025-10-08',
+        '314/BM-INV/II/2026' => '2026-03-07',
+        '415/BM-INV/V/2026' => '2026-06-19',
+        '428/BM-INV/VI/2026' => '2026-06-07',
+    ];
+    $deleteInvoices = [
+        '0052/BM-INV/VII/2025',
+        '0064/BM-INV/VII/2025',
+        '310/BM-INV/II/20256',
+    ];
+
+    try {
+        ensure_accounting_tables($pdo);
+        ensure_default_chart_of_accounts($pdo);
+
+        $pdo->beginTransaction();
+
+        $updated = 0;
+        $deletedInvoices = 0;
+        $deletedItems = 0;
+        $journalLines = 0;
+        $missingUpdates = [];
+
+        $find = $pdo->prepare('SELECT * FROM invoices WHERE nomor_invoice = ? LIMIT 1');
+        $update = $pdo->prepare("
+            UPDATE invoices
+            SET tanggal_pembayaran = :tanggal_pembayaran,
+                status_pembayaran = 'Lunas',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE nomor_invoice = :nomor_invoice
+        ");
+
+        foreach ($paymentDates as $nomorInvoice => $tanggalPembayaran) {
+            $find->execute([$nomorInvoice]);
+            $invoice = $find->fetch(PDO::FETCH_ASSOC);
+            if (! $invoice) {
+                $missingUpdates[] = $nomorInvoice;
+                continue;
+            }
+
+            $update->execute([
+                'tanggal_pembayaran' => $tanggalPembayaran,
+                'nomor_invoice' => $nomorInvoice,
+            ]);
+            $updated += max(1, $update->rowCount());
+
+            $kodeInvoice = (string) ($invoice['kode_invoice'] ?? '');
+            if ($kodeInvoice !== '') {
+                delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+                $journalLines += generate_invoice_journal($pdo, $kodeInvoice);
+            }
+        }
+
+        $deleteItems = $pdo->prepare('DELETE FROM invoice_items WHERE kode_invoice = ? OR nomor_invoice = ?');
+        $deleteInvoice = $pdo->prepare('DELETE FROM invoices WHERE kode_invoice = ?');
+
+        foreach ($deleteInvoices as $nomorInvoice) {
+            $find->execute([$nomorInvoice]);
+            $invoice = $find->fetch(PDO::FETCH_ASSOC);
+            if (! $invoice) {
+                continue;
+            }
+
+            $kodeInvoice = (string) ($invoice['kode_invoice'] ?? '');
+            if ($kodeInvoice !== '') {
+                delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+                $deleteItems->execute([$kodeInvoice, $nomorInvoice]);
+                $deletedItems += $deleteItems->rowCount();
+                $deleteInvoice->execute([$kodeInvoice]);
+                $deletedInvoices += $deleteInvoice->rowCount();
+                activity_log('delete', 'invoice', $kodeInvoice, 'Seeder hapus invoice salah ' . $nomorInvoice, $invoice, null);
+            }
+        }
+
+        $pdo->commit();
+
+        $message = 'Seeder tanggal pelunasan dan hapus invoice salah berhasil. Update ' . $updated . ', hapus ' . $deletedInvoices . ' invoice.';
+        if ($missingUpdates !== []) {
+            $message .= ' Invoice update tidak ditemukan: ' . implode(', ', $missingUpdates) . '.';
+        }
+
+        return [
+            'ok' => $missingUpdates === [],
+            'message' => $message,
+            'statements' => $updated + $deletedInvoices + $deletedItems + $journalLines,
+            'output' => implode(PHP_EOL, [
+                'Tanggal pelunasan: 0012, 0028, 0029 Rev1, 314, 415, 428.',
+                'Invoice dihapus jika ada: 0052/BM-INV/VII/2025, 0064/BM-INV/VII/2025, 310/BM-INV/II/20256.',
+                'Baris jurnal dibuat ulang: ' . $journalLines . '.',
+            ]),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Seeder tanggal pelunasan dan hapus invoice salah gagal: ' . $exception->getMessage(),
             'statements' => 0,
         ];
     }

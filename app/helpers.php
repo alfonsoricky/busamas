@@ -3053,8 +3053,7 @@ function invoice_status_from_paid_amount(float $invoiceTotal, float $paidTotal):
 function replace_invoice_customer_payment(PDO $pdo, string $kodeInvoice, float $amount, ?string $date, string $note = ''): void
 {
     ensure_invoice_payments_table($pdo);
-    $delete = $pdo->prepare('DELETE FROM invoice_payments WHERE kode_invoice = ?');
-    $delete->execute([$kodeInvoice]);
+    clear_invoice_customer_payments($pdo, $kodeInvoice);
 
     $amount = round(max($amount, 0), 2);
     $date = date_input_value((string) ($date ?? ''));
@@ -10713,6 +10712,35 @@ function seed_today_upsert_invoice_with_items(PDO $pdo, array $invoice, array $i
     return $nomorInvoice . ' disimpan (' . count($items) . ' item), jurnal ' . $lines . ' baris';
 }
 
+function seed_today_cleanup_orphan_invoice_payment_journals(PDO $pdo): int
+{
+    if (! database_table_exists($pdo, 'invoice_payments') || ! database_table_exists($pdo, 'journal_entries')) {
+        return 0;
+    }
+
+    $stmt = $pdo->query("
+        SELECT je.id
+        FROM journal_entries je
+        LEFT JOIN invoice_payments ip
+            ON je.source_type = 'invoice_payment_customer'
+           AND je.source_id = CONCAT('payment:', ip.id)
+        WHERE je.source_type = 'invoice_payment_customer'
+          AND je.source_id LIKE 'payment:%'
+          AND ip.id IS NULL
+    ");
+    $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+    if ($ids === []) {
+        return 0;
+    }
+
+    $delete = $pdo->prepare('DELETE FROM journal_entries WHERE id = ?');
+    foreach ($ids as $id) {
+        $delete->execute([$id]);
+    }
+
+    return count($ids);
+}
+
 function seed_today_invoice_payloads(): array
 {
     return [
@@ -10905,6 +10933,10 @@ function run_seed_today_july_3_2026(): array
             $logs[] = seed_today_upsert_invoice_with_items($pdo, $payload['invoice'], $payload['items']);
             $statements++;
         }
+
+        $orphanCount = seed_today_cleanup_orphan_invoice_payment_journals($pdo);
+        $logs[] = 'Jurnal pembayaran customer orphan dibersihkan: ' . $orphanCount;
+        $statements += $orphanCount;
 
         return [
             'ok' => true,

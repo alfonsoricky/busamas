@@ -348,9 +348,12 @@ function resolve_customer_for_import(array $map, string $name): ?array
         'INDOLAUNDRY' => 'INDOLAUNDRY',
         'ZCLEANLAUNDRY' => 'ZCLEANLAUNDRY',
         'YANTOLAUNDRY' => 'YANTOLAUNDRY',
+        'CLEANPOINT' => 'CLEANPOINTLAUNDRY',
     ];
 
-    return $map[$key] ?? $map[$aliases[$key] ?? ''] ?? null;
+    $aliasKey = $aliases[$key] ?? '';
+
+    return $map[$key] ?? ($aliasKey !== '' ? ($map[$aliasKey] ?? null) : null);
 }
 
 function resolve_barang_for_import(array $barangRows, string $name, string $size): ?array

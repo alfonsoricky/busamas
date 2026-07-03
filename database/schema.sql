@@ -149,6 +149,25 @@ CREATE TABLE IF NOT EXISTS `invoices` (
         ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `invoice_payments` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `kode_invoice` VARCHAR(20) NOT NULL,
+    `nomor_invoice` VARCHAR(50) NOT NULL,
+    `tanggal_pembayaran` DATE NOT NULL,
+    `jumlah_pembayaran` DECIMAL(15,2) NOT NULL DEFAULT 0,
+    `metode_pembayaran` VARCHAR(50) NULL,
+    `keterangan` VARCHAR(255) NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `invoice_payments_kode_invoice_index` (`kode_invoice`),
+    KEY `invoice_payments_nomor_invoice_index` (`nomor_invoice`),
+    KEY `invoice_payments_tanggal_index` (`tanggal_pembayaran`),
+    CONSTRAINT `invoice_payments_kode_invoice_foreign`
+        FOREIGN KEY (`kode_invoice`) REFERENCES `invoices` (`kode_invoice`)
+        ON UPDATE CASCADE ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `invoice_items` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `kode_invoice` VARCHAR(20) NOT NULL,

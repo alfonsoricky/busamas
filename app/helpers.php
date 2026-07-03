@@ -716,6 +716,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'fix-june-2026-salary-payment') {
         $result = run_fix_june_2026_salary_payment();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-today-july-3-2026') {
+        $result = run_seed_today_july_3_2026();
+        $counts = database_table_counts();
     }
 
     return [
@@ -2539,6 +2542,7 @@ function database_table_counts(): array
         'master_sales',
         'invoices',
         'invoice_items',
+        'invoice_payments',
         'operational_expenses',
         'partner_prive',
         'chart_of_accounts',
@@ -2925,6 +2929,13 @@ function delete_accounting_journal_source(PDO $pdo, string $sourceType, string $
 
 function delete_invoice_accounting_journal(PDO $pdo, string $kodeInvoice): void
 {
+    $paymentIds = [];
+    if (database_table_exists($pdo, 'invoice_payments')) {
+        $stmt = $pdo->prepare('SELECT id FROM invoice_payments WHERE kode_invoice = ?');
+        $stmt->execute([$kodeInvoice]);
+        $paymentIds = $stmt->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    }
+
     foreach ([
         'invoice',
         'invoice_payment_customer',
@@ -2938,11 +2949,176 @@ function delete_invoice_accounting_journal(PDO $pdo, string $kodeInvoice): void
     ] as $sourceType) {
         delete_accounting_journal_source($pdo, $sourceType, $kodeInvoice);
     }
+
+    foreach ($paymentIds as $paymentId) {
+        delete_accounting_journal_source($pdo, 'invoice_payment_customer', 'payment:' . (string) $paymentId);
+    }
 }
 
 function post_invoice_accounting_journal(PDO $pdo, string $kodeInvoice): int
 {
     return generate_invoice_journal($pdo, $kodeInvoice);
+}
+
+function ensure_invoice_payments_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS invoice_payments (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            kode_invoice VARCHAR(20) NOT NULL,
+            nomor_invoice VARCHAR(50) NOT NULL,
+            tanggal_pembayaran DATE NOT NULL,
+            jumlah_pembayaran DECIMAL(15,2) NOT NULL DEFAULT 0,
+            metode_pembayaran VARCHAR(50) NULL,
+            keterangan VARCHAR(255) NULL,
+            created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_invoice_payments_kode_invoice (kode_invoice),
+            KEY idx_invoice_payments_nomor_invoice (nomor_invoice),
+            KEY idx_invoice_payments_tanggal (tanggal_pembayaran)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+}
+
+function invoice_customer_payment_rows_for_journal(PDO $pdo, array $invoice, float $netSales): array
+{
+    $kodeInvoice = (string) ($invoice['kode_invoice'] ?? '');
+    if ($kodeInvoice !== '') {
+        ensure_invoice_payments_table($pdo);
+        $stmt = $pdo->prepare('
+            SELECT id, tanggal_pembayaran, jumlah_pembayaran
+            FROM invoice_payments
+            WHERE kode_invoice = ?
+            ORDER BY tanggal_pembayaran, id
+        ');
+        $stmt->execute([$kodeInvoice]);
+        $payments = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        if ($payments !== []) {
+            return array_map(static fn (array $payment): array => [
+                'source_id' => 'payment:' . (string) $payment['id'],
+                'date' => (string) ($payment['tanggal_pembayaran'] ?? ''),
+                'amount' => min(round((float) ($payment['jumlah_pembayaran'] ?? 0), 2), $netSales),
+            ], $payments);
+        }
+    }
+
+    $paymentDate = date_input_value((string) ($invoice['tanggal_pembayaran'] ?? ''));
+    if ($netSales > 0 && strcasecmp((string) ($invoice['status_pembayaran'] ?? ''), 'Lunas') === 0 && $paymentDate !== '') {
+        return [[
+            'source_id' => $kodeInvoice,
+            'date' => $paymentDate,
+            'amount' => $netSales,
+        ]];
+    }
+
+    return [];
+}
+
+function invoice_payment_totals(PDO $pdo, string $kodeInvoice, float $invoiceTotal = 0): array
+{
+    ensure_invoice_payments_table($pdo);
+    $stmt = $pdo->prepare('
+        SELECT COALESCE(SUM(jumlah_pembayaran), 0) AS paid_total, MAX(tanggal_pembayaran) AS last_payment_date
+        FROM invoice_payments
+        WHERE kode_invoice = ?
+    ');
+    $stmt->execute([$kodeInvoice]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    $paidTotal = round((float) ($row['paid_total'] ?? 0), 2);
+    $invoiceTotal = round($invoiceTotal, 2);
+
+    return [
+        'paid_total' => $paidTotal,
+        'remaining_total' => max($invoiceTotal - $paidTotal, 0),
+        'last_payment_date' => date_input_value((string) ($row['last_payment_date'] ?? '')),
+    ];
+}
+
+function invoice_status_from_paid_amount(float $invoiceTotal, float $paidTotal): string
+{
+    $invoiceTotal = round(max($invoiceTotal, 0), 2);
+    $paidTotal = round(max($paidTotal, 0), 2);
+    if ($invoiceTotal > 0 && $paidTotal >= $invoiceTotal) {
+        return 'Lunas';
+    }
+    if ($paidTotal > 0) {
+        return 'Dibayar Sebagian';
+    }
+
+    return 'Belum Lunas';
+}
+
+function replace_invoice_customer_payment(PDO $pdo, string $kodeInvoice, float $amount, ?string $date, string $note = ''): void
+{
+    ensure_invoice_payments_table($pdo);
+    $delete = $pdo->prepare('DELETE FROM invoice_payments WHERE kode_invoice = ?');
+    $delete->execute([$kodeInvoice]);
+
+    $amount = round(max($amount, 0), 2);
+    $date = date_input_value((string) ($date ?? ''));
+    if ($amount <= 0 || $date === '') {
+        return;
+    }
+
+    $stmt = $pdo->prepare('SELECT nomor_invoice FROM invoices WHERE kode_invoice = ? LIMIT 1');
+    $stmt->execute([$kodeInvoice]);
+    $nomorInvoice = (string) ($stmt->fetchColumn() ?: $kodeInvoice);
+
+    $insert = $pdo->prepare('
+        INSERT INTO invoice_payments (kode_invoice, nomor_invoice, tanggal_pembayaran, jumlah_pembayaran, keterangan)
+        VALUES (?, ?, ?, ?, ?)
+    ');
+    $insert->execute([$kodeInvoice, $nomorInvoice, $date, $amount, $note]);
+}
+
+function add_invoice_customer_payment(PDO $pdo, string $kodeInvoice, float $amount, ?string $date, string $note = ''): void
+{
+    ensure_invoice_payments_table($pdo);
+
+    $amount = round(max($amount, 0), 2);
+    $date = date_input_value((string) ($date ?? ''));
+    if ($amount <= 0 || $date === '') {
+        return;
+    }
+
+    $stmt = $pdo->prepare('SELECT nomor_invoice FROM invoices WHERE kode_invoice = ? LIMIT 1');
+    $stmt->execute([$kodeInvoice]);
+    $nomorInvoice = (string) ($stmt->fetchColumn() ?: $kodeInvoice);
+
+    $insert = $pdo->prepare('
+        INSERT INTO invoice_payments (kode_invoice, nomor_invoice, tanggal_pembayaran, jumlah_pembayaran, keterangan)
+        VALUES (?, ?, ?, ?, ?)
+    ');
+    $insert->execute([$kodeInvoice, $nomorInvoice, $date, $amount, $note]);
+}
+
+function clear_invoice_customer_payments(PDO $pdo, string $kodeInvoice): void
+{
+    ensure_invoice_payments_table($pdo);
+    $stmt = $pdo->prepare('SELECT id FROM invoice_payments WHERE kode_invoice = ?');
+    $stmt->execute([$kodeInvoice]);
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) ?: [] as $paymentId) {
+        delete_accounting_journal_source($pdo, 'invoice_payment_customer', 'payment:' . (string) $paymentId);
+    }
+
+    $delete = $pdo->prepare('DELETE FROM invoice_payments WHERE kode_invoice = ?');
+    $delete->execute([$kodeInvoice]);
+}
+
+function invoice_payment_history(PDO $pdo, string $kodeInvoice): array
+{
+    ensure_invoice_payments_table($pdo);
+    $stmt = $pdo->prepare('
+        SELECT id, tanggal_pembayaran, jumlah_pembayaran, metode_pembayaran, keterangan
+        FROM invoice_payments
+        WHERE kode_invoice = ?
+        ORDER BY tanggal_pembayaran, id
+    ');
+    $stmt->execute([$kodeInvoice]);
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function is_legacy_2025_invoice(array $invoice): bool
@@ -3062,12 +3238,18 @@ function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
 
     $lineCount = accounting_replace_journal($pdo, 'invoice', $kodeInvoice, $entryDate, 'Jurnal otomatis invoice ' . $nomor, $lines);
 
-    $paymentDate = date_input_value((string) ($invoice['tanggal_pembayaran'] ?? ''));
-    if ($netSales > 0 && $paymentDate !== '') {
+    foreach (invoice_customer_payment_rows_for_journal($pdo, $invoice, $netSales) as $payment) {
+        $paymentAmount = round((float) ($payment['amount'] ?? 0), 2);
+        $paymentDate = date_input_value((string) ($payment['date'] ?? ''));
+        if ($paymentAmount <= 0 || $paymentDate === '') {
+            continue;
+        }
+
+        $sourceId = (string) ($payment['source_id'] ?? $kodeInvoice);
         $paymentLines = [];
-        accounting_add_line($paymentLines, $a['cash'], $netSales, 0, 'Pembayaran customer ' . $nomor);
-        accounting_add_line($paymentLines, $a['accounts_receivable'], 0, $netSales, 'Pelunasan piutang ' . $nomor);
-        $lineCount += accounting_replace_journal($pdo, 'invoice_payment_customer', $kodeInvoice, $paymentDate, 'Pembayaran customer invoice ' . $nomor, $paymentLines);
+        accounting_add_line($paymentLines, $a['cash'], $paymentAmount, 0, 'Pembayaran customer ' . $nomor);
+        accounting_add_line($paymentLines, $a['accounts_receivable'], 0, $paymentAmount, 'Pembayaran piutang ' . $nomor);
+        $lineCount += accounting_replace_journal($pdo, 'invoice_payment_customer', $sourceId, $paymentDate, 'Pembayaran customer invoice ' . $nomor, $paymentLines);
     }
 
     $purchaseDate = date_input_value((string) ($invoice['tanggal_transfer_pembelian_barang'] ?? ''));
@@ -4416,25 +4598,33 @@ function fetch_invoice_payment_log(array $filters = []): array
     }
 
     try {
+        ensure_invoice_payments_table($pdo);
         $rows = $pdo->query('
             SELECT
-                kode_invoice,
-                nomor_invoice,
-                tanggal_invoice,
-                kode_sales_1,
-                nama_sales_1,
-                kode_sales_2,
-                nama_sales_2,
-                nama_customer_master,
-                nama_customer_invoice,
-                nama_laundry_invoice,
-                total_harga_jual,
-                status_pembayaran,
-                tanggal_pembayaran,
-                created_at,
-                updated_at
-            FROM invoices
-            ORDER BY id DESC
+                i.kode_invoice,
+                i.nomor_invoice,
+                i.tanggal_invoice,
+                i.kode_sales_1,
+                i.nama_sales_1,
+                i.kode_sales_2,
+                i.nama_sales_2,
+                i.nama_customer_master,
+                i.nama_customer_invoice,
+                i.nama_laundry_invoice,
+                i.total_harga_jual,
+                i.status_pembayaran,
+                i.tanggal_pembayaran,
+                i.created_at,
+                i.updated_at,
+                COALESCE(p.paid_total, 0) AS paid_total,
+                p.last_payment_date
+            FROM invoices i
+            LEFT JOIN (
+                SELECT kode_invoice, SUM(jumlah_pembayaran) AS paid_total, MAX(tanggal_pembayaran) AS last_payment_date
+                FROM invoice_payments
+                GROUP BY kode_invoice
+            ) p ON p.kode_invoice = i.kode_invoice
+            ORDER BY i.id DESC
         ')->fetchAll(PDO::FETCH_ASSOC);
     } catch (Throwable $exception) {
         return [
@@ -4456,20 +4646,26 @@ function fetch_invoice_payment_log(array $filters = []): array
     $yearOptions = invoice_year_options($rows);
 
     $items = array_values(array_filter(array_map(static function (array $row) use ($today): array {
-        $statusPembayaran = trim((string) ($row['status_pembayaran'] ?? ''));
-        $isPaid = strcasecmp($statusPembayaran, 'Lunas') === 0;
         $total = (float) ($row['total_harga_jual'] ?? 0);
+        $storedPaid = round((float) ($row['paid_total'] ?? 0), 2);
+        if ($storedPaid <= 0 && strcasecmp((string) ($row['status_pembayaran'] ?? ''), 'Lunas') === 0) {
+            $storedPaid = $total;
+        }
+        $statusPembayaran = invoice_status_from_paid_amount($total, $storedPaid);
+        $isPaid = $statusPembayaran === 'Lunas';
         $invoiceDate = date_input_value((string) ($row['tanggal_invoice'] ?? ''));
-        $paymentDate = date_input_value((string) ($row['tanggal_pembayaran'] ?? ''));
+        $paymentDate = date_input_value((string) ($row['last_payment_date'] ?? '')) ?: date_input_value((string) ($row['tanggal_pembayaran'] ?? ''));
         $start = $invoiceDate !== '' ? new DateTimeImmutable($invoiceDate) : null;
         $end = $paymentDate !== '' ? new DateTimeImmutable($paymentDate) : $today;
         $ageDays = $start !== null ? (int) $start->diff($end)->format('%r%a') : null;
 
+        $row['status_pembayaran'] = $statusPembayaran;
         $row['is_paid'] = $isPaid;
+        $row['is_partial'] = $statusPembayaran === 'Dibayar Sebagian';
         $row['invoice_date_input'] = $invoiceDate;
         $row['payment_date_input'] = $paymentDate;
-        $row['paid_amount'] = $isPaid ? $total : 0.0;
-        $row['remaining_amount'] = $isPaid ? 0.0 : $total;
+        $row['paid_amount'] = min($storedPaid, $total);
+        $row['remaining_amount'] = max($total - $storedPaid, 0);
         $row['age_days'] = $ageDays;
 
         return $row;
@@ -4486,7 +4682,11 @@ function fetch_invoice_payment_log(array $filters = []): array
             return false;
         }
 
-        if ($status === 'unpaid' && ($invoice['is_paid'] ?? false)) {
+        if ($status === 'partial' && ! ($invoice['is_partial'] ?? false)) {
+            return false;
+        }
+
+        if ($status === 'unpaid' && (($invoice['is_paid'] ?? false) || ($invoice['is_partial'] ?? false))) {
             return false;
         }
 
@@ -4538,7 +4738,7 @@ function fetch_invoice_payment_log(array $filters = []): array
     ];
 }
 
-function update_invoice_payment_status(string $kodeInvoice, string $statusPembayaran, string $tanggalPembayaran): array
+function update_invoice_payment_status(string $kodeInvoice, string $statusPembayaran, string $tanggalPembayaran, mixed $jumlahPembayaran = null): array
 {
     $pdo = db();
     if ($pdo === null) {
@@ -4546,25 +4746,31 @@ function update_invoice_payment_status(string $kodeInvoice, string $statusPembay
     }
 
     $kodeInvoice = trim($kodeInvoice);
-    $statusPembayaran = strtolower(trim($statusPembayaran)) === 'lunas' ? 'Lunas' : 'Belum Lunas';
+    $statusInput = strtolower(trim($statusPembayaran));
     $tanggalPembayaran = date_input_value($tanggalPembayaran);
+    $requestedStatus = match ($statusInput) {
+        'lunas' => 'Lunas',
+        'dibayar sebagian' => 'Dibayar Sebagian',
+        default => 'Belum Lunas',
+    };
 
     if ($kodeInvoice === '') {
         return ['ok' => false, 'message' => 'Kode invoice tidak boleh kosong.'];
     }
 
-    if ($statusPembayaran === 'Lunas' && $tanggalPembayaran === '') {
-        return ['ok' => false, 'message' => 'Tanggal pembayaran wajib diisi untuk invoice lunas.'];
+    if ($requestedStatus !== 'Belum Lunas' && $tanggalPembayaran === '') {
+        return ['ok' => false, 'message' => 'Tanggal pembayaran wajib diisi untuk invoice yang sudah dibayar.'];
     }
 
-    if ($statusPembayaran !== 'Lunas') {
+    if ($requestedStatus === 'Belum Lunas') {
         $tanggalPembayaran = '';
     }
 
     try {
+        ensure_invoice_payments_table($pdo);
         $pdo->beginTransaction();
 
-        $stmt = $pdo->prepare('SELECT kode_invoice, nomor_invoice, status_pembayaran, tanggal_pembayaran FROM invoices WHERE kode_invoice = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT kode_invoice, nomor_invoice, status_pembayaran, tanggal_pembayaran, total_harga_jual FROM invoices WHERE kode_invoice = ? LIMIT 1');
         $stmt->execute([$kodeInvoice]);
         $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -4572,6 +4778,38 @@ function update_invoice_payment_status(string $kodeInvoice, string $statusPembay
             $pdo->rollBack();
             return ['ok' => false, 'message' => 'Invoice tidak ditemukan.'];
         }
+
+        $totalInvoice = round((float) ($invoice['total_harga_jual'] ?? 0), 2);
+        $currentTotals = invoice_payment_totals($pdo, $kodeInvoice, $totalInvoice);
+        $currentPaid = round((float) ($currentTotals['paid_total'] ?? 0), 2);
+        if ($currentPaid <= 0 && strcasecmp((string) ($invoice['status_pembayaran'] ?? ''), 'Lunas') === 0) {
+            $currentPaid = $totalInvoice;
+        }
+        $remainingBefore = max($totalInvoice - $currentPaid, 0);
+        $newPaymentAmount = clean_money_value($jumlahPembayaran ?? 0);
+
+        if ($requestedStatus === 'Lunas') {
+            $newPaymentAmount = $newPaymentAmount > 0 ? $newPaymentAmount : $remainingBefore;
+            $newPaymentAmount = $remainingBefore > 0 ? min($newPaymentAmount, $remainingBefore) : 0;
+        } elseif ($requestedStatus === 'Dibayar Sebagian') {
+            if ($newPaymentAmount <= 0) {
+                $pdo->rollBack();
+                return ['ok' => false, 'message' => 'Jumlah pembayaran baru wajib diisi untuk invoice dibayar sebagian.'];
+            }
+            $newPaymentAmount = $remainingBefore > 0 ? min($newPaymentAmount, $remainingBefore) : 0;
+        } else {
+            $newPaymentAmount = 0;
+            clear_invoice_customer_payments($pdo, $kodeInvoice);
+        }
+
+        if ($newPaymentAmount > 0) {
+            add_invoice_customer_payment($pdo, $kodeInvoice, $newPaymentAmount, $tanggalPembayaran, 'Pembayaran baru dari log book pembayaran invoice');
+        }
+
+        $finalTotals = invoice_payment_totals($pdo, $kodeInvoice, $totalInvoice);
+        $finalPaid = round((float) ($finalTotals['paid_total'] ?? 0), 2);
+        $finalStatus = invoice_status_from_paid_amount($totalInvoice, $finalPaid);
+        $finalPaymentDate = $finalTotals['last_payment_date'] !== '' ? $finalTotals['last_payment_date'] : null;
 
         $stmt = $pdo->prepare('
             UPDATE invoices
@@ -4581,8 +4819,8 @@ function update_invoice_payment_status(string $kodeInvoice, string $statusPembay
             WHERE kode_invoice = ?
         ');
         $stmt->execute([
-            $statusPembayaran,
-            $tanggalPembayaran !== '' ? $tanggalPembayaran : null,
+            $finalStatus,
+            $finalPaymentDate,
             $kodeInvoice,
         ]);
 
@@ -4590,8 +4828,10 @@ function update_invoice_payment_status(string $kodeInvoice, string $statusPembay
 
         $pdo->commit();
         activity_log('update', 'invoice.payment', $kodeInvoice, 'Update pembayaran invoice ' . ($invoice['nomor_invoice'] ?? $kodeInvoice), $invoice, [
-            'status_pembayaran' => $statusPembayaran,
-            'tanggal_pembayaran' => $tanggalPembayaran !== '' ? $tanggalPembayaran : null,
+            'status_pembayaran' => $finalStatus,
+            'tanggal_pembayaran' => $finalPaymentDate,
+            'jumlah_pembayaran_baru' => $newPaymentAmount,
+            'total_terbayar' => $finalPaid,
         ]);
 
         // Sinkronisasi otomatis ke Google Sheets di background
@@ -6347,7 +6587,7 @@ function fetch_invoice_detail(string $code): array
     $invoicePath = dirname(__DIR__) . '/storage/generated/invoices-2025-jan-jun-2026.csv';
     $itemPath = dirname(__DIR__) . '/storage/generated/invoice-items-2025-jan-jun-2026.csv';
     $invoiceRows = db_all(
-        'SELECT kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan, po_number, kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2, komisi_sales_1_persen, komisi_sales_2_persen, komisi_sales_terbayar, komisi_sales_belum_terbayar, status_pembayaran_komisi_sales, tanggal_transfer_komisi_sales, komisi_manager_terbayar, komisi_manager_utang, tanggal_transfer_komisi_manager, tanggal_transfer_komisi_admin, pph_final_terbayar, pph_final_belum_terbayar, komisi_admin_terbayar, komisi_admin_belum_terbayar, biaya_kirim, biaya_admin_bank, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, harga_normal_pricelist, discount_persen, discount_amount, total_harga_jual, status_pembayaran, tanggal_pembayaran, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, tanggal_transfer_pembelian_barang, file_invoice FROM invoices WHERE kode_invoice = :kode_invoice OR nomor_invoice = :nomor_invoice LIMIT 1',
+        'SELECT kode_invoice, nomor_invoice, tanggal_invoice, nomor_surat_jalan, tanggal_surat_jalan, po_number, kode_sales_1, nama_sales_1, kode_sales_2, nama_sales_2, komisi_sales_1_persen, komisi_sales_2_persen, komisi_sales_terbayar, komisi_sales_belum_terbayar, status_pembayaran_komisi_sales, tanggal_transfer_komisi_sales, komisi_manager_terbayar, komisi_manager_utang, tanggal_transfer_komisi_manager, tanggal_transfer_komisi_admin, pph_final_terbayar, pph_final_belum_terbayar, komisi_admin_terbayar, komisi_admin_belum_terbayar, biaya_kirim, tanggal_pembayaran_biaya_kirim, biaya_admin_bank, tanggal_pembayaran_biaya_admin_bank, kode_customer, nama_customer_master, nama_customer_invoice, nama_laundry_invoice, no_telepon, alamat, total_item, total_qty, subtotal, harga_normal_pricelist, discount_persen, discount_amount, total_harga_jual, status_pembayaran, tanggal_pembayaran, total_pembelian_barang, total_utang_pembelian_barang, status_pembelian_barang, tanggal_transfer_pembelian_barang, file_invoice FROM invoices WHERE kode_invoice = :kode_invoice OR nomor_invoice = :nomor_invoice LIMIT 1',
         [
             'kode_invoice' => $code,
             'nomor_invoice' => $code,
@@ -6430,6 +6670,7 @@ function fetch_invoice_detail(string $code): array
 
 function fetch_invoice_form_options(string $code = ''): array
 {
+    $pdo = db();
     $customers = db_all('SELECT kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default FROM master_customers ORDER BY nama_laundry') ?? [];
     $sales = db_all('SELECT kode_sales, nama_sales FROM master_sales ORDER BY nama_sales') ?? [];
     $barang = db_all('SELECT kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default FROM master_barang ORDER BY nama_barang, ukuran') ?? [];
@@ -6444,13 +6685,21 @@ function fetch_invoice_form_options(string $code = ''): array
 
         if (($detail['ok'] ?? false) && is_array($detail['invoice'] ?? null)) {
             $invoice = $detail['invoice'];
+            $paymentTotals = $pdo instanceof PDO
+                ? invoice_payment_totals($pdo, (string) ($invoice['kode_invoice'] ?? ''), (float) ($invoice['total_harga_jual'] ?? 0))
+                : ['paid_total' => 0];
+            $paymentHistory = $pdo instanceof PDO
+                ? invoice_payment_history($pdo, (string) ($invoice['kode_invoice'] ?? ''))
+                : [];
             $edit = [
                 'mode' => 'update',
                 'invoice' => [
                     ...$invoice,
                     'tanggal_invoice_input' => date_input_value((string) ($invoice['tanggal_invoice'] ?? '')),
                     'tanggal_surat_jalan_input' => date_input_value((string) ($invoice['tanggal_surat_jalan'] ?? '')),
+                    'jumlah_terbayar_pendapatan' => $paymentTotals['paid_total'],
                 ],
+                'payments' => $paymentHistory,
                 'items' => array_map(static fn (array $item): array => [
                     'kode_barang' => (string) ($item['kode_barang'] ?? ''),
                     'isi' => (string) ($item['isi_invoice'] ?? ''),
@@ -6471,6 +6720,7 @@ function fetch_invoice_form_options(string $code = ''): array
         'edit' => $edit,
         'payment_statuses' => [
             'Belum Lunas',
+            'Dibayar Sebagian',
             'Lunas',
         ],
         'commission_statuses' => [
@@ -6659,6 +6909,8 @@ function save_invoice_form(array $postData): array
 
     $statusPembayaran = $cleanString($postData['status_pembayaran'] ?? 'Lunas');
     $tanggalPembayaran = !empty($postData['tanggal_pembayaran']) ? $postData['tanggal_pembayaran'] : null;
+    $jumlahTerbayarPendapatan = $cleanFloat($postData['jumlah_terbayar_pendapatan'] ?? 0);
+    $pembayaranBaruJumlah = $cleanFloat($postData['pembayaran_baru_jumlah'] ?? 0);
 
     // Purchase / COGS
     $totalPembelianBarang = $cleanFloat($postData['pembelian_barang'] ?? 0);
@@ -6666,8 +6918,14 @@ function save_invoice_form(array $postData): array
     $tanggalTransferPembelianBarang = !empty($postData['tanggal_transfer_pembelian_barang']) ? $postData['tanggal_transfer_pembelian_barang'] : null;
     $statusPembelianBarang = $tanggalTransferPembelianBarang !== null ? 'Lunas' : 'Utang';
 
-    if (strcasecmp($statusPembayaran, 'Lunas') === 0 && $tanggalPembayaran === null) {
-        return ['ok' => false, 'message' => 'Tanggal pembayaran invoice wajib diisi jika status invoice Lunas.'];
+    if (! in_array($statusPembayaran, ['Belum Lunas', 'Dibayar Sebagian', 'Lunas'], true)) {
+        $statusPembayaran = 'Belum Lunas';
+    }
+    if ($statusPembayaran !== 'Belum Lunas' && $tanggalPembayaran === null && ($pembayaranBaruJumlah > 0 || ! $isUpdate)) {
+        return ['ok' => false, 'message' => 'Tanggal pembayaran invoice wajib diisi jika invoice sudah dibayar.'];
+    }
+    if ($statusPembayaran === 'Belum Lunas') {
+        $tanggalPembayaran = null;
     }
     if ($totalPembelianBarang > 0 && $tanggalTransferPembelianBarang === null) {
         return ['ok' => false, 'message' => 'Tanggal transfer pembelian barang wajib diisi jika pembelian barang terbayar.'];
@@ -6693,6 +6951,7 @@ function save_invoice_form(array $postData): array
 
     try {
         ensure_invoice_cash_date_columns($pdo);
+        ensure_invoice_payments_table($pdo);
         $pdo->beginTransaction();
 
         if ($isUpdate) {
@@ -6877,6 +7136,41 @@ function save_invoice_form(array $postData): array
             ]);
             $baris += 2;
         }
+
+        if ($statusPembayaran === 'Belum Lunas') {
+            clear_invoice_customer_payments($pdo, $kodeInvoice);
+        } else {
+            $paymentTotalsBefore = invoice_payment_totals($pdo, $kodeInvoice, $totalHargaJual);
+            $remainingBefore = max($totalHargaJual - (float) ($paymentTotalsBefore['paid_total'] ?? 0), 0);
+            if ($statusPembayaran === 'Lunas' && $pembayaranBaruJumlah <= 0 && $remainingBefore > 0) {
+                $pembayaranBaruJumlah = $remainingBefore;
+            }
+            if ($pembayaranBaruJumlah > 0) {
+                $paymentDate = $tanggalPembayaran ?: date('Y-m-d');
+                add_invoice_customer_payment(
+                    $pdo,
+                    $kodeInvoice,
+                    $remainingBefore > 0 ? min($pembayaranBaruJumlah, $remainingBefore) : 0,
+                    $paymentDate,
+                    'Pembayaran baru dari form invoice'
+                );
+            }
+        }
+
+        $paymentTotals = invoice_payment_totals($pdo, $kodeInvoice, $totalHargaJual);
+        $statusPembayaran = invoice_status_from_paid_amount($totalHargaJual, (float) $paymentTotals['paid_total']);
+        $stmt = $pdo->prepare('
+            UPDATE invoices
+            SET status_pembayaran = ?,
+                tanggal_pembayaran = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE kode_invoice = ?
+        ');
+        $stmt->execute([
+            $statusPembayaran,
+            $paymentTotals['last_payment_date'] !== '' ? $paymentTotals['last_payment_date'] : null,
+            $kodeInvoice,
+        ]);
 
         post_invoice_accounting_journal($pdo, $kodeInvoice);
 
@@ -8232,7 +8526,25 @@ function fetch_laporan_piutang(string $month = '', string $year = ''): array
         return ['ok' => false, 'error' => 'Koneksi database gagal.'];
     }
 
-    $invoices = db_all('SELECT nomor_invoice, tanggal_invoice, tanggal_pembayaran, COALESCE(nama_customer_master, nama_laundry_invoice) AS nama_customer, no_telepon, total_harga_jual, status_pembayaran FROM invoices WHERE status_pembayaran <> \'Lunas\'');
+    ensure_invoice_payments_table($pdo);
+    $invoices = db_all('
+        SELECT
+            i.nomor_invoice,
+            i.tanggal_invoice,
+            i.tanggal_pembayaran,
+            COALESCE(i.nama_customer_master, i.nama_laundry_invoice) AS nama_customer,
+            i.no_telepon,
+            i.total_harga_jual,
+            i.status_pembayaran,
+            COALESCE(p.paid_total, 0) AS paid_total
+        FROM invoices i
+        LEFT JOIN (
+            SELECT kode_invoice, SUM(jumlah_pembayaran) AS paid_total
+            FROM invoice_payments
+            GROUP BY kode_invoice
+        ) p ON p.kode_invoice = i.kode_invoice
+        WHERE i.status_pembayaran <> \'Lunas\'
+    ');
     $filtered = [];
 
     foreach ($invoices ?? [] as $inv) {
@@ -8262,7 +8574,7 @@ function fetch_laporan_piutang(string $month = '', string $year = ''): array
             $days = (int)floor(($currentDate - $invoiceDate) / 86400);
         }
 
-        $amount = (float)($invoice['total_harga_jual'] ?? 0);
+        $amount = max((float)($invoice['total_harga_jual'] ?? 0) - (float) ($invoice['paid_total'] ?? 0), 0);
         $invoice['days_overdue'] = $days;
         $total_piutang += $amount;
 
@@ -10224,6 +10536,391 @@ function date_label_from_excel_2026(mixed $value): ?string
     }
 
     return legacy_2025_date_label($date);
+}
+
+function seed_today_find_invoice(PDO $pdo, string $nomorInvoice): ?array
+{
+    $stmt = $pdo->prepare('SELECT * FROM invoices WHERE nomor_invoice = ? LIMIT 1');
+    $stmt->execute([$nomorInvoice]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row ?: null;
+}
+
+function seed_today_set_invoice_paid(PDO $pdo, string $nomorInvoice, string $date, array $extra = []): string
+{
+    $invoice = seed_today_find_invoice($pdo, $nomorInvoice);
+    if (! $invoice) {
+        return 'Lewat, invoice tidak ditemukan: ' . $nomorInvoice;
+    }
+
+    $kodeInvoice = (string) $invoice['kode_invoice'];
+    $fields = array_merge([
+        'status_pembayaran' => 'Lunas',
+        'tanggal_pembayaran' => $date,
+    ], $extra);
+    $sets = [];
+    $params = [];
+    foreach ($fields as $column => $value) {
+        $sets[] = '`' . $column . '` = ?';
+        $params[] = $value;
+    }
+    $params[] = $kodeInvoice;
+    $stmt = $pdo->prepare('UPDATE invoices SET ' . implode(', ', $sets) . ', updated_at = CURRENT_TIMESTAMP WHERE kode_invoice = ?');
+    $stmt->execute($params);
+
+    $amount = (float) ($extra['total_harga_jual'] ?? $invoice['total_harga_jual'] ?? 0);
+    replace_invoice_customer_payment($pdo, $kodeInvoice, $amount, $date, 'Seeder update hari ini 2026-07-03');
+    $lines = post_invoice_accounting_journal($pdo, $kodeInvoice);
+
+    return $nomorInvoice . ' lunas, jurnal ' . $lines . ' baris';
+}
+
+function seed_today_set_invoice_partial_payment(PDO $pdo, string $nomorInvoice, float $amount, string $date): string
+{
+    $invoice = seed_today_find_invoice($pdo, $nomorInvoice);
+    if (! $invoice) {
+        return 'Lewat, invoice tidak ditemukan: ' . $nomorInvoice;
+    }
+
+    $kodeInvoice = (string) $invoice['kode_invoice'];
+    replace_invoice_customer_payment($pdo, $kodeInvoice, $amount, $date, 'Pembayaran sebagian dari seeder 2026-07-03');
+    $totals = invoice_payment_totals($pdo, $kodeInvoice, (float) ($invoice['total_harga_jual'] ?? 0));
+    $status = invoice_status_from_paid_amount((float) ($invoice['total_harga_jual'] ?? 0), (float) ($totals['paid_total'] ?? 0));
+    $stmt = $pdo->prepare('UPDATE invoices SET status_pembayaran = ?, tanggal_pembayaran = ?, updated_at = CURRENT_TIMESTAMP WHERE kode_invoice = ?');
+    $stmt->execute([$status, $totals['last_payment_date'] ?: $date, $kodeInvoice]);
+    $lines = post_invoice_accounting_journal($pdo, $kodeInvoice);
+
+    return $nomorInvoice . ' pembayaran sebagian Rp' . number_format($amount, 0, ',', '.') . ', jurnal ' . $lines . ' baris';
+}
+
+function seed_today_upsert_prive(PDO $pdo, int $year, int $month, string $partner, float $amount, string $transferDate): string
+{
+    ensure_partner_prive_table($pdo);
+    $stmt = $pdo->prepare('
+        SELECT id FROM partner_prive
+        WHERE tahun_pnl = ? AND bulan_pnl = ? AND LOWER(partner) = LOWER(?)
+        LIMIT 1
+    ');
+    $stmt->execute([$year, $month, $partner]);
+    $id = (int) ($stmt->fetchColumn() ?: 0);
+    $tanggal = sprintf('%04d-%02d-01', $year, $month);
+
+    if ($id > 0) {
+        $update = $pdo->prepare('
+            UPDATE partner_prive
+            SET tanggal = ?, jumlah = ?, status_pembayaran = ?, tanggal_transfer = ?, keterangan = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ');
+        $update->execute([$tanggal, $amount, 'Lunas', $transferDate, 'Seeder update hari ini 2026-07-03', $id]);
+    } else {
+        $insert = $pdo->prepare('
+            INSERT INTO partner_prive (tanggal, bulan_pnl, tahun_pnl, partner, jumlah, status_pembayaran, tanggal_transfer, keterangan)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ');
+        $insert->execute([$tanggal, $month, $year, $partner, $amount, 'Lunas', $transferDate, 'Seeder update hari ini 2026-07-03']);
+        $id = (int) $pdo->lastInsertId();
+    }
+
+    $lines = generate_partner_prive_journal($pdo, $id);
+
+    return 'Prive ' . $partner . ' ' . $month . '/' . $year . ' Rp' . number_format($amount, 0, ',', '.') . ', jurnal ' . $lines . ' baris';
+}
+
+function seed_today_next_invoice_code(PDO $pdo, string $desiredCode): string
+{
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM invoices WHERE kode_invoice = ?');
+    $stmt->execute([$desiredCode]);
+    if ((int) $stmt->fetchColumn() === 0) {
+        return $desiredCode;
+    }
+
+    return next_2026_invoice_code($pdo);
+}
+
+function seed_today_upsert_invoice_with_items(PDO $pdo, array $invoice, array $items): string
+{
+    $nomorInvoice = (string) $invoice['nomor_invoice'];
+    $desiredCode = (string) $invoice['kode_invoice'];
+    $existing = seed_today_find_invoice($pdo, $nomorInvoice);
+    $kodeInvoice = $existing['kode_invoice'] ?? seed_today_next_invoice_code($pdo, $desiredCode);
+    $invoice['kode_invoice'] = $kodeInvoice;
+
+    $invoiceColumns = [
+        'kode_invoice', 'nomor_invoice', 'tanggal_invoice', 'nomor_surat_jalan', 'tanggal_surat_jalan', 'po_number',
+        'kode_sales_1', 'nama_sales_1', 'kode_sales_2', 'nama_sales_2', 'komisi_sales_1_persen', 'komisi_sales_2_persen',
+        'komisi_sales_terbayar', 'komisi_sales_belum_terbayar', 'status_pembayaran_komisi_sales', 'tanggal_transfer_komisi_sales',
+        'komisi_manager_terbayar', 'komisi_manager_utang', 'tanggal_transfer_komisi_manager', 'tanggal_transfer_komisi_admin',
+        'kode_customer', 'nama_customer_master', 'nama_customer_invoice', 'nama_laundry_invoice', 'no_telepon', 'alamat',
+        'total_item', 'total_qty', 'subtotal', 'harga_normal_pricelist', 'discount_persen', 'discount_amount', 'total_harga_jual',
+        'status_pembayaran', 'tanggal_pembayaran', 'pph_final_terbayar', 'pph_final_belum_terbayar', 'tanggal_pembayaran_pph_final',
+        'komisi_admin_terbayar', 'komisi_admin_belum_terbayar', 'biaya_kirim', 'tanggal_pembayaran_biaya_kirim',
+        'biaya_admin_bank', 'tanggal_pembayaran_biaya_admin_bank', 'total_pembelian_barang', 'total_utang_pembelian_barang',
+        'status_pembelian_barang', 'tanggal_transfer_pembelian_barang', 'google_drive_file_id', 'file_invoice',
+    ];
+
+    if ($existing) {
+        $sets = [];
+        $params = [];
+        foreach ($invoiceColumns as $column) {
+            if ($column === 'kode_invoice') {
+                continue;
+            }
+            $sets[] = '`' . $column . '` = ?';
+            $params[] = $invoice[$column] ?? null;
+        }
+        $params[] = $kodeInvoice;
+        $stmt = $pdo->prepare('UPDATE invoices SET ' . implode(', ', $sets) . ', updated_at = CURRENT_TIMESTAMP WHERE kode_invoice = ?');
+        $stmt->execute($params);
+    } else {
+        $columnsSql = '`' . implode('`, `', $invoiceColumns) . '`';
+        $placeholders = implode(', ', array_fill(0, count($invoiceColumns), '?'));
+        $stmt = $pdo->prepare('INSERT INTO invoices (' . $columnsSql . ') VALUES (' . $placeholders . ')');
+        $stmt->execute(array_map(static fn (string $column) => $invoice[$column] ?? null, $invoiceColumns));
+    }
+
+    $deleteItems = $pdo->prepare('DELETE FROM invoice_items WHERE kode_invoice = ?');
+    $deleteItems->execute([$kodeInvoice]);
+    $insertItem = $pdo->prepare('
+        INSERT INTO invoice_items (
+            kode_invoice, nomor_invoice, tanggal_invoice, kode_customer, kode_barang, nama_barang_master,
+            ukuran_master, nama_barang_invoice, isi_invoice, jumlah, satuan, harga, total, file_invoice, baris
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ');
+    foreach ($items as $item) {
+        $insertItem->execute([
+            $kodeInvoice,
+            $nomorInvoice,
+            $invoice['tanggal_invoice'] ?? null,
+            $invoice['kode_customer'] ?? null,
+            $item['kode_barang'] ?? null,
+            $item['nama_barang_master'] ?? null,
+            $item['ukuran_master'] ?? null,
+            $item['nama_barang_invoice'] ?? null,
+            $item['isi_invoice'] ?? null,
+            $item['jumlah'] ?? 0,
+            $item['satuan'] ?? null,
+            $item['harga'] ?? 0,
+            $item['total'] ?? 0,
+            $invoice['file_invoice'] ?? null,
+            $item['baris'] ?? null,
+        ]);
+    }
+
+    clear_invoice_customer_payments($pdo, $kodeInvoice);
+    $lines = post_invoice_accounting_journal($pdo, $kodeInvoice);
+
+    return $nomorInvoice . ' disimpan (' . count($items) . ' item), jurnal ' . $lines . ' baris';
+}
+
+function seed_today_invoice_payloads(): array
+{
+    return [
+        [
+            'invoice' => [
+                'kode_invoice' => 'INV-00474', 'nomor_invoice' => '472/BM-INV/VII/2026', 'tanggal_invoice' => '2 Juli 2026',
+                'nomor_surat_jalan' => '', 'tanggal_surat_jalan' => '', 'po_number' => '', 'kode_sales_1' => 'SLS-0003',
+                'nama_sales_1' => 'Pak Agung', 'kode_sales_2' => 'SLS-0004', 'nama_sales_2' => 'Pak Frans',
+                'komisi_sales_1_persen' => 5, 'komisi_sales_2_persen' => 5, 'komisi_sales_terbayar' => 0,
+                'komisi_sales_belum_terbayar' => 99000, 'status_pembayaran_komisi_sales' => 'Belum TF',
+                'tanggal_transfer_komisi_sales' => null, 'komisi_manager_terbayar' => 0, 'komisi_manager_utang' => 0,
+                'tanggal_transfer_komisi_manager' => null, 'tanggal_transfer_komisi_admin' => null, 'kode_customer' => 'CST-0022',
+                'nama_customer_master' => 'Bp. Gandung', 'nama_customer_invoice' => 'CLEAN POINT LAUNDRY',
+                'nama_laundry_invoice' => 'Clean Point Laundry', 'no_telepon' => '081238500058',
+                'alamat' => 'Jl. Wahyu Graha No. 55 - Buduk', 'total_item' => 1, 'total_qty' => 1,
+                'subtotal' => 990000, 'harga_normal_pricelist' => 990000, 'discount_persen' => 0, 'discount_amount' => 0,
+                'total_harga_jual' => 990000, 'status_pembayaran' => 'Belum Lunas', 'tanggal_pembayaran' => null,
+                'pph_final_terbayar' => 0, 'pph_final_belum_terbayar' => 4950, 'tanggal_pembayaran_pph_final' => null,
+                'komisi_admin_terbayar' => 0, 'komisi_admin_belum_terbayar' => 49500, 'biaya_kirim' => 42000,
+                'tanggal_pembayaran_biaya_kirim' => null, 'biaya_admin_bank' => 0, 'tanggal_pembayaran_biaya_admin_bank' => null,
+                'total_pembelian_barang' => 0, 'total_utang_pembelian_barang' => 700000, 'status_pembelian_barang' => 'Utang',
+                'tanggal_transfer_pembelian_barang' => null, 'google_drive_file_id' => null, 'file_invoice' => '472_BM-INV_VII_2026 CLEAN POINT.xlsx',
+            ],
+            'items' => [
+                ['kode_barang' => 'BRG-0014', 'nama_barang_master' => 'Mc Bleach', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'MC BLEACH', 'isi_invoice' => '20 L', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 990000, 'total' => 990000, 'baris' => 12],
+            ],
+        ],
+        [
+            'invoice' => [
+                'kode_invoice' => 'INV-00475', 'nomor_invoice' => '473/BM-INV/VII/2026', 'tanggal_invoice' => '3 Juli 2026',
+                'nomor_surat_jalan' => '', 'tanggal_surat_jalan' => '', 'po_number' => 'PSG/001/07/2026', 'kode_sales_1' => 'SLS-0012',
+                'nama_sales_1' => 'Denis Team', 'kode_sales_2' => null, 'nama_sales_2' => null, 'komisi_sales_1_persen' => 8,
+                'komisi_sales_2_persen' => 0, 'komisi_sales_terbayar' => 0, 'komisi_sales_belum_terbayar' => 448800,
+                'status_pembayaran_komisi_sales' => 'Belum TF', 'tanggal_transfer_komisi_sales' => null,
+                'komisi_manager_terbayar' => 0, 'komisi_manager_utang' => 729300, 'tanggal_transfer_komisi_manager' => null,
+                'tanggal_transfer_komisi_admin' => null, 'kode_customer' => 'CST-0007', 'nama_customer_master' => 'Pak Budi',
+                'nama_customer_invoice' => 'Asia Hospitality Service', 'nama_laundry_invoice' => 'Asia Hospitality Service',
+                'no_telepon' => '083117923546', 'alamat' => 'Jl. Pertanian Jl. Pesanggaran No.01, Pedungan, Denpasar Selatan, Kota Denpasar, Bali 80222',
+                'total_item' => 3, 'total_qty' => 4, 'subtotal' => 5610000, 'harga_normal_pricelist' => 5610000,
+                'discount_persen' => 0, 'discount_amount' => 0, 'total_harga_jual' => 5610000, 'status_pembayaran' => 'Belum Lunas',
+                'tanggal_pembayaran' => null, 'pph_final_terbayar' => 0, 'pph_final_belum_terbayar' => 28050,
+                'tanggal_pembayaran_pph_final' => null, 'komisi_admin_terbayar' => 0, 'komisi_admin_belum_terbayar' => 280500,
+                'biaya_kirim' => 178000, 'tanggal_pembayaran_biaya_kirim' => null, 'biaya_admin_bank' => 0,
+                'tanggal_pembayaran_biaya_admin_bank' => null, 'total_pembelian_barang' => 0, 'total_utang_pembelian_barang' => 1100000,
+                'status_pembelian_barang' => 'Utang', 'tanggal_transfer_pembelian_barang' => null, 'google_drive_file_id' => null,
+                'file_invoice' => '473_BM-INV_VII_2026 AHS PESANGGARAN.xlsx',
+            ],
+            'items' => [
+                ['kode_barang' => 'BRG-0014', 'nama_barang_master' => 'Mc Bleach', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'MC BLEACH', 'isi_invoice' => '20 L', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 990000, 'total' => 990000, 'baris' => 19],
+                ['kode_barang' => 'BRG-0012', 'nama_barang_master' => 'M-sour', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'M SOUR', 'isi_invoice' => '20 L', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 1320000, 'total' => 1320000, 'baris' => 21],
+                ['kode_barang' => 'BRG-0008', 'nama_barang_master' => 'Laudet', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'LAUDET', 'isi_invoice' => '20 L', 'jumlah' => 2, 'satuan' => 'pail', 'harga' => 1650000, 'total' => 3300000, 'baris' => 23],
+            ],
+        ],
+        [
+            'invoice' => [
+                'kode_invoice' => 'INV-00476', 'nomor_invoice' => '474/BM-INV/VII/2026', 'tanggal_invoice' => '3 Juli 2026',
+                'nomor_surat_jalan' => '', 'tanggal_surat_jalan' => '', 'po_number' => '', 'kode_sales_1' => 'SLS-0004',
+                'nama_sales_1' => 'Pak Frans', 'kode_sales_2' => 'SLS-0003', 'nama_sales_2' => 'Pak Agung',
+                'komisi_sales_1_persen' => 5, 'komisi_sales_2_persen' => 5, 'komisi_sales_terbayar' => 0,
+                'komisi_sales_belum_terbayar' => 267300, 'status_pembayaran_komisi_sales' => 'Belum TF',
+                'tanggal_transfer_komisi_sales' => null, 'komisi_manager_terbayar' => 0, 'komisi_manager_utang' => 0,
+                'tanggal_transfer_komisi_manager' => null, 'tanggal_transfer_komisi_admin' => null, 'kode_customer' => 'CST-0026',
+                'nama_customer_master' => 'Bp. Rai', 'nama_customer_invoice' => 'DIWANG LAUNDRY', 'nama_laundry_invoice' => 'Diwang Laundry',
+                'no_telepon' => '087726013611', 'alamat' => 'Jl. Raya Kerobokan', 'total_item' => 2, 'total_qty' => 2,
+                'subtotal' => 2970000, 'harga_normal_pricelist' => 2970000, 'discount_persen' => 10, 'discount_amount' => 297000,
+                'total_harga_jual' => 2673000, 'status_pembayaran' => 'Belum Lunas', 'tanggal_pembayaran' => null,
+                'pph_final_terbayar' => 0, 'pph_final_belum_terbayar' => 13365, 'tanggal_pembayaran_pph_final' => null,
+                'komisi_admin_terbayar' => 0, 'komisi_admin_belum_terbayar' => 133650, 'biaya_kirim' => 52000,
+                'tanggal_pembayaran_biaya_kirim' => null, 'biaya_admin_bank' => 0, 'tanggal_pembayaran_biaya_admin_bank' => null,
+                'total_pembelian_barang' => 0, 'total_utang_pembelian_barang' => 700000, 'status_pembelian_barang' => 'Utang',
+                'tanggal_transfer_pembelian_barang' => null, 'google_drive_file_id' => null, 'file_invoice' => '474_BM-INV_VII_2026 DIWANG LAUNDRY.xlsx',
+            ],
+            'items' => [
+                ['kode_barang' => 'BRG-0014', 'nama_barang_master' => 'Mc Bleach', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'MC BLEACH', 'isi_invoice' => '20 L', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 990000, 'total' => 990000, 'baris' => 12],
+                ['kode_barang' => 'BRG-0006', 'nama_barang_master' => 'E-951', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'E-951', 'isi_invoice' => '20 L', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 1980000, 'total' => 1980000, 'baris' => 14],
+            ],
+        ],
+        [
+            'invoice' => [
+                'kode_invoice' => 'INV-00477', 'nomor_invoice' => '475/BM-INV/VII/2026', 'tanggal_invoice' => '3 Juli 2026',
+                'nomor_surat_jalan' => '', 'tanggal_surat_jalan' => '', 'po_number' => '', 'kode_sales_1' => 'SLS-0012',
+                'nama_sales_1' => 'Denis Team', 'kode_sales_2' => null, 'nama_sales_2' => null, 'komisi_sales_1_persen' => 15,
+                'komisi_sales_2_persen' => 0, 'komisi_sales_terbayar' => 0, 'komisi_sales_belum_terbayar' => 148500,
+                'status_pembayaran_komisi_sales' => 'Belum TF', 'tanggal_transfer_komisi_sales' => null, 'komisi_manager_terbayar' => 0,
+                'komisi_manager_utang' => 0, 'tanggal_transfer_komisi_manager' => null, 'tanggal_transfer_komisi_admin' => null,
+                'kode_customer' => 'CST-0094', 'nama_customer_master' => 'Ibu Puji', 'nama_customer_invoice' => 'ZCLEAN LAUNDRY',
+                'nama_laundry_invoice' => 'Zclean Laundry', 'no_telepon' => '081999607688', 'alamat' => 'Jl. Taman Pancing',
+                'total_item' => 1, 'total_qty' => 1, 'subtotal' => 990000, 'harga_normal_pricelist' => 990000,
+                'discount_persen' => 0, 'discount_amount' => 0, 'total_harga_jual' => 990000, 'status_pembayaran' => 'Belum Lunas',
+                'tanggal_pembayaran' => null, 'pph_final_terbayar' => 0, 'pph_final_belum_terbayar' => 4950,
+                'tanggal_pembayaran_pph_final' => null, 'komisi_admin_terbayar' => 0, 'komisi_admin_belum_terbayar' => 49500,
+                'biaya_kirim' => 43000, 'tanggal_pembayaran_biaya_kirim' => null, 'biaya_admin_bank' => 0,
+                'tanggal_pembayaran_biaya_admin_bank' => null, 'total_pembelian_barang' => 0, 'total_utang_pembelian_barang' => 0,
+                'status_pembelian_barang' => 'Lunas', 'tanggal_transfer_pembelian_barang' => null, 'google_drive_file_id' => null,
+                'file_invoice' => '475_BM-INV_VII_2026 ZCLEAN LAUNDRY.xlsx',
+            ],
+            'items' => [
+                ['kode_barang' => 'BRG-0014', 'nama_barang_master' => 'Mc Bleach', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'MC BLEACH', 'isi_invoice' => '20 L', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 990000, 'total' => 990000, 'baris' => 13],
+            ],
+        ],
+        [
+            'invoice' => [
+                'kode_invoice' => 'INV-00478', 'nomor_invoice' => '476/BM-INV/VII/2026', 'tanggal_invoice' => '3 Juli 2026',
+                'nomor_surat_jalan' => '', 'tanggal_surat_jalan' => '', 'po_number' => '', 'kode_sales_1' => 'SLS-0020',
+                'nama_sales_1' => 'Krisna', 'kode_sales_2' => 'SLS-0017', 'nama_sales_2' => 'Pak Gede', 'komisi_sales_1_persen' => 0,
+                'komisi_sales_2_persen' => 5, 'komisi_sales_terbayar' => 0, 'komisi_sales_belum_terbayar' => 82500,
+                'status_pembayaran_komisi_sales' => 'Belum TF', 'tanggal_transfer_komisi_sales' => null, 'komisi_manager_terbayar' => 0,
+                'komisi_manager_utang' => 0, 'tanggal_transfer_komisi_manager' => null, 'tanggal_transfer_komisi_admin' => null,
+                'kode_customer' => 'CST-0070', 'nama_customer_master' => 'Ibu Nyoman Surati', 'nama_customer_invoice' => 'PURI UMA LAUNDRY',
+                'nama_laundry_invoice' => 'Puri Uma Laundry', 'no_telepon' => '087761401311', 'alamat' => 'Jl. Raya Kangetan ,',
+                'total_item' => 2, 'total_qty' => 2, 'subtotal' => 1650000, 'harga_normal_pricelist' => 1650000,
+                'discount_persen' => 0, 'discount_amount' => 0, 'total_harga_jual' => 1650000, 'status_pembayaran' => 'Belum Lunas',
+                'tanggal_pembayaran' => null, 'pph_final_terbayar' => 0, 'pph_final_belum_terbayar' => 8250,
+                'tanggal_pembayaran_pph_final' => null, 'komisi_admin_terbayar' => 0, 'komisi_admin_belum_terbayar' => 82500,
+                'biaya_kirim' => 0, 'tanggal_pembayaran_biaya_kirim' => null, 'biaya_admin_bank' => 0,
+                'tanggal_pembayaran_biaya_admin_bank' => null, 'total_pembelian_barang' => 0, 'total_utang_pembelian_barang' => 0,
+                'status_pembelian_barang' => 'Lunas', 'tanggal_transfer_pembelian_barang' => null, 'google_drive_file_id' => null,
+                'file_invoice' => '476_BM-INV_VII_2026 PURI UMA LAUNDRY.xlsx',
+            ],
+            'items' => [
+                ['kode_barang' => 'BRG-0007', 'nama_barang_master' => 'E-951', 'ukuran_master' => '5 L', 'nama_barang_invoice' => 'E-951', 'isi_invoice' => '5 L', 'jumlah' => 1, 'satuan' => '5 liter', 'harga' => 605000, 'total' => 605000, 'baris' => 13],
+                ['kode_barang' => 'BRG-0015', 'nama_barang_master' => 'Mc Bleach', 'ukuran_master' => '5 L', 'nama_barang_invoice' => 'MC BLEACH', 'isi_invoice' => '5 L', 'jumlah' => 1, 'satuan' => '5 liter', 'harga' => 357500, 'total' => 357500, 'baris' => 15],
+            ],
+        ],
+    ];
+}
+
+function run_seed_today_july_3_2026(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    try {
+        ensure_invoice_payments_table($pdo);
+        ensure_partner_prive_table($pdo);
+        ensure_invoice_cash_date_columns($pdo);
+        ensure_accounting_tables($pdo);
+
+        $logs = [];
+        $statements = 0;
+
+        foreach ([
+            ['290/BM-INV/II/2026', '2026-06-29', []],
+            ['367/BM-INV/IV/2026', '2026-06-30', []],
+            ['404/BM-INV/V/2026', '2026-06-29', []],
+            ['408/BM-INV/V/2026', '2026-07-01', []],
+            ['422/BM-INV/V/2026', '2026-07-01', []],
+            ['467/BM-INV/VI/2026', '2026-07-01', []],
+            ['364/BM-INV/IV/2026', '2026-07-02', ['total_pembelian_barang' => 450000, 'total_utang_pembelian_barang' => 0, 'status_pembelian_barang' => 'Lunas', 'tanggal_transfer_pembelian_barang' => '2026-07-02']],
+            ['388/BM-INV/V/2026', '2026-07-01', ['total_pembelian_barang' => 0, 'total_utang_pembelian_barang' => 0, 'status_pembelian_barang' => 'Lunas', 'tanggal_transfer_pembelian_barang' => null]],
+            ['395/BM-INV/V/2026', '2026-06-30', ['total_pembelian_barang' => 0, 'total_utang_pembelian_barang' => 0, 'status_pembelian_barang' => 'Lunas', 'tanggal_transfer_pembelian_barang' => null]],
+            ['414/BM-INV/V/2026', '2026-07-01', ['total_pembelian_barang' => 0, 'total_utang_pembelian_barang' => 0, 'status_pembelian_barang' => 'Lunas', 'tanggal_transfer_pembelian_barang' => null]],
+            ['429/BM-INV/VI/2026', '2026-07-02', ['total_pembelian_barang' => 375000, 'total_utang_pembelian_barang' => 0, 'status_pembelian_barang' => 'Lunas', 'tanggal_transfer_pembelian_barang' => '2026-07-02']],
+            ['363/BM-INV/IV/2026', '2026-07-03', ['total_pembelian_barang' => 1800000, 'total_utang_pembelian_barang' => 0, 'status_pembelian_barang' => 'Lunas', 'tanggal_transfer_pembelian_barang' => '2026-07-03']],
+            ['403/BM-INV/V/2026', '2026-06-30', ['total_pembelian_barang' => 350000, 'total_utang_pembelian_barang' => 0, 'status_pembelian_barang' => 'Lunas', 'tanggal_transfer_pembelian_barang' => '2026-07-03']],
+        ] as [$number, $date, $extra]) {
+            $logs[] = seed_today_set_invoice_paid($pdo, $number, $date, $extra);
+            $statements++;
+        }
+
+        foreach ([
+            ['257/BM-INV/I/2026', 1500000, '2026-06-22'],
+            ['296/BM-INV/II/2026', 2000000, '2026-07-02'],
+            ['327/BM-INV/III/2026', 1400000, '2026-06-09'],
+        ] as [$number, $amount, $date]) {
+            $logs[] = seed_today_set_invoice_partial_payment($pdo, $number, $amount, $date);
+            $statements++;
+        }
+
+        foreach ([
+            [2026, 4, 'James', 9938898, '2026-06-26'],
+            [2026, 4, 'Ricky', 9549137, '2026-06-29'],
+            [2025, 7, 'Ricky', 3033277, '2025-11-03'],
+            [2025, 7, 'James', 3157085, '2025-11-03'],
+            [2025, 8, 'Ricky', 8826572, '2025-11-03'],
+            [2025, 8, 'James', 9186841, '2025-11-03'],
+        ] as [$year, $month, $partner, $amount, $date]) {
+            $logs[] = seed_today_upsert_prive($pdo, $year, $month, $partner, $amount, $date);
+            $statements++;
+        }
+
+        foreach (seed_today_invoice_payloads() as $payload) {
+            $logs[] = seed_today_upsert_invoice_with_items($pdo, $payload['invoice'], $payload['items']);
+            $statements++;
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Seeder update hari ini berhasil dijalankan.',
+            'statements' => $statements,
+            'counts' => database_table_counts(),
+            'output' => implode("\n", $logs),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Seeder update hari ini gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
 }
 
 function run_pnl_sales_commission_update(): array

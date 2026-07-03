@@ -389,7 +389,8 @@ $routes = [
             $result = update_invoice_payment_status(
                 $_POST['kode_invoice'] ?? '',
                 $_POST['status_pembayaran'] ?? '',
-                $_POST['tanggal_pembayaran'] ?? ''
+                $_POST['tanggal_pembayaran'] ?? '',
+                $_POST['jumlah_pembayaran'] ?? ''
             );
 
             $_SESSION['invoice_payment_log_flash'] = $result;

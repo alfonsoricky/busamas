@@ -49,6 +49,19 @@
                     <dd class="font-semibold text-ink"><?= e((string) ($seed['updated_at'] ?? '-')) ?></dd>
                 </div>
             </dl>
+            <form method="post" class="mt-5">
+                <input type="hidden" name="action" value="seed-today-july-3-2026">
+                <button
+                    type="submit"
+                    class="inline-flex items-center justify-center rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark"
+                    data-confirm-title="Jalankan Seeder Update Hari Ini?"
+                    data-confirm-message="Seeder ini akan menyamakan update invoice, pembayaran parsial, prive, invoice 472-476, dan jurnal akuntansi terbaru."
+                    data-confirm-ok="Jalankan"
+                    data-confirm-cancel="Batal"
+                >
+                    Update Hari Ini
+                </button>
+            </form>
         </div>
 
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">

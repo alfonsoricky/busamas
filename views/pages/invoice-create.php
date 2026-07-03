@@ -9,7 +9,12 @@
             $isUpdate = ($edit['mode'] ?? 'create') === 'update';
             $editInvoice = is_array($edit['invoice'] ?? null) ? $edit['invoice'] : [];
             $editItems = is_array($edit['items'] ?? null) ? $edit['items'] : [];
+            $editPayments = is_array($edit['payments'] ?? null) ? $edit['payments'] : [];
             $purchaseMode = (float) ($editInvoice['total_utang_pembelian_barang'] ?? 0) > 0 ? 'debt' : 'paid';
+            $totalPaidInvoice = array_sum(array_map(static fn (array $payment): float => (float) ($payment['jumlah_pembayaran'] ?? 0), $editPayments));
+            if ($totalPaidInvoice <= 0 && strcasecmp((string) ($editInvoice['status_pembayaran'] ?? ''), 'Lunas') === 0) {
+                $totalPaidInvoice = (float) ($editInvoice['total_harga_jual'] ?? 0);
+            }
         ?>
         <?php if (isset($invoiceForm['error'])): ?>
             <div class="mb-6 rounded-lg border border-red-200 bg-red-50 p-5 text-sm leading-6 text-red-900">
@@ -193,18 +198,44 @@
                                     </select>
                                 </label>
                                 <label class="block" data-payment-paid-field>
-                                    <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Pembayaran</span>
-                                    <input type="date" name="tanggal_pembayaran" value="<?= e((string) ($editInvoice['tanggal_pembayaran'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                    <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Pembayaran Baru</span>
+                                    <input type="date" name="tanggal_pembayaran" value="" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                 </label>
                                 <label class="block" data-payment-unpaid-field>
                                     <span class="mb-2 block text-sm font-semibold text-stone-700">Jumlah Terutang (Piutang)</span>
                                     <input type="number" step="0.01" name="jumlah_terutang_piutang" id="jumlah-terutang-piutang" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
                                 </label>
+                                <label class="block">
+                                    <span class="mb-2 block text-sm font-semibold text-stone-700">Total Sudah Dibayar</span>
+                                    <input type="number" step="0.01" name="jumlah_terbayar_pendapatan" id="jumlah-terbayar-pendapatan" value="<?= e((string) ($totalPaidInvoice ?: ($editInvoice['jumlah_terbayar_pendapatan'] ?? ''))) ?>" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
+                                </label>
                                 <label class="block" data-payment-paid-field>
-                                    <span class="mb-2 block text-sm font-semibold text-stone-700">Jumlah Terbayar (Pendapatan)</span>
-                                    <input type="number" step="0.01" name="jumlah_terbayar_pendapatan" id="jumlah-terbayar-pendapatan" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                    <span class="mb-2 block text-sm font-semibold text-stone-700">Jumlah Pembayaran Baru</span>
+                                    <input type="number" step="0.01" name="pembayaran_baru_jumlah" id="pembayaran-baru-jumlah" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                 </label>
                             </div>
+                            <?php if ($isUpdate && $editPayments !== []): ?>
+                                <div class="mt-5 overflow-hidden rounded-lg border border-stone-200">
+                                    <table class="min-w-full divide-y divide-stone-200 text-sm">
+                                        <thead class="bg-stone-50 text-left text-xs uppercase tracking-wide text-stone-500">
+                                            <tr>
+                                                <th class="px-4 py-2 font-semibold">Tanggal</th>
+                                                <th class="px-4 py-2 text-right font-semibold">Jumlah</th>
+                                                <th class="px-4 py-2 font-semibold">Keterangan</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-stone-100 bg-white">
+                                            <?php foreach ($editPayments as $payment): ?>
+                                                <tr>
+                                                    <td class="px-4 py-2"><?= e(date('d-m-Y', strtotime((string) $payment['tanggal_pembayaran']))) ?></td>
+                                                    <td class="px-4 py-2 text-right font-semibold"><?= rupiah($payment['jumlah_pembayaran'] ?? 0) ?></td>
+                                                    <td class="px-4 py-2 text-stone-600"><?= e((string) ($payment['keterangan'] ?? '-')) ?></td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php endif; ?>
                         </div>
 
                         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">
@@ -525,6 +556,7 @@
             const paymentUnpaidFields = document.querySelectorAll('[data-payment-unpaid-field]');
             const jumlahTerutangPiutang = document.querySelector('#jumlah-terutang-piutang');
             const jumlahTerbayarPendapatan = document.querySelector('#jumlah-terbayar-pendapatan');
+            const pembayaranBaruJumlah = document.querySelector('#pembayaran-baru-jumlah');
             const komisiSales1Percent = document.querySelector('#komisi-sales-1-percent');
             const komisiSales2Percent = document.querySelector('#komisi-sales-2-percent');
             const totalKomisiPercent = document.querySelector('#total-komisi-percent');
@@ -682,18 +714,19 @@
             }
 
             function recalculateReceivable() {
-                setMoneyValue(jumlahTerutangPiutang, Math.max(moneyValue(totalHargaJual) - moneyValue(jumlahTerbayarPendapatan), 0));
+                setMoneyValue(jumlahTerutangPiutang, Math.max(moneyValue(totalHargaJual) - moneyValue(jumlahTerbayarPendapatan) - moneyValue(pembayaranBaruJumlah), 0));
                 updateSummarySidebar();
             }
 
             function togglePaymentFields() {
                 const isPaid = statusPembayaran.value === 'Lunas';
+                const isPartial = statusPembayaran.value === 'Dibayar Sebagian';
 
-                paymentPaidFields.forEach((field) => field.classList.toggle('hidden', !isPaid));
+                paymentPaidFields.forEach((field) => field.classList.toggle('hidden', !isPaid && !isPartial));
                 paymentUnpaidFields.forEach((field) => field.classList.toggle('hidden', isPaid));
 
-                if (isPaid && jumlahTerbayarPendapatan.value === '') {
-                    setMoneyValue(jumlahTerbayarPendapatan, moneyValue(totalHargaJual));
+                if (isPaid && moneyValue(pembayaranBaruJumlah) <= 0) {
+                    setMoneyValue(pembayaranBaruJumlah, Math.max(moneyValue(totalHargaJual) - moneyValue(jumlahTerbayarPendapatan), 0));
                 }
 
                 recalculateReceivable();
@@ -983,6 +1016,7 @@
             discountPercent.addEventListener('input', recalculateSummary);
             statusPembayaran.addEventListener('change', togglePaymentFields);
             jumlahTerbayarPendapatan.addEventListener('input', recalculateReceivable);
+            pembayaranBaruJumlah.addEventListener('input', recalculateReceivable);
             komisiSales1Percent.addEventListener('input', recalculateCommission);
             komisiSales2Percent.addEventListener('input', recalculateCommission);
             komisiSalesPaid.addEventListener('input', recalculateCommission);

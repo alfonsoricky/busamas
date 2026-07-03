@@ -77,6 +77,7 @@ $dateLabel = static function (?string $date): string {
                 <select name="status" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
                     <option value="" <?= $selectedStatus === '' ? 'selected' : '' ?>>Semua Status</option>
                     <option value="unpaid" <?= $selectedStatus === 'unpaid' ? 'selected' : '' ?>>Belum Dibayar</option>
+                    <option value="partial" <?= $selectedStatus === 'partial' ? 'selected' : '' ?>>Dibayar Sebagian</option>
                     <option value="paid" <?= $selectedStatus === 'paid' ? 'selected' : '' ?>>Sudah Dibayar</option>
                 </select>
             </label>
@@ -123,6 +124,7 @@ $dateLabel = static function (?string $date): string {
                             <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Customer</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Sales</th>
                             <th class="whitespace-nowrap px-4 py-3 text-right font-semibold" data-sort-type="number">Total</th>
+                            <th class="whitespace-nowrap px-4 py-3 text-right font-semibold" data-sort-type="number">Terbayar</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Status</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="date">Tgl Bayar</th>
                             <th class="whitespace-nowrap px-4 py-3 text-right font-semibold" data-sort-type="number">Sisa</th>
@@ -133,21 +135,25 @@ $dateLabel = static function (?string $date): string {
                     <tbody class="divide-y divide-stone-100">
                         <?php if (empty($items)): ?>
                             <tr>
-                                <td colspan="10" class="px-4 py-8 text-center text-stone-500">Belum ada invoice sesuai filter.</td>
+                                <td colspan="11" class="px-4 py-8 text-center text-stone-500">Belum ada invoice sesuai filter.</td>
                             </tr>
                         <?php endif; ?>
 
                         <?php foreach ($items as $invoice): ?>
                             <?php
                                 $isPaid = (bool) ($invoice['is_paid'] ?? false);
-                                $statusClass = $isPaid ? 'bg-emerald-100 text-emerald-800 ring-emerald-200' : 'bg-rose-100 text-rose-800 ring-rose-200';
+                                $isPartial = (bool) ($invoice['is_partial'] ?? false);
+                                $statusText = (string) ($invoice['status_pembayaran'] ?? ($isPaid ? 'Lunas' : 'Belum Lunas'));
+                                $statusClass = $isPaid
+                                    ? 'bg-emerald-100 text-emerald-800 ring-emerald-200'
+                                    : ($isPartial ? 'bg-amber-100 text-amber-800 ring-amber-200' : 'bg-rose-100 text-rose-800 ring-rose-200');
                                 $customer = trim((string) ($invoice['nama_laundry_invoice'] ?? '')) ?: trim((string) ($invoice['nama_customer_invoice'] ?? '')) ?: trim((string) ($invoice['nama_customer_master'] ?? ''));
                                 $sales = trim(implode(' / ', array_filter([
                                     $invoice['nama_sales_1'] ?? '',
                                     $invoice['nama_sales_2'] ?? '',
                                 ]))) ?: '-';
                             ?>
-                            <tr class="<?= $isPaid ? 'hover:bg-emerald-50/50' : 'bg-rose-50/40 hover:bg-rose-50' ?>" data-dt-row>
+                            <tr class="<?= $isPaid ? 'hover:bg-emerald-50/50' : ($isPartial ? 'bg-amber-50/40 hover:bg-amber-50' : 'bg-rose-50/40 hover:bg-rose-50') ?>" data-dt-row>
                                 <td class="whitespace-nowrap px-4 py-3 font-semibold text-brand">
                                     <a href="<?= e(url('/invoice-create?code=' . ($invoice['kode_invoice'] ?? ''))) ?>" class="hover:underline"><?= e($invoice['nomor_invoice'] ?? '') ?></a>
                                 </td>
@@ -155,23 +161,26 @@ $dateLabel = static function (?string $date): string {
                                 <td class="min-w-56 px-4 py-3 text-ink"><?= e($customer) ?></td>
                                 <td class="whitespace-nowrap px-4 py-3 text-stone-600"><?= e($sales) ?></td>
                                 <td class="whitespace-nowrap px-4 py-3 text-right font-semibold text-ink"><?= rupiah($invoice['total_harga_jual'] ?? 0) ?></td>
+                                <td class="whitespace-nowrap px-4 py-3 text-right font-semibold text-emerald-700"><?= rupiah($invoice['paid_amount'] ?? 0) ?></td>
                                 <td class="whitespace-nowrap px-4 py-3">
                                     <span class="inline-flex rounded-full px-2.5 py-1 text-xs font-bold ring-1 <?= e($statusClass) ?>">
-                                        <?= e($isPaid ? 'Lunas' : 'Belum Lunas') ?>
+                                        <?= e($statusText) ?>
                                     </span>
                                 </td>
                                 <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($dateLabel($invoice['tanggal_pembayaran'] ?? '')) ?></td>
                                 <td class="whitespace-nowrap px-4 py-3 text-right font-semibold <?= $isPaid ? 'text-stone-500' : 'text-rose-700' ?>"><?= rupiah($invoice['remaining_amount'] ?? 0) ?></td>
                                 <td class="whitespace-nowrap px-4 py-3 text-right text-stone-700"><?= ($invoice['age_days'] ?? null) !== null ? e((string) max(0, (int) $invoice['age_days'])) . ' hari' : '-' ?></td>
                                 <td class="whitespace-nowrap px-4 py-3">
-                                    <form method="POST" action="<?= e(url('/invoice-payment-update')) ?>" class="flex min-w-[22rem] items-center gap-2">
+                                    <form method="POST" action="<?= e(url('/invoice-payment-update')) ?>" class="flex min-w-[30rem] items-center gap-2">
                                         <input type="hidden" name="kode_invoice" value="<?= e($invoice['kode_invoice'] ?? '') ?>">
                                         <input type="hidden" name="return_to" value="<?= e($returnTo) ?>">
                                         <select name="status_pembayaran" class="w-32 rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-xs font-semibold text-ink outline-none focus:border-brand">
-                                            <option value="Belum Lunas" <?= ! $isPaid ? 'selected' : '' ?>>Belum Lunas</option>
+                                            <option value="Belum Lunas" <?= ! $isPaid && ! $isPartial ? 'selected' : '' ?>>Belum Lunas</option>
+                                            <option value="Dibayar Sebagian" <?= $isPartial ? 'selected' : '' ?>>Sebagian</option>
                                             <option value="Lunas" <?= $isPaid ? 'selected' : '' ?>>Lunas</option>
                                         </select>
                                         <input type="date" name="tanggal_pembayaran" value="<?= e($invoice['payment_date_input'] ?? '') ?>" class="w-36 rounded-lg border border-stone-300 px-2 py-1.5 text-xs text-ink outline-none focus:border-brand">
+                                        <input type="number" step="0.01" name="jumlah_pembayaran" placeholder="Bayar baru" class="w-32 rounded-lg border border-stone-300 px-2 py-1.5 text-xs text-ink outline-none focus:border-brand">
                                         <button type="submit" class="rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-teal-800">Simpan</button>
                                     </form>
                                 </td>

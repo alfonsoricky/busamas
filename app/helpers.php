@@ -446,50 +446,53 @@ function accounting_mapping_settings(): array
             [
                 'title' => 'Form Invoice - Penjualan',
                 'items' => [
-                    ['field' => 'Total invoice lunas', 'condition' => 'Status pembayaran Lunas', 'debit' => $account('cash'), 'credit' => $account('sales_revenue')],
-                    ['field' => 'Total invoice belum lunas', 'condition' => 'Status pembayaran bukan Lunas', 'debit' => $account('accounts_receivable'), 'credit' => $account('sales_revenue')],
+                    ['field' => 'Total invoice', 'condition' => 'Invoice dibuat/posting', 'debit' => $account('accounts_receivable'), 'credit' => $account('sales_revenue')],
+                    ['field' => 'Pembayaran customer', 'condition' => 'tanggal_pembayaran terisi', 'debit' => $account('cash'), 'credit' => $account('accounts_receivable')],
                     ['field' => 'Discount penjualan', 'condition' => 'discount_amount > 0', 'debit' => $account('sales_discount'), 'credit' => $account('sales_revenue')],
                 ],
             ],
             [
                 'title' => 'Form Invoice - Pembelian Barang',
                 'items' => [
-                    ['field' => 'Total pembelian barang', 'condition' => 'Ada nilai pembelian/HPP', 'debit' => $account('cogs'), 'credit' => null],
-                    ['field' => 'Pembelian barang terbayar', 'condition' => 'total_pembelian_barang dibayar', 'debit' => null, 'credit' => $account('cash')],
-                    ['field' => 'Utang pembelian barang', 'condition' => 'total_utang_pembelian_barang > 0', 'debit' => null, 'credit' => $account('purchase_payable')],
+                    ['field' => 'Total pembelian barang', 'condition' => 'Ada nilai pembelian/HPP', 'debit' => $account('cogs'), 'credit' => $account('purchase_payable')],
+                    ['field' => 'Pembayaran pembelian barang', 'condition' => 'tanggal_transfer_pembelian_barang terisi', 'debit' => $account('purchase_payable'), 'credit' => $account('cash')],
                 ],
             ],
             [
                 'title' => 'Form Invoice - Komisi',
                 'items' => [
                     ['field' => 'Komisi sales', 'condition' => 'Terbayar atau belum terbayar', 'debit' => $account('sales_commission_expense'), 'credit' => $account('sales_commission_payable')],
-                    ['field' => 'Komisi sales terbayar', 'condition' => 'komisi_sales_terbayar > 0', 'debit' => null, 'credit' => $account('cash')],
+                    ['field' => 'Pembayaran komisi sales', 'condition' => 'tanggal_transfer_komisi_sales terisi', 'debit' => $account('sales_commission_payable'), 'credit' => $account('cash')],
                     ['field' => 'Komisi manager', 'condition' => 'Terbayar atau belum terbayar', 'debit' => $account('manager_commission_expense'), 'credit' => $account('manager_commission_payable')],
+                    ['field' => 'Pembayaran komisi manager', 'condition' => 'tanggal_transfer_komisi_manager terisi', 'debit' => $account('manager_commission_payable'), 'credit' => $account('cash')],
                     ['field' => 'Komisi admin', 'condition' => 'Terbayar atau belum terbayar', 'debit' => $account('admin_commission_expense'), 'credit' => $account('admin_commission_payable')],
+                    ['field' => 'Pembayaran komisi admin', 'condition' => 'tanggal_transfer_komisi_admin terisi', 'debit' => $account('admin_commission_payable'), 'credit' => $account('cash')],
                 ],
             ],
             [
                 'title' => 'Form Invoice - Biaya dan Pajak',
                 'items' => [
                     ['field' => 'PPh final', 'condition' => 'pph_final_terbayar / pph_final_belum_terbayar', 'debit' => $account('tax_expense'), 'credit' => $account('tax_payable')],
-                    ['field' => 'PPh final terbayar', 'condition' => 'pph_final_terbayar > 0', 'debit' => null, 'credit' => $account('cash')],
-                    ['field' => 'Biaya kirim', 'condition' => 'biaya_kirim > 0', 'debit' => $account('delivery_expense'), 'credit' => $account('cash')],
-                    ['field' => 'Biaya admin bank', 'condition' => 'biaya_admin_bank > 0', 'debit' => $account('bank_admin_expense'), 'credit' => $account('cash')],
+                    ['field' => 'Pembayaran PPh final', 'condition' => 'tanggal_pembayaran_pph_final terisi', 'debit' => $account('tax_payable'), 'credit' => $account('cash')],
+                    ['field' => 'Biaya kirim', 'condition' => 'biaya_kirim > 0', 'debit' => $account('delivery_expense'), 'credit' => $account('delivery_payable')],
+                    ['field' => 'Pembayaran biaya kirim', 'condition' => 'tanggal_pembayaran_biaya_kirim terisi', 'debit' => $account('delivery_payable'), 'credit' => $account('cash')],
+                    ['field' => 'Biaya admin bank', 'condition' => 'biaya_admin_bank > 0', 'debit' => $account('bank_admin_expense'), 'credit' => $account('bank_admin_payable')],
+                    ['field' => 'Pembayaran biaya admin bank', 'condition' => 'tanggal_pembayaran_biaya_admin_bank terisi', 'debit' => $account('bank_admin_payable'), 'credit' => $account('cash')],
                 ],
             ],
             [
                 'title' => 'Form Operasional',
                 'items' => [
-                    ['field' => 'Pengeluaran operasional lunas', 'condition' => 'kategori operational dan status Lunas', 'debit' => $account('operational_expense'), 'credit' => $account('cash')],
-                    ['field' => 'Pengeluaran operasional hutang', 'condition' => 'kategori operational dan status bukan Lunas', 'debit' => $account('operational_expense'), 'credit' => $account('operational_payable')],
-                    ['field' => 'Bonus sales internal', 'condition' => 'kategori bonus', 'debit' => $account('bonus_expense'), 'credit' => $account('cash')],
+                    ['field' => 'Pengeluaran operasional', 'condition' => 'Input operational/bonus', 'debit' => $account('operational_expense'), 'credit' => $account('operational_payable')],
+                    ['field' => 'Bonus sales internal', 'condition' => 'kategori bonus', 'debit' => $account('bonus_expense'), 'credit' => $account('operational_payable')],
+                    ['field' => 'Pembayaran operasional/bonus', 'condition' => 'status Lunas dan tanggal_pembayaran terisi', 'debit' => $account('operational_payable'), 'credit' => $account('cash')],
                 ],
             ],
             [
                 'title' => 'Form Prive dan Legacy',
                 'items' => [
-                    ['field' => 'Prive partner lunas', 'condition' => 'status Lunas', 'debit' => $account('partner_prive'), 'credit' => $account('cash')],
-                    ['field' => 'Prive partner hutang', 'condition' => 'status bukan Lunas', 'debit' => $account('partner_prive'), 'credit' => $account('partner_prive_payable')],
+                    ['field' => 'Prive partner', 'condition' => 'Data prive dibuat', 'debit' => $account('partner_prive'), 'credit' => $account('partner_prive_payable')],
+                    ['field' => 'Pembayaran prive partner', 'condition' => 'status Lunas dan tanggal_transfer terisi', 'debit' => $account('partner_prive_payable'), 'credit' => $account('cash')],
                     ['field' => 'Jurnal legacy direktur lama', 'condition' => 'periode legacy 2025', 'debit' => $account('legacy_transition'), 'credit' => $account('sales_revenue')],
                 ],
             ],
@@ -2563,6 +2566,8 @@ function accounting_default_accounts(): array
         'manager_commission_payable' => ['2210', 'Hutang Komisi Manager', 'liability', 'credit'],
         'admin_commission_payable' => ['2220', 'Hutang Komisi Admin', 'liability', 'credit'],
         'partner_prive_payable' => ['2230', 'Hutang Prive Partner', 'liability', 'credit'],
+        'delivery_payable' => ['2240', 'Hutang Biaya Kirim', 'liability', 'credit'],
+        'bank_admin_payable' => ['2250', 'Hutang Biaya Admin Bank', 'liability', 'credit'],
         'tax_payable' => ['2300', 'Hutang PPh Final', 'liability', 'credit'],
         'owner_capital' => ['3100', 'Modal Pemilik', 'equity', 'credit'],
         'retained_earnings' => ['3200', 'Laba Ditahan', 'equity', 'credit'],
@@ -2920,7 +2925,19 @@ function delete_accounting_journal_source(PDO $pdo, string $sourceType, string $
 
 function delete_invoice_accounting_journal(PDO $pdo, string $kodeInvoice): void
 {
-    delete_accounting_journal_source($pdo, 'invoice', $kodeInvoice);
+    foreach ([
+        'invoice',
+        'invoice_payment_customer',
+        'invoice_payment_purchase',
+        'invoice_payment_sales_commission',
+        'invoice_payment_manager_commission',
+        'invoice_payment_admin_commission',
+        'invoice_payment_tax',
+        'invoice_payment_delivery',
+        'invoice_payment_bank_admin',
+    ] as $sourceType) {
+        delete_accounting_journal_source($pdo, $sourceType, $kodeInvoice);
+    }
 }
 
 function post_invoice_accounting_journal(PDO $pdo, string $kodeInvoice): int
@@ -2969,6 +2986,8 @@ function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
         return 0;
     }
 
+    delete_invoice_accounting_journal($pdo, $kodeInvoice);
+
     $a = accounting_account_ids($pdo);
     $lines = [];
     $nomor = (string) ($invoice['nomor_invoice'] ?? $kodeInvoice);
@@ -2982,10 +3001,7 @@ function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
         $netSales = $storedNetSales;
     }
     if ($subtotal > 0) {
-        $assetAccount = strtolower(trim((string) ($invoice['status_pembayaran'] ?? ''))) === 'lunas'
-            ? $a['cash']
-            : $a['accounts_receivable'];
-        accounting_add_line($lines, $assetAccount, $netSales, 0, 'Nilai invoice ' . $nomor);
+        accounting_add_line($lines, $a['accounts_receivable'], $netSales, 0, 'Piutang invoice ' . $nomor);
         accounting_add_line($lines, $a['sales_discount'], $discount, 0, 'Diskon invoice ' . $nomor);
         accounting_add_line($lines, $a['sales_revenue'], 0, $subtotal, 'Pendapatan invoice ' . $nomor);
     }
@@ -2995,8 +3011,7 @@ function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
     $purchaseTotal = $purchasePaid + $purchaseDebt;
     if ($purchaseTotal > 0) {
         accounting_add_line($lines, $a['cogs'], $purchaseTotal, 0, 'HPP invoice ' . $nomor);
-        accounting_add_line($lines, $a['cash'], 0, $purchasePaid, 'Pembelian barang dibayar ' . $nomor);
-        accounting_add_line($lines, $a['purchase_payable'], 0, $purchaseDebt, 'Hutang pembelian barang ' . $nomor);
+        accounting_add_line($lines, $a['purchase_payable'], 0, $purchaseTotal, 'Hutang pembelian barang ' . $nomor);
     }
 
     $salesCommissionTotal = round($netSales * (((float) ($invoice['komisi_sales_1_persen'] ?? 0) + (float) ($invoice['komisi_sales_2_persen'] ?? 0)) / 100), 2);
@@ -3009,47 +3024,109 @@ function generate_invoice_journal(PDO $pdo, string $kodeInvoice): int
     }
     if ($salesCommissionTotal > 0) {
         accounting_add_line($lines, $a['sales_commission_expense'], $salesCommissionTotal, 0, 'Beban komisi sales ' . $nomor);
-        accounting_add_line($lines, $a['cash'], 0, $salesCommissionPaid, 'Komisi sales dibayar ' . $nomor);
-        accounting_add_line($lines, $a['sales_commission_payable'], 0, $salesCommissionDebt, 'Hutang komisi sales ' . $nomor);
+        accounting_add_line($lines, $a['sales_commission_payable'], 0, $salesCommissionTotal, 'Hutang komisi sales ' . $nomor);
     }
 
     $managerPaid = round((float) ($invoice['komisi_manager_terbayar'] ?? 0), 2);
     $managerDebt = round((float) ($invoice['komisi_manager_utang'] ?? 0), 2);
     if ($managerPaid + $managerDebt > 0) {
         accounting_add_line($lines, $a['manager_commission_expense'], $managerPaid + $managerDebt, 0, 'Beban komisi manager ' . $nomor);
-        accounting_add_line($lines, $a['cash'], 0, $managerPaid, 'Komisi manager dibayar ' . $nomor);
-        accounting_add_line($lines, $a['manager_commission_payable'], 0, $managerDebt, 'Hutang komisi manager ' . $nomor);
+        accounting_add_line($lines, $a['manager_commission_payable'], 0, $managerPaid + $managerDebt, 'Hutang komisi manager ' . $nomor);
     }
 
     $adminPaid = round((float) ($invoice['komisi_admin_terbayar'] ?? 0), 2);
     $adminDebt = round((float) ($invoice['komisi_admin_belum_terbayar'] ?? 0), 2);
     if ($adminPaid + $adminDebt > 0) {
         accounting_add_line($lines, $a['admin_commission_expense'], $adminPaid + $adminDebt, 0, 'Beban komisi admin ' . $nomor);
-        accounting_add_line($lines, $a['cash'], 0, $adminPaid, 'Komisi admin dibayar ' . $nomor);
-        accounting_add_line($lines, $a['admin_commission_payable'], 0, $adminDebt, 'Hutang komisi admin ' . $nomor);
+        accounting_add_line($lines, $a['admin_commission_payable'], 0, $adminPaid + $adminDebt, 'Hutang komisi admin ' . $nomor);
     }
 
     $taxPaid = round((float) ($invoice['pph_final_terbayar'] ?? 0), 2);
     $taxDebt = round((float) ($invoice['pph_final_belum_terbayar'] ?? 0), 2);
     if ($taxPaid + $taxDebt > 0) {
         accounting_add_line($lines, $a['tax_expense'], $taxPaid + $taxDebt, 0, 'Beban PPh final ' . $nomor);
-        accounting_add_line($lines, $a['cash'], 0, $taxPaid, 'PPh final dibayar ' . $nomor);
-        accounting_add_line($lines, $a['tax_payable'], 0, $taxDebt, 'Hutang PPh final ' . $nomor);
+        accounting_add_line($lines, $a['tax_payable'], 0, $taxPaid + $taxDebt, 'Hutang PPh final ' . $nomor);
     }
 
     $delivery = round((float) ($invoice['biaya_kirim'] ?? 0), 2);
     if ($delivery > 0) {
         accounting_add_line($lines, $a['delivery_expense'], $delivery, 0, 'Biaya kirim ' . $nomor);
-        accounting_add_line($lines, $a['cash'], 0, $delivery, 'Biaya kirim dibayar ' . $nomor);
+        accounting_add_line($lines, $a['delivery_payable'], 0, $delivery, 'Hutang biaya kirim ' . $nomor);
     }
 
     $bankAdmin = round((float) ($invoice['biaya_admin_bank'] ?? 0), 2);
     if ($bankAdmin > 0) {
         accounting_add_line($lines, $a['bank_admin_expense'], $bankAdmin, 0, 'Biaya admin bank ' . $nomor);
-        accounting_add_line($lines, $a['cash'], 0, $bankAdmin, 'Biaya admin bank dibayar ' . $nomor);
+        accounting_add_line($lines, $a['bank_admin_payable'], 0, $bankAdmin, 'Hutang biaya admin bank ' . $nomor);
     }
 
-    return accounting_replace_journal($pdo, 'invoice', $kodeInvoice, $entryDate, 'Jurnal otomatis invoice ' . $nomor, $lines);
+    $lineCount = accounting_replace_journal($pdo, 'invoice', $kodeInvoice, $entryDate, 'Jurnal otomatis invoice ' . $nomor, $lines);
+
+    $paymentDate = date_input_value((string) ($invoice['tanggal_pembayaran'] ?? ''));
+    if ($netSales > 0 && $paymentDate !== '') {
+        $paymentLines = [];
+        accounting_add_line($paymentLines, $a['cash'], $netSales, 0, 'Pembayaran customer ' . $nomor);
+        accounting_add_line($paymentLines, $a['accounts_receivable'], 0, $netSales, 'Pelunasan piutang ' . $nomor);
+        $lineCount += accounting_replace_journal($pdo, 'invoice_payment_customer', $kodeInvoice, $paymentDate, 'Pembayaran customer invoice ' . $nomor, $paymentLines);
+    }
+
+    $purchaseDate = date_input_value((string) ($invoice['tanggal_transfer_pembelian_barang'] ?? ''));
+    if ($purchasePaid > 0 && $purchaseDate !== '') {
+        $paymentLines = [];
+        accounting_add_line($paymentLines, $a['purchase_payable'], $purchasePaid, 0, 'Pembayaran pembelian barang ' . $nomor);
+        accounting_add_line($paymentLines, $a['cash'], 0, $purchasePaid, 'Kas keluar pembelian barang ' . $nomor);
+        $lineCount += accounting_replace_journal($pdo, 'invoice_payment_purchase', $kodeInvoice, $purchaseDate, 'Pembayaran pembelian barang invoice ' . $nomor, $paymentLines);
+    }
+
+    $salesCommissionDate = date_input_value((string) ($invoice['tanggal_transfer_komisi_sales'] ?? ''));
+    if ($salesCommissionPaid > 0 && $salesCommissionDate !== '') {
+        $paymentLines = [];
+        accounting_add_line($paymentLines, $a['sales_commission_payable'], $salesCommissionPaid, 0, 'Pembayaran komisi sales ' . $nomor);
+        accounting_add_line($paymentLines, $a['cash'], 0, $salesCommissionPaid, 'Kas keluar komisi sales ' . $nomor);
+        $lineCount += accounting_replace_journal($pdo, 'invoice_payment_sales_commission', $kodeInvoice, $salesCommissionDate, 'Pembayaran komisi sales invoice ' . $nomor, $paymentLines);
+    }
+
+    $managerDate = date_input_value((string) ($invoice['tanggal_transfer_komisi_manager'] ?? ''));
+    if ($managerPaid > 0 && $managerDate !== '') {
+        $paymentLines = [];
+        accounting_add_line($paymentLines, $a['manager_commission_payable'], $managerPaid, 0, 'Pembayaran komisi manager ' . $nomor);
+        accounting_add_line($paymentLines, $a['cash'], 0, $managerPaid, 'Kas keluar komisi manager ' . $nomor);
+        $lineCount += accounting_replace_journal($pdo, 'invoice_payment_manager_commission', $kodeInvoice, $managerDate, 'Pembayaran komisi manager invoice ' . $nomor, $paymentLines);
+    }
+
+    $adminDate = date_input_value((string) ($invoice['tanggal_transfer_komisi_admin'] ?? ''));
+    if ($adminPaid > 0 && $adminDate !== '') {
+        $paymentLines = [];
+        accounting_add_line($paymentLines, $a['admin_commission_payable'], $adminPaid, 0, 'Pembayaran komisi admin ' . $nomor);
+        accounting_add_line($paymentLines, $a['cash'], 0, $adminPaid, 'Kas keluar komisi admin ' . $nomor);
+        $lineCount += accounting_replace_journal($pdo, 'invoice_payment_admin_commission', $kodeInvoice, $adminDate, 'Pembayaran komisi admin invoice ' . $nomor, $paymentLines);
+    }
+
+    $taxDate = date_input_value((string) ($invoice['tanggal_pembayaran_pph_final'] ?? ''));
+    if ($taxPaid > 0 && $taxDate !== '') {
+        $paymentLines = [];
+        accounting_add_line($paymentLines, $a['tax_payable'], $taxPaid, 0, 'Pembayaran PPh final ' . $nomor);
+        accounting_add_line($paymentLines, $a['cash'], 0, $taxPaid, 'Kas keluar PPh final ' . $nomor);
+        $lineCount += accounting_replace_journal($pdo, 'invoice_payment_tax', $kodeInvoice, $taxDate, 'Pembayaran PPh final invoice ' . $nomor, $paymentLines);
+    }
+
+    $deliveryDate = date_input_value((string) ($invoice['tanggal_pembayaran_biaya_kirim'] ?? ''));
+    if ($delivery > 0 && $deliveryDate !== '') {
+        $paymentLines = [];
+        accounting_add_line($paymentLines, $a['delivery_payable'], $delivery, 0, 'Pembayaran biaya kirim ' . $nomor);
+        accounting_add_line($paymentLines, $a['cash'], 0, $delivery, 'Kas keluar biaya kirim ' . $nomor);
+        $lineCount += accounting_replace_journal($pdo, 'invoice_payment_delivery', $kodeInvoice, $deliveryDate, 'Pembayaran biaya kirim invoice ' . $nomor, $paymentLines);
+    }
+
+    $bankAdminDate = date_input_value((string) ($invoice['tanggal_pembayaran_biaya_admin_bank'] ?? ''));
+    if ($bankAdmin > 0 && $bankAdminDate !== '') {
+        $paymentLines = [];
+        accounting_add_line($paymentLines, $a['bank_admin_payable'], $bankAdmin, 0, 'Pembayaran biaya admin bank ' . $nomor);
+        accounting_add_line($paymentLines, $a['cash'], 0, $bankAdmin, 'Kas keluar biaya admin bank ' . $nomor);
+        $lineCount += accounting_replace_journal($pdo, 'invoice_payment_bank_admin', $kodeInvoice, $bankAdminDate, 'Pembayaran biaya admin bank invoice ' . $nomor, $paymentLines);
+    }
+
+    return $lineCount;
 }
 
 function generate_operational_expense_journal(PDO $pdo, int $expenseId): int
@@ -3065,6 +3142,9 @@ function generate_operational_expense_journal(PDO $pdo, int $expenseId): int
         return 0;
     }
 
+    delete_accounting_journal_source($pdo, 'operational_expense', (string) $expenseId);
+    delete_accounting_journal_source($pdo, 'operational_payment', (string) $expenseId);
+
     $a = accounting_account_ids($pdo);
     $amount = round((float) ($expense['jumlah'] ?? 0), 2);
     $lines = [];
@@ -3073,14 +3153,12 @@ function generate_operational_expense_journal(PDO $pdo, int $expenseId): int
     $isBonus = $category === 'bonus';
     $isPaidStatus = strtolower(trim((string) ($expense['status_pembayaran'] ?? ''))) === 'lunas';
     $paymentDate = date_input_value((string) ($expense['tanggal_pembayaran'] ?? ''));
-    $isCashPaid = $isBonus ? ($isPaidStatus && $paymentDate !== '') : $isPaidStatus;
     $expenseAccount = $isBonus ? $a['bonus_expense'] : $a['operational_expense'];
-    $creditAccount = $isCashPaid ? $a['cash'] : $a['operational_payable'];
 
     accounting_add_line($lines, $expenseAccount, $amount, 0, $name);
-    accounting_add_line($lines, $creditAccount, 0, $amount, $name);
+    accounting_add_line($lines, $a['operational_payable'], 0, $amount, 'Hutang ' . $name);
 
-    return accounting_replace_journal(
+    $lineCount = accounting_replace_journal(
         $pdo,
         'operational_expense',
         (string) $expenseId,
@@ -3088,6 +3166,22 @@ function generate_operational_expense_journal(PDO $pdo, int $expenseId): int
         'Jurnal otomatis operasional: ' . $name,
         $lines
     );
+
+    if ($isPaidStatus && $paymentDate !== '') {
+        $paymentLines = [];
+        accounting_add_line($paymentLines, $a['operational_payable'], $amount, 0, 'Pembayaran ' . $name);
+        accounting_add_line($paymentLines, $a['cash'], 0, $amount, 'Kas keluar ' . $name);
+        $lineCount += accounting_replace_journal(
+            $pdo,
+            'operational_payment',
+            (string) $expenseId,
+            $paymentDate,
+            'Pembayaran operasional: ' . $name,
+            $paymentLines
+        );
+    }
+
+    return $lineCount;
 }
 
 function generate_partner_prive_journal(PDO $pdo, int $priveId): int
@@ -3105,18 +3199,21 @@ function generate_partner_prive_journal(PDO $pdo, int $priveId): int
         return 0;
     }
 
+    delete_accounting_journal_source($pdo, 'partner_prive', (string) $priveId);
+    delete_accounting_journal_source($pdo, 'partner_prive_payment', (string) $priveId);
+
     $a = accounting_account_ids($pdo);
     $amount = round((float) ($prive['jumlah'] ?? 0), 2);
     $partner = normalize_spaces((string) ($prive['partner'] ?? 'Partner'));
     $status = strtolower(trim((string) ($prive['status_pembayaran'] ?? '')));
-    $creditAccount = $status === 'lunas' ? $a['cash'] : $a['partner_prive_payable'];
+    $transferDate = date_input_value((string) ($prive['tanggal_transfer'] ?? ''));
     $memo = 'Prive partner ' . $partner;
     $lines = [];
 
     accounting_add_line($lines, $a['partner_prive'], $amount, 0, $memo);
-    accounting_add_line($lines, $creditAccount, 0, $amount, $memo);
+    accounting_add_line($lines, $a['partner_prive_payable'], 0, $amount, $memo);
 
-    return accounting_replace_journal(
+    $lineCount = accounting_replace_journal(
         $pdo,
         'partner_prive',
         (string) $priveId,
@@ -3124,6 +3221,22 @@ function generate_partner_prive_journal(PDO $pdo, int $priveId): int
         'Jurnal otomatis prive: ' . $partner,
         $lines
     );
+
+    if ($status === 'lunas' && $transferDate !== '') {
+        $paymentLines = [];
+        accounting_add_line($paymentLines, $a['partner_prive_payable'], $amount, 0, 'Pembayaran ' . $memo);
+        accounting_add_line($paymentLines, $a['cash'], 0, $amount, 'Kas keluar ' . $memo);
+        $lineCount += accounting_replace_journal(
+            $pdo,
+            'partner_prive_payment',
+            (string) $priveId,
+            $transferDate,
+            'Pembayaran prive: ' . $partner,
+            $paymentLines
+        );
+    }
+
+    return $lineCount;
 }
 
 function regenerate_all_accounting_journals(PDO $pdo): array
@@ -3569,38 +3682,11 @@ function fetch_laporan_arus_kas(string $month = '', string $year = ''): array
             ];
         }
 
-        $cashDateExpression = "
-            CASE
-                WHEN je.source_type = 'invoice' AND jl.debit > 0
-                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_pembayaran AS CHAR) <> '0000-00-00' THEN inv.tanggal_pembayaran END, je.entry_date)
-                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Pembelian barang dibayar%'
-                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_transfer_pembelian_barang AS CHAR) <> '0000-00-00' THEN inv.tanggal_transfer_pembelian_barang END, je.entry_date)
-                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Komisi sales dibayar%'
-                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_transfer_komisi_sales AS CHAR) <> '0000-00-00' THEN inv.tanggal_transfer_komisi_sales END, je.entry_date)
-                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Komisi manager dibayar%'
-                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_transfer_komisi_manager AS CHAR) <> '0000-00-00' THEN inv.tanggal_transfer_komisi_manager END, je.entry_date)
-                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Komisi admin dibayar%'
-                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_transfer_komisi_admin AS CHAR) <> '0000-00-00' THEN inv.tanggal_transfer_komisi_admin END, je.entry_date)
-                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'PPh final dibayar%'
-                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_pembayaran_pph_final AS CHAR) <> '0000-00-00' THEN inv.tanggal_pembayaran_pph_final END, je.entry_date)
-                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Biaya kirim dibayar%'
-                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_pembayaran_biaya_kirim AS CHAR) <> '0000-00-00' THEN inv.tanggal_pembayaran_biaya_kirim END, je.entry_date)
-                WHEN je.source_type = 'invoice' AND jl.credit > 0 AND jl.memo LIKE 'Biaya admin bank dibayar%'
-                    THEN COALESCE(CASE WHEN CAST(inv.tanggal_pembayaran_biaya_admin_bank AS CHAR) <> '0000-00-00' THEN inv.tanggal_pembayaran_biaya_admin_bank END, je.entry_date)
-                WHEN je.source_type = 'operational_expense'
-                    THEN COALESCE(CASE WHEN CAST(oe.tanggal_pembayaran AS CHAR) <> '0000-00-00' THEN oe.tanggal_pembayaran END, oe.tanggal, je.entry_date)
-                WHEN je.source_type = 'partner_prive'
-                    THEN COALESCE(CASE WHEN CAST(pp.tanggal_transfer AS CHAR) <> '0000-00-00' THEN pp.tanggal_transfer END, pp.tanggal, je.entry_date)
-                ELSE je.entry_date
-            END
-        ";
+        $cashDateExpression = 'je.entry_date';
 
         $cashMovementSql = "
             FROM journal_lines jl
             JOIN journal_entries je ON je.id = jl.journal_entry_id
-            LEFT JOIN invoices inv ON je.source_type = 'invoice' AND inv.kode_invoice = je.source_id
-            LEFT JOIN operational_expenses oe ON je.source_type = 'operational_expense' AND oe.id = CAST(je.source_id AS UNSIGNED)
-            LEFT JOIN partner_prive pp ON je.source_type = 'partner_prive' AND pp.id = CAST(je.source_id AS UNSIGNED)
             WHERE jl.account_id = :account_id
         ";
 
@@ -3673,8 +3759,16 @@ function fetch_laporan_arus_kas(string $month = '', string $year = ''): array
             $out = max($credit, 0);
             $runningBalance += $in - $out;
             $groupKey = match ((string) $row['source_type']) {
-                'partner_prive' => 'financing',
-                'invoice', 'operational_expense' => 'operating',
+                'invoice_payment_customer',
+                'invoice_payment_purchase',
+                'invoice_payment_sales_commission',
+                'invoice_payment_manager_commission',
+                'invoice_payment_admin_commission',
+                'invoice_payment_tax',
+                'invoice_payment_delivery',
+                'invoice_payment_bank_admin',
+                'operational_payment' => 'operating',
+                'partner_prive_payment' => 'financing',
                 default => 'other',
             };
 

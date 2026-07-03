@@ -12,8 +12,18 @@ $monthNames = [
 ];
 $sourceLabels = [
     'invoice' => 'Invoice',
+    'invoice_payment_customer' => 'Pembayaran Customer',
+    'invoice_payment_purchase' => 'Pembayaran Pembelian',
+    'invoice_payment_sales_commission' => 'Pembayaran Komisi Sales',
+    'invoice_payment_manager_commission' => 'Pembayaran Komisi Manager',
+    'invoice_payment_admin_commission' => 'Pembayaran Komisi Admin',
+    'invoice_payment_tax' => 'Pembayaran PPh Final',
+    'invoice_payment_delivery' => 'Pembayaran Ongkos Kirim',
+    'invoice_payment_bank_admin' => 'Pembayaran Admin Bank',
     'operational_expense' => 'Operasional',
+    'operational_payment' => 'Pembayaran Operasional',
     'partner_prive' => 'Prive Partner',
+    'partner_prive_payment' => 'Pembayaran Prive',
     'legacy_2025_transition' => 'Legacy',
 ];
 ?>

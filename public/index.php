@@ -754,7 +754,6 @@ if (! array_key_exists($path, $routes)) {
 $route = $routes[$path];
 $routeData = isset($route['data']) ? $route['data']() : [];
 
-view($route['view'], [
+view($route['view'], array_merge([
     'title' => $route['title'],
-    ...$routeData,
-]);
+], $routeData));

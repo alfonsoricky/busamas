@@ -49,7 +49,8 @@
                     <dd class="font-semibold text-ink"><?= e((string) ($seed['updated_at'] ?? '-')) ?></dd>
                 </div>
             </dl>
-            <form method="post" class="mt-5">
+            <div class="mt-5 flex flex-wrap gap-3">
+            <form method="post">
                 <input type="hidden" name="action" value="seed-today-july-3-2026">
                 <button
                     type="submit"
@@ -62,6 +63,20 @@
                     Update Hari Ini
                 </button>
             </form>
+            <form method="post">
+                <input type="hidden" name="action" value="seed-krisna-bonus-july-4-2026">
+                <button
+                    type="submit"
+                    class="inline-flex items-center justify-center rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:bg-stone-50"
+                    data-confirm-title="Update Bonus Krisna?"
+                    data-confirm-message="Seeder ini akan mengubah bonus Krisna pada invoice di screenshot menjadi terbayar tanggal 4 Juli 2026 dan memecah bonus Mei per invoice."
+                    data-confirm-ok="Jalankan"
+                    data-confirm-cancel="Batal"
+                >
+                    Bonus Krisna 4 Juli
+                </button>
+            </form>
+            </div>
         </div>
 
         <div class="rounded-lg border border-stone-200 bg-white p-5 shadow-sm">

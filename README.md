@@ -1,97 +1,135 @@
-# Busamas PHP Native
+# Busamas ERP
 
-Starter project PHP native dengan struktur sederhana dan Tailwind CDN.
+Project PHP native untuk invoice, operasional, komisi, prive, dan laporan akuntansi Busamas.
 
-## Menjalankan Project
+## Requirement Lokal
+
+- MAMP aktif
+- PHP MAMP: `/Applications/MAMP/bin/php/php8.0.0/bin/php`
+- MySQL MAMP aktif di port `3306`
+- Database lokal: `busamas`
+
+## Setup Database Lokal
+
+1. Buka phpMyAdmin MAMP.
+2. Buat database:
+
+```sql
+CREATE DATABASE busamas CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+3. Import file SQL terbaru jika ingin mengganti database lokal, misalnya:
+
+```text
+storage/u928360788_busamas (2).sql
+```
+
+Alternatif via terminal:
 
 ```bash
-php -S localhost:8000 -t public
+/Applications/MAMP/Library/bin/mysql -h 127.0.0.1 -P 3306 -u root busamas < "storage/u928360788_busamas (2).sql"
 ```
 
-Buka `http://localhost:8000` di browser.
+## File `.env` Lokal
 
-## Database Hosting
-
-Atur koneksi database lewat environment hosting:
+Buat atau sesuaikan file `.env` di root project:
 
 ```text
-APP_URL=https://busamas.com/erp
-DB_HOST
-DB_PORT
-DB_DATABASE
-DB_USERNAME
-DB_PASSWORD
-```
-
-Jika hosting tidak menyediakan menu environment variable, buat file `.env` di root project:
-
-```text
-APP_URL=https://busamas.com/erp
-DB_HOST=localhost
+APP_URL=http://127.0.0.1:8000/
+DB_HOST=127.0.0.1
 DB_PORT=3306
-DB_DATABASE=nama_database_hostinger
-DB_USERNAME=user_database_hostinger
-DB_PASSWORD=password_database_hostinger
+DB_DATABASE=busamas
+DB_USERNAME=root
+DB_PASSWORD=
 ```
 
-Setelah file project ter-upload dan database kosong/siap diganti, buka:
+Catatan: di MAMP lokal, gunakan `127.0.0.1`, bukan `localhost`, agar koneksi tidak salah socket.
+
+## Menjalankan Project Lokal
+
+Dari root project:
+
+```bash
+env APP_URL=http://127.0.0.1:8000/ DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=busamas DB_USERNAME=root DB_PASSWORD= /Applications/MAMP/bin/php/php8.0.0/bin/php -S 127.0.0.1:8000 -t public
+```
+
+Buka:
+
+```text
+http://127.0.0.1:8000/login
+```
+
+## Login
+
+Gunakan user admin yang sudah ada di database lokal. Jika database baru kosong, jalankan migration/seed dari menu Database setelah login pertama tersedia dari dump/seed.
+
+## Maintenance Database
+
+Menu maintenance:
 
 ```text
 /db-maintenance
 ```
 
-Klik `Jalankan Migrate & Seed` untuk membuat ulang tabel dan mengisi data dari `database/seed-data.sql`. Tombol ini mengganti data master dan invoice dengan snapshot seed terbaru.
+Fungsi penting:
+
+- `Update Hari Ini`: menjalankan seeder update terakhir yang berisi koreksi invoice, payment, prive, biaya kirim, dan jurnal terkait.
+- `Migrate & Seed`: membuat/mengisi ulang tabel dari `database/schema.sql` dan `database/seed-data.sql`.
+
+Jalankan tombol seeder di hosting hanya setelah kode terbaru sudah dipull/deploy.
 
 ## Struktur Folder
 
 ```text
-app/          Helper aplikasi
-config/       Konfigurasi aplikasi
-public/       Entry point dan document root
+app/          Helper dan logic aplikasi
+config/       Konfigurasi database/env/google
+database/     Schema dan seed SQL
+public/       Entry point aplikasi
+scripts/      Script import/generate data
+storage/      File Excel, dump SQL, generated files
 views/        Layout, partial, dan halaman
 ```
 
-## Menambah Halaman
+## Hosting
 
-1. Tambahkan route baru di `public/index.php`.
-2. Buat file view baru di `views/pages`.
-3. Tambahkan link ke `views/partials/navbar.php` bila halaman perlu tampil di menu.
-
-## Membaca Google Sheet Private
-
-Konfigurasi spreadsheet ada di `config/google-sheet.php`.
-
-Project membaca Google Sheet private memakai Google Sheets API dan Service Account.
-
-1. Buat Service Account di Google Cloud.
-2. Aktifkan Google Sheets API.
-3. Download credential JSON.
-4. Simpan credential di `storage/google-service-account.json` atau set env `GOOGLE_SERVICE_ACCOUNT_JSON`.
-5. Share spreadsheet ke email service account sebagai `Viewer`.
-6. Atur range lewat env `GOOGLE_SHEET_RANGE` bila perlu, misalnya `Sheet1!A:Z`.
-
-Buka:
+Contoh `.env` hosting:
 
 ```text
-/sheet
+APP_URL=https://busamas.com/erp
+DB_HOST=localhost
+DB_PORT=3306
+DB_DATABASE=u928360788_busamas
+DB_USERNAME=u928360788_busamas
+DB_PASSWORD=isi_password_hosting
 ```
 
-## Membaca Google Drive Private
+Setelah deploy:
 
-Konfigurasi folder Drive ada di `config/google-drive.php`.
+1. Pull kode terbaru di hosting.
+2. Pastikan `.env` hosting benar.
+3. Buka `/db-maintenance`.
+4. Jalankan tombol seeder yang diperlukan, misalnya `Update Hari Ini`.
 
-1. Aktifkan Google Drive API.
-2. Share folder Drive ke email service account sebagai `Viewer`.
-3. Buka:
+## Catatan Akuntansi
 
-```text
-/drive
+Posting jurnal memakai data sumber transaksi:
+
+- invoice mencatat piutang, pendapatan, diskon, pajak, komisi, pembelian, dan biaya terkait;
+- kas masuk customer dicatat dari tanggal pembayaran aktual atau tabel `invoice_payments`;
+- kas keluar pembelian, komisi, biaya kirim, admin bank, operasional, bonus, dan prive memakai tanggal bayar/transfer aktual;
+- jika status masih hutang atau tanggal bayar kosong, transaksi tetap menjadi hutang dan tidak mengurangi kas.
+
+## Troubleshooting
+
+Jika muncul `Database belum bisa dibaca`:
+
+1. Pastikan MAMP MySQL aktif.
+2. Pastikan database `busamas` ada.
+3. Pastikan `.env` lokal memakai `DB_HOST=127.0.0.1`.
+4. Tes koneksi:
+
+```bash
+env DB_HOST=127.0.0.1 DB_PORT=3306 DB_DATABASE=busamas DB_USERNAME=root DB_PASSWORD= /Applications/MAMP/bin/php/php8.0.0/bin/php -r 'require "app/helpers.php"; var_dump(db() instanceof PDO);'
 ```
 
-## Master Barang
-
-Halaman master barang membaca hasil generate dari `storage/generated/master-barang.csv`.
-
-```text
-/master-barang
-```
+Jika muncul error PHP `Cannot unpack array with string keys`, pastikan kode sudah dipull sampai commit yang memakai `array_merge` untuk kompatibilitas PHP 8.0.

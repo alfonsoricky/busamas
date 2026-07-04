@@ -719,6 +719,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-today-july-3-2026') {
         $result = run_seed_today_july_3_2026();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-krisna-bonus-july-4-2026') {
+        $result = run_seed_krisna_bonus_july_4_2026();
+        $counts = database_table_counts();
     }
 
     return [
@@ -5840,6 +5843,123 @@ function run_seed_krisna_april_bonus_status(): array
     ];
 }
 
+function run_seed_krisna_bonus_july_4_2026(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Koneksi database gagal.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    $logs = [];
+    $updated = 0;
+    $failed = [];
+    $paidDate = '2026-07-04';
+
+    try {
+        $aggregateStmt = $pdo->prepare("
+            SELECT id
+            FROM operational_expenses
+            WHERE kategori = 'bonus'
+              AND bulan_pnl = 5
+              AND tahun_pnl = 2026
+              AND nama_pengeluaran = 'Bonus Krisna Mei 2026'
+        ");
+        $aggregateStmt->execute();
+        $aggregateIds = array_map('intval', $aggregateStmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+        $deleteAggregate = $pdo->prepare('DELETE FROM operational_expenses WHERE id = ?');
+        foreach ($aggregateIds as $id) {
+            delete_accounting_journal_source($pdo, 'operational_expense', (string) $id);
+            delete_accounting_journal_source($pdo, 'operational_payment', (string) $id);
+            $deleteAggregate->execute([$id]);
+            $logs[] = 'Agregat Bonus Krisna Mei 2026 dihapus: ID ' . $id;
+            $updated++;
+        }
+
+        foreach (['INV-00379', 'INV-00380', 'INV-00383'] as $kodeInvoice) {
+            $result = update_internal_sales_bonus_invoice_status($kodeInvoice, 'Krisna', 'Terbayar', $paidDate, 4, 2026);
+            if ($result['ok'] ?? false) {
+                $updated++;
+                $logs[] = $kodeInvoice . ': ' . $result['message'];
+            } else {
+                $failed[] = $kodeInvoice . ': ' . ($result['message'] ?? 'gagal');
+            }
+        }
+
+        $paidMayInvoices = [
+            '388/BM-INV/V/2026',
+            '391/BM-INV/V/2026',
+            '393/BM-INV/V/2026',
+            '401/BM-INV/V/2026',
+            '408/BM-INV/V/2026',
+            '414/BM-INV/V/2026',
+            '416/BM-INV/V/2026',
+        ];
+        $mayBonus = fetch_internal_sales_bonus(5, 2026, ['sales' => 'Krisna']);
+        foreach (($mayBonus['items'] ?? []) as $item) {
+            if (
+                ! (bool) ($item['eligible'] ?? false)
+                || (float) ($item['bonus'] ?? 0) <= 0
+                || strcasecmp((string) ($item['sales'] ?? ''), 'Krisna') !== 0
+            ) {
+                continue;
+            }
+
+            $nomorInvoice = (string) ($item['nomor_invoice'] ?? '');
+            $status = in_array($nomorInvoice, $paidMayInvoices, true) ? 'Terbayar' : 'Belum Dibayar';
+            $result = update_internal_sales_bonus_invoice_status(
+                (string) ($item['kode_invoice'] ?? ''),
+                'Krisna',
+                $status,
+                $status === 'Terbayar' ? $paidDate : '',
+                5,
+                2026
+            );
+
+            if ($result['ok'] ?? false) {
+                $updated++;
+                $logs[] = $nomorInvoice . ': ' . $result['message'];
+            } else {
+                $failed[] = $nomorInvoice . ': ' . ($result['message'] ?? 'gagal');
+            }
+        }
+
+        $summaryStmt = $pdo->query("
+            SELECT bulan_pnl, tahun_pnl, SUM(jumlah) AS total
+            FROM operational_expenses
+            WHERE kategori = 'bonus'
+              AND tahun_pnl = 2026
+              AND bulan_pnl IN (4, 5)
+            GROUP BY tahun_pnl, bulan_pnl
+            ORDER BY bulan_pnl
+        ");
+        foreach ($summaryStmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+            $logs[] = 'Total bonus ' . (int) $row['bulan_pnl'] . '/' . (int) $row['tahun_pnl'] . ': ' . rupiah($row['total'] ?? 0);
+        }
+
+        return [
+            'ok' => $failed === [],
+            'message' => $failed === []
+                ? 'Seeder bonus Krisna 4 Juli 2026 berhasil.'
+                : 'Seeder bonus Krisna 4 Juli 2026 selesai dengan error.',
+            'statements' => $updated,
+            'counts' => database_table_counts(),
+            'output' => implode("\n", array_merge($logs, $failed)),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Seeder bonus Krisna 4 Juli 2026 gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
 function run_fix_internal_bonus_payable(): array
 {
     $pdo = db();
@@ -6692,12 +6812,11 @@ function fetch_invoice_form_options(string $code = ''): array
                 : [];
             $edit = [
                 'mode' => 'update',
-                'invoice' => [
-                    ...$invoice,
+                'invoice' => array_merge($invoice, [
                     'tanggal_invoice_input' => date_input_value((string) ($invoice['tanggal_invoice'] ?? '')),
                     'tanggal_surat_jalan_input' => date_input_value((string) ($invoice['tanggal_surat_jalan'] ?? '')),
                     'jumlah_terbayar_pendapatan' => $paymentTotals['paid_total'],
-                ],
+                ]),
                 'payments' => $paymentHistory,
                 'items' => array_map(static fn (array $item): array => [
                     'kode_barang' => (string) ($item['kode_barang'] ?? ''),

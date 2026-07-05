@@ -76,6 +76,19 @@
                     Bonus Krisna 4 Juli
                 </button>
             </form>
+            <form method="post">
+                <input type="hidden" name="action" value="seed-customer-default-discounts">
+                <button
+                    type="submit"
+                    class="inline-flex items-center justify-center rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:bg-stone-50"
+                    data-confirm-title="Update Default Diskon Customer?"
+                    data-confirm-message="Seeder ini akan mengisi default diskon customer dari file PENJUALAN-2026 (9).xlsx dan mengosongkan diskon customer lain menjadi 0%."
+                    data-confirm-ok="Jalankan"
+                    data-confirm-cancel="Batal"
+                >
+                    Default Diskon Customer
+                </button>
+            </form>
             </div>
         </div>
 

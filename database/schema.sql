@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS `master_customers` (
     `nama_laundry` VARCHAR(150) NOT NULL,
     `no_telepon` VARCHAR(50) NULL,
     `alamat_default` TEXT NULL,
+    `default_discount_persen` DECIMAL(8,4) NOT NULL DEFAULT 0,
     `jumlah_alias` INT UNSIGNED NOT NULL DEFAULT 0,
     `jumlah_invoice` INT UNSIGNED NOT NULL DEFAULT 0,
     `alias` TEXT NULL,

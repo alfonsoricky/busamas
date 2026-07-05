@@ -722,6 +722,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-krisna-bonus-july-4-2026') {
         $result = run_seed_krisna_bonus_july_4_2026();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-customer-default-discounts') {
+        $result = run_seed_customer_default_discounts();
+        $counts = database_table_counts();
     }
 
     return [
@@ -731,6 +734,112 @@ function fetch_database_maintenance(?string $action = null): array
         'database_connected' => db() !== null,
         'result' => $result,
     ];
+}
+
+function customer_default_discount_setup(): array
+{
+    return [
+        'Asia Laundry' => 10.0,
+        'Best Laundry' => 10.0,
+        'Cazabella Laundry' => 15.0,
+        'Diwang Laundry' => 10.0,
+        'Go Laundry' => 10.0,
+        'Haycal Laundry' => 3.0,
+        'Hogan Laundry' => 5.0,
+        'Ibu Susani Laundry Buduk' => 10.0,
+        'Indo Laundry' => 10.0,
+        "J'Love Laundry" => 5.0,
+        'JD Laundry' => 15.0,
+        'JDM Cleaning SBY' => 5.0,
+        'Jepun Laundry' => 3.0,
+        'Key Clean' => 5.0,
+        'Kucek Laundry' => 3.0,
+        'MAU A NUSA PENIDA HOTEL' => 15.0,
+        'Miss Laundry' => 10.0,
+        'Mr. Lie Laundry' => 15.0,
+        'Mydea Laundry' => 10.0,
+        "Nay'S Laundry" => 5.0,
+        'Prima Laundry' => 10.0,
+        'Shaska Laundry' => 5.0,
+        'Swasti Laundry' => 10.0,
+        'Wash it Laundry' => 5.0,
+        'Wash Me Laundry' => 5.0,
+        'Yanto Laundry' => 5.0,
+    ];
+}
+
+function customer_discount_match_key(string $name): string
+{
+    return preg_replace('/[^A-Z0-9]/', '', strtoupper(normalize_spaces($name))) ?? '';
+}
+
+function run_seed_customer_default_discounts(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'message' => 'Database belum bisa dikoneksi.', 'statements' => 0];
+    }
+
+    try {
+        ensure_master_tables($pdo);
+
+        $customers = $pdo->query('SELECT id, nama_customer, nama_laundry FROM master_customers')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $customerIndex = [];
+        foreach ($customers as $customer) {
+            foreach (['nama_laundry', 'nama_customer'] as $column) {
+                $key = customer_discount_match_key((string) ($customer[$column] ?? ''));
+                if ($key !== '' && ! isset($customerIndex[$key])) {
+                    $customerIndex[$key] = (int) $customer['id'];
+                }
+            }
+        }
+
+        $pdo->beginTransaction();
+        $pdo->exec('UPDATE master_customers SET default_discount_persen = 0');
+
+        $updated = 0;
+        $unmatched = [];
+        $stmt = $pdo->prepare('UPDATE master_customers SET default_discount_persen = :discount WHERE id = :id');
+        foreach (customer_default_discount_setup() as $customerName => $discount) {
+            $key = customer_discount_match_key($customerName);
+            $id = $customerIndex[$key] ?? null;
+            if ($id === null) {
+                $unmatched[] = $customerName;
+                continue;
+            }
+
+            $stmt->execute([
+                'discount' => $discount,
+                'id' => $id,
+            ]);
+            $updated += $stmt->rowCount();
+        }
+
+        $pdo->commit();
+
+        activity_log('seed', 'master_customers', 'default-discount-2026-9', 'Update default diskon customer dari PENJUALAN-2026 (9).xlsx');
+
+        $message = 'Default diskon customer berhasil diupdate: ' . $updated . ' customer.';
+        if ($unmatched !== []) {
+            $message .= ' Tidak ditemukan di master: ' . implode(', ', $unmatched) . '.';
+        }
+
+        return [
+            'ok' => true,
+            'message' => $message,
+            'statements' => $updated + 1,
+        ];
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Seeder default diskon customer gagal: ' . $e->getMessage(),
+            'statements' => 0,
+        ];
+    }
 }
 
 function run_fix_manager_commission_taki(): array
@@ -2663,6 +2772,7 @@ function ensure_master_tables(PDO $pdo): void
             `nama_laundry` VARCHAR(150) NOT NULL,
             `no_telepon` VARCHAR(50) NULL,
             `alamat_default` TEXT NULL,
+            `default_discount_persen` DECIMAL(8,4) NOT NULL DEFAULT 0,
             `jumlah_alias` INT UNSIGNED NOT NULL DEFAULT 0,
             `jumlah_invoice` INT UNSIGNED NOT NULL DEFAULT 0,
             `alias` TEXT NULL,
@@ -2693,6 +2803,7 @@ function ensure_master_tables(PDO $pdo): void
             'updated_at' => 'ALTER TABLE `master_barang` ADD COLUMN `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
         ],
         'master_customers' => [
+            'default_discount_persen' => 'ALTER TABLE `master_customers` ADD COLUMN `default_discount_persen` DECIMAL(8,4) NOT NULL DEFAULT 0 AFTER `alamat_default`',
             'is_active' => 'ALTER TABLE `master_customers` ADD COLUMN `is_active` TINYINT(1) NOT NULL DEFAULT 1 AFTER `alamat_lain`',
             'created_at' => 'ALTER TABLE `master_customers` ADD COLUMN `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP',
             'updated_at' => 'ALTER TABLE `master_customers` ADD COLUMN `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
@@ -4383,7 +4494,7 @@ function fetch_master_customer(): array
         }
     }
 
-    $dbItems = db_all('SELECT id, kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, jumlah_alias, jumlah_invoice, alias, alamat_lain, is_active FROM master_customers ORDER BY nama_laundry');
+    $dbItems = db_all('SELECT id, kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, default_discount_persen, jumlah_alias, jumlah_invoice, alias, alamat_lain, is_active FROM master_customers ORDER BY nama_laundry');
 
     if ($dbItems !== null) {
         return [
@@ -6790,7 +6901,14 @@ function fetch_invoice_detail(string $code): array
 function fetch_invoice_form_options(string $code = ''): array
 {
     $pdo = db();
-    $customers = db_all('SELECT kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default FROM master_customers ORDER BY nama_laundry') ?? [];
+    if ($pdo instanceof PDO) {
+        try {
+            ensure_master_tables($pdo);
+        } catch (Throwable) {
+        }
+    }
+
+    $customers = db_all('SELECT kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, default_discount_persen FROM master_customers ORDER BY nama_laundry') ?? [];
     $sales = db_all('SELECT kode_sales, nama_sales FROM master_sales ORDER BY nama_sales') ?? [];
     $barang = db_all('SELECT kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default FROM master_barang ORDER BY nama_barang, ukuran') ?? [];
     $edit = [
@@ -7290,9 +7408,8 @@ function save_invoice_form(array $postData): array
             $kodeInvoice,
         ]);
 
-        post_invoice_accounting_journal($pdo, $kodeInvoice);
-
         $pdo->commit();
+        $journalLines = post_invoice_accounting_journal($pdo, $kodeInvoice);
         activity_log($isUpdate ? 'update' : 'insert', 'invoice', $kodeInvoice, ($isUpdate ? 'Update' : 'Tambah') . ' invoice ' . $nomorInvoice, $isUpdate ? $existingInvoice : null, [
             'kode_invoice' => $kodeInvoice,
             'nomor_invoice' => $nomorInvoice,
@@ -7300,6 +7417,7 @@ function save_invoice_form(array $postData): array
             'kode_customer' => $kodeCustomer,
             'total_harga_jual' => $totalHargaJual,
             'status_pembayaran' => $statusPembayaran,
+            'journal_lines' => $journalLines,
         ]);
         return ['ok' => true, 'kode_invoice' => $kodeInvoice];
     } catch (Throwable $exception) {
@@ -13545,6 +13663,7 @@ function save_master_barang_form(array $post): array
 {
     $pdo = db();
     if ($pdo === null) return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    ensure_master_tables($pdo);
     
     $action = $post['master_action'] ?? '';
     $id = (int)($post['id'] ?? 0);
@@ -13601,6 +13720,7 @@ function save_master_customer_form(array $post): array
 {
     $pdo = db();
     if ($pdo === null) return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    ensure_master_tables($pdo);
     
     $action = $post['master_action'] ?? '';
     $id = (int)($post['id'] ?? 0);
@@ -13608,6 +13728,7 @@ function save_master_customer_form(array $post): array
     $namaLaundry = trim($post['nama_laundry'] ?? '');
     $noTelepon = trim($post['no_telepon'] ?? '');
     $alamatDefault = trim($post['alamat_default'] ?? '');
+    $defaultDiscount = max(0.0, min(100.0, clean_money_value($post['default_discount_persen'] ?? 0)));
     $isActive = isset($post['is_active']) ? (int)$post['is_active'] : 1;
     
     if ($namaLaundry === '') {
@@ -13617,8 +13738,8 @@ function save_master_customer_form(array $post): array
     if ($action === 'create') {
         $kode = next_kode_customer();
         $stmt = $pdo->prepare("
-            INSERT INTO master_customers (kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, is_active) 
-            VALUES (:kode, :nama, :laundry, :telepon, :alamat, :is_active)
+            INSERT INTO master_customers (kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, default_discount_persen, is_active)
+            VALUES (:kode, :nama, :laundry, :telepon, :alamat, :default_discount, :is_active)
         ");
         $stmt->execute([
             'kode' => $kode,
@@ -13626,6 +13747,7 @@ function save_master_customer_form(array $post): array
             'laundry' => $namaLaundry,
             'telepon' => $noTelepon !== '' ? $noTelepon : null,
             'alamat' => $alamatDefault !== '' ? $alamatDefault : null,
+            'default_discount' => $defaultDiscount,
             'is_active' => $isActive
         ]);
         activity_log('create', 'master_customers', $kode, 'Menambah master customer ' . $namaLaundry);
@@ -13639,6 +13761,7 @@ function save_master_customer_form(array $post): array
                 nama_laundry = :laundry, 
                 no_telepon = :telepon, 
                 alamat_default = :alamat, 
+                default_discount_persen = :default_discount,
                 is_active = :is_active 
             WHERE id = :id
         ");
@@ -13647,6 +13770,7 @@ function save_master_customer_form(array $post): array
             'laundry' => $namaLaundry,
             'telepon' => $noTelepon !== '' ? $noTelepon : null,
             'alamat' => $alamatDefault !== '' ? $alamatDefault : null,
+            'default_discount' => $defaultDiscount,
             'is_active' => $isActive,
             'id' => $id
         ]);

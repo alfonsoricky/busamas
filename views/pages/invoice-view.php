@@ -32,7 +32,7 @@
         </div>
 
         <div class="mx-auto bg-white p-8 text-[11px] text-black shadow-sm ring-1 ring-stone-200 print:p-0 print:shadow-none print:ring-0" style="width: 210mm; min-height: 297mm;">
-            <div class="pt-20">
+            <div class="invoice-print-body">
                 <h1 class="border-b-2 border-black pb-1 text-center text-base font-bold">INVOICE</h1>
 
                 <div class="mt-4 grid grid-cols-[1.2fr_0.8fr] gap-10">
@@ -98,18 +98,6 @@
                     <div class="grid grid-cols-[1fr_1fr] gap-y-2">
                         <div>Sub total</div>
                         <div class="text-right font-bold"><?= e(number_format((float) ($summary['subtotal'] ?? 0), 0, ',', '.')) ?></div>
-                        <div>Pembelian barang</div>
-                        <div class="text-right font-bold"><?= e(number_format((float) ($invoice['total_pembelian_barang'] ?? 0), 0, ',', '.')) ?></div>
-                        <div>Status pembelian</div>
-                        <div class="text-right font-bold">
-                            <?php if ((float) ($invoice['total_utang_pembelian_barang'] ?? 0) > 0): ?>
-                                <span class="text-red-700">Utang</span>
-                            <?php else: ?>
-                                <span class="text-emerald-700">Lunas</span>
-                            <?php endif; ?>
-                        </div>
-                        <div>Utang pembelian</div>
-                        <div class="text-right font-bold"><?= e(number_format((float) ($invoice['total_utang_pembelian_barang'] ?? 0), 0, ',', '.')) ?></div>
                         <div>Disc.</div>
                         <div class="text-right font-bold"><?= e(number_format((float) ($summary['discount'] ?? 0), 0, ',', '.')) ?></div>
                         <div class="pt-3 font-bold">TOTAL</div>
@@ -124,12 +112,12 @@
 
                 <div class="mt-8 grid grid-cols-[280px_1fr_160px] gap-8">
                     <div class="border border-black p-2 leading-5">
-                        <p><strong>BCA - KCP Gatot Subroto Barat</strong></p>
-                        <p>No. Rek : 6115506904</p>
-                        <p>a/n : <strong>FRANS GATU HURINT</strong></p>
+                        <p><strong>BCA - KCP Hasanudin</strong></p>
+                        <p>No. Rek : <strong>0402980972</strong></p>
+                        <p>a/n : <strong>Alfonso Ricky Kurnia A</strong></p>
                     </div>
                     <div></div>
-                    <div class="pt-20 text-center font-semibold">( Frans Hurint )</div>
+                    <div class="pt-20 text-center font-semibold">( Ferdy )</div>
                 </div>
             </div>
         </div>
@@ -146,6 +134,10 @@
 </section>
 
 <style>
+    .invoice-print-body {
+        padding-top: 2.25in;
+    }
+
     @media print {
         @page {
             size: A4;

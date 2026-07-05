@@ -15,6 +15,10 @@
             if ($totalPaidInvoice <= 0 && strcasecmp((string) ($editInvoice['status_pembayaran'] ?? ''), 'Lunas') === 0) {
                 $totalPaidInvoice = (float) ($editInvoice['total_harga_jual'] ?? 0);
             }
+            $managerCommissionTotal = (float) ($editInvoice['komisi_manager_terbayar'] ?? 0) + (float) ($editInvoice['komisi_manager_utang'] ?? 0);
+            $managerCommissionPercent = (float) ($editInvoice['total_harga_jual'] ?? 0) > 0
+                ? ($managerCommissionTotal / (float) ($editInvoice['total_harga_jual'] ?? 0)) * 100
+                : 0;
         ?>
         <?php if (isset($invoiceForm['error'])): ?>
             <div class="mb-6 rounded-lg border border-red-200 bg-red-50 p-5 text-sm leading-6 text-red-900">
@@ -115,6 +119,7 @@
                                                 data-customer="<?= e($customer['nama_customer'] ?? '') ?>"
                                                 data-phone="<?= e($customer['no_telepon'] ?? '') ?>"
                                                 data-address="<?= e($customer['alamat_default'] ?? '') ?>"
+                                                data-discount="<?= e(clean_decimal($customer['default_discount_persen'] ?? 0, 4)) ?>"
                                                 <?= $selectedCustomer ? 'selected' : '' ?>
                                             >
                                                 <?= e(($customer['nama_laundry'] ?? '') . ' - ' . ($customer['kode_customer'] ?? '')) ?>
@@ -247,7 +252,7 @@
                                 </label>
                                 <label class="block">
                                     <span class="mb-2 block text-sm font-semibold text-stone-700">Discount (%)</span>
-                                    <input type="number" step="0.01" name="discount" id="discount-percent" value="<?= e(clean_decimal($editInvoice['discount_persen'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                    <input type="number" step="0.01" name="discount" id="discount-percent" value="<?= e(clean_decimal($editInvoice['discount_persen'] ?? '')) ?>" class="no-spinner w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                 </label>
                                 <label class="block">
                                     <span class="mb-2 block text-sm font-semibold text-stone-700">Discount Amount</span>
@@ -268,15 +273,15 @@
                                     <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                                         <label class="block">
                                             <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Sales 1 (%)</span>
-                                            <input type="number" step="0.01" name="komisi_sales_1_persen" id="komisi-sales-1-percent" value="<?= e(clean_decimal($editInvoice['komisi_sales_1_persen'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                            <input type="number" step="0.01" name="komisi_sales_1_persen" id="komisi-sales-1-percent" value="<?= e(clean_decimal($editInvoice['komisi_sales_1_persen'] ?? '')) ?>" class="no-spinner w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                         </label>
                                         <label class="block">
                                             <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Sales 2 (%)</span>
-                                            <input type="number" step="0.01" name="komisi_sales_2_persen" id="komisi-sales-2-percent" value="<?= e(clean_decimal($editInvoice['komisi_sales_2_persen'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                            <input type="number" step="0.01" name="komisi_sales_2_persen" id="komisi-sales-2-percent" value="<?= e(clean_decimal($editInvoice['komisi_sales_2_persen'] ?? '')) ?>" class="no-spinner w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                         </label>
                                         <label class="block">
                                             <span class="mb-2 block text-sm font-semibold text-stone-700">Total Komisi (%)</span>
-                                            <input type="number" step="0.01" name="total_komisi_persen" id="total-komisi-percent" readonly class="w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
+                                            <input type="number" step="0.01" name="total_komisi_persen" id="total-komisi-percent" readonly class="no-spinner w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
                                         </label>
                                         <label class="block" data-sales-paid-field>
                                             <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Sales Terbayar</span>
@@ -314,13 +319,17 @@
                                         </label>
                                     </div>
                                     <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                                        <label class="block">
+                                            <span class="mb-2 block text-sm font-semibold text-stone-700">Persentase Komisi Manager (%)</span>
+                                            <input type="number" step="0.01" name="komisi_manager_persen" id="komisi-manager-percent" value="<?= e($managerCommissionPercent > 0 ? rtrim(rtrim(number_format($managerCommissionPercent, 4, '.', ''), '0'), '.') : '') ?>" class="no-spinner w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                        </label>
                                         <label class="block" data-manager-paid-field>
                                             <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Manager Terbayar</span>
-                                            <input type="number" step="0.01" name="komisi_manager_terbayar" value="<?= e((string) ($editInvoice['komisi_manager_terbayar'] ?? '')) ?>" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                            <input type="number" step="0.01" name="komisi_manager_terbayar" id="komisi-manager-paid" value="<?= e((string) ($editInvoice['komisi_manager_terbayar'] ?? '')) ?>" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
                                         </label>
                                         <label class="block" data-manager-debt-field>
                                             <span class="mb-2 block text-sm font-semibold text-stone-700">Komisi Manager Utang (Rp)</span>
-                                            <input type="number" step="0.01" name="komisi_manager_utang" value="<?= e((string) ($editInvoice['komisi_manager_utang'] ?? '')) ?>" class="money-field w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                            <input type="number" step="0.01" name="komisi_manager_utang" id="komisi-manager-debt" value="<?= e((string) ($editInvoice['komisi_manager_utang'] ?? '')) ?>" readonly class="money-field w-full rounded-lg border border-stone-200 bg-stone-100 px-3 py-2 text-sm text-stone-600 outline-none">
                                         </label>
                                         <label class="block" data-manager-paid-field>
                                             <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Transfer Manager</span>
@@ -568,6 +577,9 @@
             const managerModeInputs = document.querySelectorAll('input[name="mode_komisi_manager"]');
             const managerPaidFields = document.querySelectorAll('[data-manager-paid-field]');
             const managerDebtFields = document.querySelectorAll('[data-manager-debt-field]');
+            const komisiManagerPercent = document.querySelector('#komisi-manager-percent');
+            const komisiManagerPaid = document.querySelector('#komisi-manager-paid');
+            const komisiManagerDebt = document.querySelector('#komisi-manager-debt');
             const taxModeInputs = document.querySelectorAll('input[name="mode_pajak"]');
             const taxPaidFields = document.querySelectorAll('[data-tax-paid-field]');
             const taxDebtFields = document.querySelectorAll('[data-tax-debt-field]');
@@ -708,6 +720,7 @@
                 setMoneyValue(totalHargaJual, Math.max(subtotal - moneyValue(discountAmount), 0));
                 recalculateReceivable();
                 recalculateCommission();
+                recalculateManagerCommission();
                 recalculateTax();
                 recalculateAdminCommission();
                 updateSummarySidebar();
@@ -762,6 +775,19 @@
                     field.classList.toggle('hidden', isPaid);
                     field.querySelectorAll('input').forEach((input) => input.disabled = isPaid);
                 });
+                recalculateManagerCommission();
+            }
+
+            function recalculateManagerCommission() {
+                const managerAmount = moneyValue(totalHargaJual) * (moneyValue(komisiManagerPercent) / 100);
+
+                if (selectedManagerMode() === 'paid') {
+                    setMoneyValue(komisiManagerPaid, managerAmount);
+                    setMoneyValue(komisiManagerDebt, 0);
+                } else {
+                    setMoneyValue(komisiManagerPaid, 0);
+                    setMoneyValue(komisiManagerDebt, managerAmount);
+                }
             }
 
             function selectedTaxMode() {
@@ -1010,6 +1036,8 @@
                 customerName.value = selected.dataset.customer || '';
                 customerPhone.value = selected.dataset.phone || '';
                 customerAddress.value = selected.dataset.address || '';
+                discountPercent.value = selected.dataset.discount || '';
+                recalculateSummary();
             });
 
             addItemButton.addEventListener('click', addItemRow);
@@ -1022,6 +1050,7 @@
             komisiSalesPaid.addEventListener('input', recalculateCommission);
             statusPembayaranSales.addEventListener('change', toggleSalesPaymentFields);
             managerModeInputs.forEach((input) => input.addEventListener('change', toggleManagerFields));
+            komisiManagerPercent.addEventListener('input', recalculateManagerCommission);
             taxModeInputs.forEach((input) => input.addEventListener('change', toggleTaxFields));
             adminModeInputs.forEach((input) => input.addEventListener('change', toggleAdminFields));
             purchaseModeInputs.forEach((input) => input.addEventListener('change', togglePurchaseFields));
@@ -1226,3 +1255,15 @@
         </script>
     <?php endif; ?>
 </section>
+
+<style>
+    .no-spinner::-webkit-outer-spin-button,
+    .no-spinner::-webkit-inner-spin-button {
+        margin: 0;
+        -webkit-appearance: none;
+    }
+
+    .no-spinner {
+        -moz-appearance: textfield;
+    }
+</style>

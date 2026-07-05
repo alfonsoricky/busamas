@@ -173,6 +173,7 @@ $flash = $flash ?? null;
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Nama Customer</th>
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Nama Laundry</th>
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Telepon</th>
+                                <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Diskon</th>
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Invoice</th>
                                 <th class="px-4 py-3 font-semibold" data-sort-type="text">Alamat</th>
                                 <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="text">Status</th>
@@ -186,6 +187,7 @@ $flash = $flash ?? null;
                                     <td class="whitespace-nowrap px-4 py-3 font-medium text-ink"><?= e($item['nama_customer'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['nama_laundry'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['no_telepon'] ?? '') ?></td>
+                                    <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e(clean_decimal($item['default_discount_persen'] ?? 0, 4)) ?>%</td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($item['jumlah_invoice'] ?? '0') ?></td>
                                     <td class="min-w-72 px-4 py-3 text-stone-600"><?= e($item['alamat_default'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3">
@@ -358,6 +360,10 @@ $flash = $flash ?? null;
                 <div>
                     <label class="block text-sm font-semibold text-stone-700 mb-1">No. Telepon / HP</label>
                     <input type="text" name="no_telepon" id="input-no_telepon" class="w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-stone-700 mb-1">Default Diskon (%)</label>
+                    <input type="number" name="default_discount_persen" id="input-default_discount_persen" min="0" max="100" step="0.01" class="w-full rounded-md border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                 </div>
                 <div>
                     <label class="block text-sm font-semibold text-stone-700 mb-1">Alamat Utama</label>

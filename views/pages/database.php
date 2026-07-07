@@ -89,6 +89,19 @@
                     Default Diskon Customer
                 </button>
             </form>
+            <form method="post">
+                <input type="hidden" name="action" value="seed-penjualan-2026-11">
+                <button
+                    type="submit"
+                    class="inline-flex items-center justify-center rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:bg-stone-50"
+                    data-confirm-title="Update PENJUALAN-2026 (11)?"
+                    data-confirm-message="Seeder ini akan membuat invoice 477-482, update penjualan dan operational terakhir, memperbaiki ongkos campur bulan Juni tetap Hutang, serta mencegah gaji Juni dobel."
+                    data-confirm-ok="Jalankan"
+                    data-confirm-cancel="Batal"
+                >
+                    Penjualan 2026 (11)
+                </button>
+            </form>
             </div>
         </div>
 

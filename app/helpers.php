@@ -725,6 +725,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-customer-default-discounts') {
         $result = run_seed_customer_default_discounts();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-penjualan-2026-11') {
+        $result = run_seed_penjualan_2026_11_update();
+        $counts = database_table_counts();
     }
 
     return [
@@ -11190,6 +11193,591 @@ function run_seed_today_july_3_2026(): array
             'counts' => database_table_counts(),
         ];
     }
+}
+
+function run_seed_penjualan_2026_11_update(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    try {
+        ensure_invoice_payments_table($pdo);
+        ensure_invoice_cash_date_columns($pdo);
+        ensure_accounting_tables($pdo);
+        ensure_master_tables($pdo);
+
+        $logs = [];
+        $statements = 0;
+        $journalLines = 0;
+
+        foreach (seed_penjualan_2026_11_invoice_payloads($pdo) as $payload) {
+            $logs[] = seed_today_upsert_invoice_with_items($pdo, $payload['invoice'], $payload['items']);
+            $statements++;
+
+            if (($payload['payment_amount'] ?? 0) > 0 && ! empty($payload['payment_date'])) {
+                $invoice = seed_today_find_invoice($pdo, (string) $payload['invoice']['nomor_invoice']);
+                if ($invoice) {
+                    replace_invoice_customer_payment(
+                        $pdo,
+                        (string) $invoice['kode_invoice'],
+                        (float) $payload['payment_amount'],
+                        (string) $payload['payment_date'],
+                        'Seeder PENJUALAN-2026 (11).xlsx'
+                    );
+                    $journalLines += post_invoice_accounting_journal($pdo, (string) $invoice['kode_invoice']);
+                    $logs[] = $payload['invoice']['nomor_invoice'] . ' pembayaran customer diset ulang.';
+                }
+            }
+        }
+
+        foreach (seed_penjualan_2026_11_invoice_updates() as $nomorInvoice => $fields) {
+            $invoice = seed_today_find_invoice($pdo, $nomorInvoice);
+            if (! $invoice) {
+                $logs[] = 'Lewat, invoice tidak ditemukan: ' . $nomorInvoice;
+                continue;
+            }
+
+            $sets = [];
+            $params = [];
+            foreach ($fields as $column => $value) {
+                $sets[] = '`' . $column . '` = ?';
+                $params[] = $value;
+            }
+            $params[] = $invoice['kode_invoice'];
+            $stmt = $pdo->prepare('UPDATE invoices SET ' . implode(', ', $sets) . ', updated_at = CURRENT_TIMESTAMP WHERE kode_invoice = ?');
+            $stmt->execute($params);
+
+            if (isset($fields['tanggal_invoice'])) {
+                $pdo->prepare('UPDATE invoice_items SET tanggal_invoice = ? WHERE kode_invoice = ?')
+                    ->execute([$fields['tanggal_invoice'], $invoice['kode_invoice']]);
+            }
+
+            if (($fields['status_pembayaran'] ?? '') === 'Lunas' && ! empty($fields['tanggal_pembayaran'])) {
+                replace_invoice_customer_payment(
+                    $pdo,
+                    (string) $invoice['kode_invoice'],
+                    (float) ($fields['total_harga_jual'] ?? $invoice['total_harga_jual'] ?? 0),
+                    (string) $fields['tanggal_pembayaran'],
+                    'Seeder PENJUALAN-2026 (11).xlsx'
+                );
+            }
+
+            $journalLines += post_invoice_accounting_journal($pdo, (string) $invoice['kode_invoice']);
+            $statements++;
+            $logs[] = $nomorInvoice . ' diperbarui.';
+        }
+
+        foreach (seed_penjualan_2026_11_operational_rows() as $expense) {
+            $logs[] = seed_penjualan_2026_11_upsert_operational($pdo, $expense);
+            $statements++;
+        }
+
+        foreach (['Gaji Krisna Juni', 'Gaji Wira Juni'] as $duplicateName) {
+            $stmt = $pdo->prepare('SELECT id FROM operational_expenses WHERE nama_pengeluaran = ?');
+            $stmt->execute([$duplicateName]);
+            $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+            foreach ($ids as $id) {
+                delete_accounting_journal_source($pdo, 'operational_expense', (string) $id);
+                delete_accounting_journal_source($pdo, 'operational_payment', (string) $id);
+                $pdo->prepare('DELETE FROM operational_expenses WHERE id = ?')->execute([$id]);
+                $logs[] = 'Duplikat operational dihapus: ' . $duplicateName . ' #' . $id;
+                $statements++;
+            }
+        }
+
+        $ongkos = $pdo->prepare("
+            SELECT id FROM operational_expenses
+            WHERE tanggal = '2026-06-30'
+              AND nama_pengeluaran = 'ongkos campur bulan Juni'
+              AND ABS(jumlah - 1510000) < 0.01
+            LIMIT 1
+        ");
+        $ongkos->execute();
+        $ongkosId = (int) ($ongkos->fetchColumn() ?: 0);
+        if ($ongkosId > 0) {
+            $pdo->prepare("UPDATE operational_expenses SET status_pembayaran = 'Hutang', tanggal_pembayaran = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+                ->execute([$ongkosId]);
+            $journalLines += generate_operational_expense_journal($pdo, $ongkosId);
+            $logs[] = 'Ongkos campur bulan Juni diset Hutang tanpa tanggal bayar.';
+            $statements++;
+        }
+
+        $orphanCount = seed_today_cleanup_orphan_invoice_payment_journals($pdo);
+        if ($orphanCount > 0) {
+            $logs[] = 'Jurnal pembayaran customer orphan dibersihkan: ' . $orphanCount;
+            $statements += $orphanCount;
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Seeder PENJUALAN-2026 (11) berhasil dijalankan.',
+            'statements' => $statements,
+            'counts' => database_table_counts(),
+            'output' => implode("\n", array_merge($logs, ['Jurnal tambahan diposting: ' . $journalLines . ' baris'])),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Seeder PENJUALAN-2026 (11) gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
+function seed_penjualan_2026_11_customer(PDO $pdo, string $laundryName, string $customerName, string $address, float $discount = 0): array
+{
+    $normalize = static fn (string $value): string => preg_replace('/[^A-Z0-9]/', '', strtoupper(normalize_spaces($value))) ?? '';
+    $targetKeys = array_filter([$normalize($laundryName), $normalize($customerName)]);
+    $rows = $pdo->query('SELECT * FROM master_customers')->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as $row) {
+        foreach (['nama_laundry', 'nama_customer'] as $field) {
+            if (in_array($normalize((string) ($row[$field] ?? '')), $targetKeys, true)) {
+                return $row;
+            }
+        }
+    }
+
+    $codes = $pdo->query("SELECT kode_customer FROM master_customers WHERE kode_customer LIKE 'CST-%'")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    $max = 0;
+    foreach ($codes as $code) {
+        if (preg_match('/^CST-(\d+)$/', (string) $code, $match)) {
+            $max = max($max, (int) $match[1]);
+        }
+    }
+    $kodeCustomer = 'CST-' . str_pad((string) ($max + 1), 4, '0', STR_PAD_LEFT);
+
+    $stmt = $pdo->prepare('
+        INSERT INTO master_customers
+            (kode_customer, nama_customer, nama_laundry, alamat_default, default_discount_persen, is_active)
+        VALUES (?, ?, ?, ?, ?, 1)
+    ');
+    $stmt->execute([
+        $kodeCustomer,
+        $customerName !== '' ? $customerName : null,
+        $laundryName,
+        $address !== '' ? $address : null,
+        $discount,
+    ]);
+
+    return [
+        'kode_customer' => $kodeCustomer,
+        'nama_customer' => $customerName,
+        'nama_laundry' => $laundryName,
+        'no_telepon' => null,
+        'alamat_default' => $address,
+        'default_discount_persen' => $discount,
+    ];
+}
+
+function seed_penjualan_2026_11_sales_code(PDO $pdo, string $name): ?string
+{
+    $name = normalize_spaces($name);
+    if ($name === '') {
+        return null;
+    }
+
+    $stmt = $pdo->prepare('SELECT kode_sales FROM master_sales WHERE LOWER(nama_sales) = LOWER(?) LIMIT 1');
+    $stmt->execute([$name]);
+
+    return $stmt->fetchColumn() ?: null;
+}
+
+function seed_penjualan_2026_11_invoice_payloads(PDO $pdo): array
+{
+    $customers = [
+        'Hardrock' => seed_penjualan_2026_11_customer($pdo, 'Hardrock Hotel Bali', 'HARDROCK HOTEL BALI', 'Jln Pantai Kuta , Banjar Pande Mas Badung - Bali'),
+        'Indo Laundry' => seed_penjualan_2026_11_customer($pdo, 'Indo Laundry', 'Bpk Reza', 'ubud Gianyar , Bali', 10),
+        'Yanto Laundry' => seed_penjualan_2026_11_customer($pdo, 'Yanto Laundry', 'Bpk Yanto', 'BUDUK (belakang cempaka laundry) Dalung - Bali', 5),
+        'Kedai Cuci Laundry' => seed_penjualan_2026_11_customer($pdo, 'Kedai Cuci Laundry', 'Bpk Alexander Haryo', 'Jl. Gunung Karang III Denpasar', 15),
+        'Nirmala Laundry' => seed_penjualan_2026_11_customer($pdo, 'Nirmala Laundry', 'Ibu Indra', 'Jl. Waribang Gg Gunung Bekul Denpasar'),
+    ];
+
+    $makeInvoice = static function (array $data, array $customer) use ($pdo): array {
+        $sales1 = (string) ($data['nama_sales_1'] ?? '');
+        $sales2 = (string) ($data['nama_sales_2'] ?? '');
+        $status = (string) ($data['status_pembayaran'] ?? 'Belum Lunas');
+        $purchasePaid = (float) ($data['total_pembelian_barang'] ?? 0);
+        $purchaseDebt = (float) ($data['total_utang_pembelian_barang'] ?? 0);
+
+        return array_merge([
+            'po_number' => null,
+            'kode_sales_1' => seed_penjualan_2026_11_sales_code($pdo, $sales1),
+            'kode_sales_2' => seed_penjualan_2026_11_sales_code($pdo, $sales2),
+            'nama_sales_1' => $sales1,
+            'nama_sales_2' => $sales2,
+            'tanggal_transfer_komisi_sales' => null,
+            'tanggal_transfer_komisi_manager' => null,
+            'tanggal_transfer_komisi_admin' => null,
+            'kode_customer' => $customer['kode_customer'] ?? null,
+            'nama_customer_master' => $customer['nama_customer'] ?? null,
+            'nama_customer_invoice' => $customer['nama_laundry'] ?? null,
+            'nama_laundry_invoice' => $data['nama_laundry_invoice'],
+            'no_telepon' => $customer['no_telepon'] ?? null,
+            'alamat' => $data['alamat'] ?? ($customer['alamat_default'] ?? null),
+            'tanggal_pembayaran' => $status === 'Lunas' ? ($data['tanggal_pembayaran'] ?? null) : null,
+            'tanggal_pembayaran_pph_final' => null,
+            'tanggal_pembayaran_biaya_kirim' => ((float) ($data['biaya_kirim'] ?? 0)) > 0 ? $data['tanggal_invoice'] : null,
+            'tanggal_pembayaran_biaya_admin_bank' => null,
+            'status_pembelian_barang' => $purchasePaid > 0 && $purchaseDebt <= 0 ? 'Lunas' : ($purchaseDebt > 0 ? 'Hutang' : 'Lunas'),
+            'google_drive_file_id' => null,
+        ], $data);
+    };
+
+    $payloads = [
+        [
+            'invoice' => $makeInvoice([
+                'kode_invoice' => 'INV-00479',
+                'nomor_invoice' => '477/BM-INV/VII/2026',
+                'tanggal_invoice' => '2026-07-04',
+                'nomor_surat_jalan' => '477/CA-MURYATECH/SJ/VII/2026',
+                'tanggal_surat_jalan' => '2026-07-04',
+                'nama_laundry_invoice' => 'Hardrock',
+                'alamat' => 'Jln Pantai Kuta , Banjar Pande Mas Badung - Bali',
+                'nama_sales_1' => 'Nara',
+                'komisi_sales_1_persen' => 10,
+                'komisi_sales_2_persen' => 0,
+                'komisi_sales_terbayar' => 0,
+                'komisi_sales_belum_terbayar' => 275000,
+                'status_pembayaran_komisi_sales' => 'Belum TF',
+                'komisi_manager_terbayar' => 0,
+                'komisi_manager_utang' => 0,
+                'total_item' => 1,
+                'total_qty' => 4,
+                'subtotal' => 2750000,
+                'harga_normal_pricelist' => 2750000,
+                'discount_persen' => 0,
+                'discount_amount' => 0,
+                'total_harga_jual' => 2750000,
+                'status_pembayaran' => 'Belum Lunas',
+                'pph_final_terbayar' => 0,
+                'pph_final_belum_terbayar' => 13750,
+                'komisi_admin_terbayar' => 0,
+                'komisi_admin_belum_terbayar' => 137500,
+                'biaya_kirim' => 0,
+                'biaya_admin_bank' => 0,
+                'total_pembelian_barang' => 0,
+                'total_utang_pembelian_barang' => 0,
+                'tanggal_transfer_pembelian_barang' => null,
+                'file_invoice' => '477_BM-INV_VII_2026 HARDROCK HOTEL BALI.xlsx',
+            ], $customers['Hardrock']),
+            'items' => [
+                ['kode_barang' => 'BRG-0025', 'nama_barang_master' => 'N-iron', 'ukuran_master' => '5 KG', 'nama_barang_invoice' => 'N-iron', 'isi_invoice' => '5 KG', 'jumlah' => 4, 'satuan' => '5 kg', 'harga' => 687500, 'total' => 2750000, 'baris' => 23],
+            ],
+        ],
+        [
+            'invoice' => $makeInvoice([
+                'kode_invoice' => 'INV-00480',
+                'nomor_invoice' => '478/BM-INV/VII/2026',
+                'tanggal_invoice' => '2026-07-04',
+                'nomor_surat_jalan' => '478/CA-MURYATECH/SJ/VII/2026',
+                'tanggal_surat_jalan' => '2026-07-04',
+                'nama_laundry_invoice' => 'Indo Laundry',
+                'alamat' => 'ubud Gianyar , Bali',
+                'nama_sales_1' => 'Ricky',
+                'nama_sales_2' => 'James',
+                'komisi_sales_1_persen' => 0,
+                'komisi_sales_2_persen' => 0,
+                'komisi_sales_terbayar' => 0,
+                'komisi_sales_belum_terbayar' => 0,
+                'status_pembayaran_komisi_sales' => 'Transfer',
+                'komisi_manager_terbayar' => 0,
+                'komisi_manager_utang' => 69300,
+                'total_item' => 1,
+                'total_qty' => 1,
+                'subtotal' => 1540000,
+                'harga_normal_pricelist' => 1540000,
+                'discount_persen' => 10,
+                'discount_amount' => 154000,
+                'total_harga_jual' => 1386000,
+                'status_pembayaran' => 'Belum Lunas',
+                'pph_final_terbayar' => 0,
+                'pph_final_belum_terbayar' => 6930,
+                'komisi_admin_terbayar' => 0,
+                'komisi_admin_belum_terbayar' => 69300,
+                'biaya_kirim' => 86000,
+                'biaya_admin_bank' => 0,
+                'total_pembelian_barang' => 0,
+                'total_utang_pembelian_barang' => 0,
+                'tanggal_transfer_pembelian_barang' => null,
+                'file_invoice' => '478_BM-INV_VII_2026 INDO LAUNDRY.xlsx',
+            ], $customers['Indo Laundry']),
+            'items' => [
+                ['kode_barang' => 'BRG-0028', 'nama_barang_master' => 'Oxo Bleach', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'Oxo Bleach', 'isi_invoice' => '20 L', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 1540000, 'total' => 1540000, 'baris' => 23],
+            ],
+        ],
+        [
+            'invoice' => $makeInvoice([
+                'kode_invoice' => 'INV-00481',
+                'nomor_invoice' => '479/BM-INV/VII/2026',
+                'tanggal_invoice' => '2026-07-04',
+                'nomor_surat_jalan' => '479/CA-MURYATECH/SJ/VII/2026',
+                'tanggal_surat_jalan' => '2026-07-04',
+                'nama_laundry_invoice' => 'Indo Laundry',
+                'alamat' => 'ubud Gianyar , Bali',
+                'nama_sales_1' => 'Ricky',
+                'nama_sales_2' => 'James',
+                'komisi_sales_1_persen' => 0,
+                'komisi_sales_2_persen' => 0,
+                'komisi_sales_terbayar' => 0,
+                'komisi_sales_belum_terbayar' => 0,
+                'status_pembayaran_komisi_sales' => 'Transfer',
+                'komisi_manager_terbayar' => 0,
+                'komisi_manager_utang' => 386100,
+                'total_item' => 3,
+                'total_qty' => 6,
+                'subtotal' => 8580000,
+                'harga_normal_pricelist' => 8580000,
+                'discount_persen' => 10,
+                'discount_amount' => 858000,
+                'total_harga_jual' => 7722000,
+                'status_pembayaran' => 'Belum Lunas',
+                'pph_final_terbayar' => 0,
+                'pph_final_belum_terbayar' => 38610,
+                'komisi_admin_terbayar' => 0,
+                'komisi_admin_belum_terbayar' => 386100,
+                'biaya_kirim' => 182000,
+                'biaya_admin_bank' => 0,
+                'total_pembelian_barang' => 0,
+                'total_utang_pembelian_barang' => 0,
+                'tanggal_transfer_pembelian_barang' => null,
+                'file_invoice' => '479_BM-INV_VII_2026 INDO LAUNDRY.xlsx',
+            ], $customers['Indo Laundry']),
+            'items' => [
+                ['kode_barang' => 'BRG-0014', 'nama_barang_master' => 'Mc Bleach', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'Mc Bleach', 'isi_invoice' => '20 L', 'jumlah' => 2, 'satuan' => 'pail', 'harga' => 990000, 'total' => 1980000, 'baris' => 23],
+                ['kode_barang' => 'BRG-0006', 'nama_barang_master' => 'E-951', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'E-951', 'isi_invoice' => '20 L', 'jumlah' => 2, 'satuan' => 'pail', 'harga' => 1980000, 'total' => 3960000, 'baris' => 25],
+                ['kode_barang' => 'BRG-0012', 'nama_barang_master' => 'M-sour', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'M-sour', 'isi_invoice' => '20 L', 'jumlah' => 2, 'satuan' => 'pail', 'harga' => 1320000, 'total' => 2640000, 'baris' => 27],
+            ],
+        ],
+        [
+            'invoice' => $makeInvoice([
+                'kode_invoice' => 'INV-00482',
+                'nomor_invoice' => '480/BM-INV/VII/2026',
+                'tanggal_invoice' => '2026-07-05',
+                'nomor_surat_jalan' => '480/CA-MURYATECH/SJ/VII/2026',
+                'tanggal_surat_jalan' => '2026-07-05',
+                'nama_laundry_invoice' => 'Yanto Laundry',
+                'alamat' => 'BUDUK (belakang cempaka laundry) Dalung - Bali',
+                'nama_sales_1' => '',
+                'komisi_sales_1_persen' => 5,
+                'komisi_sales_2_persen' => 0,
+                'komisi_sales_terbayar' => 0,
+                'komisi_sales_belum_terbayar' => 47025,
+                'status_pembayaran_komisi_sales' => 'Belum TF',
+                'komisi_manager_terbayar' => 0,
+                'komisi_manager_utang' => 0,
+                'total_item' => 1,
+                'total_qty' => 1,
+                'subtotal' => 990000,
+                'harga_normal_pricelist' => 990000,
+                'discount_persen' => 5,
+                'discount_amount' => 49500,
+                'total_harga_jual' => 940500,
+                'status_pembayaran' => 'Belum Lunas',
+                'pph_final_terbayar' => 0,
+                'pph_final_belum_terbayar' => 4702.5,
+                'komisi_admin_terbayar' => 0,
+                'komisi_admin_belum_terbayar' => 47025,
+                'biaya_kirim' => 42000,
+                'biaya_admin_bank' => 0,
+                'total_pembelian_barang' => 0,
+                'total_utang_pembelian_barang' => 0,
+                'tanggal_transfer_pembelian_barang' => null,
+                'file_invoice' => '480_BM-INV_VII_2026 YANTO LAUNDRY.xlsx',
+            ], $customers['Yanto Laundry']),
+            'items' => [
+                ['kode_barang' => 'BRG-0014', 'nama_barang_master' => 'Mc Bleach', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'Mc Bleach', 'isi_invoice' => '20 L', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 990000, 'total' => 990000, 'baris' => 23],
+            ],
+        ],
+        [
+            'invoice' => $makeInvoice([
+                'kode_invoice' => 'INV-00483',
+                'nomor_invoice' => '481/BM-INV/VII/2026',
+                'tanggal_invoice' => '2026-07-06',
+                'nomor_surat_jalan' => '481/CA-MURYATECH/SJ/VII/2026',
+                'tanggal_surat_jalan' => '2026-07-06',
+                'nama_laundry_invoice' => 'Kedai Cuci Laundry',
+                'alamat' => 'Jl. Gunung Karang III Denpasar',
+                'nama_sales_1' => 'Wira',
+                'komisi_sales_1_persen' => 5,
+                'komisi_sales_2_persen' => 0,
+                'komisi_sales_terbayar' => 0,
+                'komisi_sales_belum_terbayar' => 224400,
+                'status_pembayaran_komisi_sales' => 'Belum TF',
+                'komisi_manager_terbayar' => 0,
+                'komisi_manager_utang' => 0,
+                'total_item' => 3,
+                'total_qty' => 3,
+                'subtotal' => 5280000,
+                'harga_normal_pricelist' => 5280000,
+                'discount_persen' => 15,
+                'discount_amount' => 792000,
+                'total_harga_jual' => 4488000,
+                'status_pembayaran' => 'Belum Lunas',
+                'pph_final_terbayar' => 0,
+                'pph_final_belum_terbayar' => 22440,
+                'komisi_admin_terbayar' => 0,
+                'komisi_admin_belum_terbayar' => 224400,
+                'biaya_kirim' => 0,
+                'biaya_admin_bank' => 0,
+                'total_pembelian_barang' => 0,
+                'total_utang_pembelian_barang' => 0,
+                'tanggal_transfer_pembelian_barang' => null,
+                'file_invoice' => '481_BM-INV_VII_2026 KEDAI CUCI LAUNDRY.xlsx',
+            ], $customers['Kedai Cuci Laundry']),
+            'items' => [
+                ['kode_barang' => 'BRG-0014', 'nama_barang_master' => 'Mc Bleach', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'Mc Bleach', 'isi_invoice' => '20 L', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 990000, 'total' => 990000, 'baris' => 23],
+                ['kode_barang' => 'BRG-0006', 'nama_barang_master' => 'E-951', 'ukuran_master' => '20 L', 'nama_barang_invoice' => 'E-951', 'isi_invoice' => '20 L', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 1980000, 'total' => 1980000, 'baris' => 25],
+                ['kode_barang' => 'BRG-0023', 'nama_barang_master' => 'N-iron', 'ukuran_master' => '20 KG', 'nama_barang_invoice' => 'N-iron', 'isi_invoice' => '20 KG', 'jumlah' => 1, 'satuan' => 'pail', 'harga' => 2310000, 'total' => 2310000, 'baris' => 27],
+            ],
+        ],
+        [
+            'invoice' => $makeInvoice([
+                'kode_invoice' => 'INV-00484',
+                'nomor_invoice' => '482/BM-INV/VII/2026',
+                'tanggal_invoice' => '2026-07-06',
+                'nomor_surat_jalan' => '482/CA-MURYATECH/SJ/VII/2026',
+                'tanggal_surat_jalan' => '2026-07-06',
+                'nama_laundry_invoice' => 'Nirmala Laundry',
+                'alamat' => 'Jl. Waribang Gg Gunung Bekul Denpasar',
+                'nama_sales_1' => 'Krisna',
+                'komisi_sales_1_persen' => 5,
+                'komisi_sales_2_persen' => 0,
+                'komisi_sales_terbayar' => 0,
+                'komisi_sales_belum_terbayar' => 82500,
+                'status_pembayaran_komisi_sales' => 'Belum TF',
+                'komisi_manager_terbayar' => 0,
+                'komisi_manager_utang' => 0,
+                'total_item' => 3,
+                'total_qty' => 3,
+                'subtotal' => 1650000,
+                'harga_normal_pricelist' => 1650000,
+                'discount_persen' => 0,
+                'discount_amount' => 0,
+                'total_harga_jual' => 1650000,
+                'status_pembayaran' => 'Lunas',
+                'tanggal_pembayaran' => '2026-07-06',
+                'pph_final_terbayar' => 0,
+                'pph_final_belum_terbayar' => 8250,
+                'komisi_admin_terbayar' => 0,
+                'komisi_admin_belum_terbayar' => 82500,
+                'biaya_kirim' => 0,
+                'biaya_admin_bank' => 0,
+                'total_pembelian_barang' => 875000,
+                'total_utang_pembelian_barang' => 0,
+                'tanggal_transfer_pembelian_barang' => '2026-07-07',
+                'file_invoice' => '482_BM-INV_VII_2026 NIRMALA LAUNDRY.xlsx',
+            ], $customers['Nirmala Laundry']),
+            'payment_amount' => 1650000,
+            'payment_date' => '2026-07-06',
+            'items' => [
+                ['kode_barang' => 'BRG-0015', 'nama_barang_master' => 'Mc Bleach', 'ukuran_master' => '5 L', 'nama_barang_invoice' => 'Mc Bleach', 'isi_invoice' => '5 L', 'jumlah' => 1, 'satuan' => '5 liter', 'harga' => 357500, 'total' => 357500, 'baris' => 23],
+                ['kode_barang' => 'BRG-0007', 'nama_barang_master' => 'E-951', 'ukuran_master' => '5 L', 'nama_barang_invoice' => 'E-951', 'isi_invoice' => '5 L', 'jumlah' => 1, 'satuan' => '5 liter', 'harga' => 605000, 'total' => 605000, 'baris' => 25],
+                ['kode_barang' => 'BRG-0025', 'nama_barang_master' => 'N-iron', 'ukuran_master' => '5 KG', 'nama_barang_invoice' => 'N-iron', 'isi_invoice' => '5 KG', 'jumlah' => 1, 'satuan' => '5 kg', 'harga' => 687500, 'total' => 687500, 'baris' => 27],
+            ],
+        ],
+    ];
+
+    return $payloads;
+}
+
+function seed_penjualan_2026_11_invoice_updates(): array
+{
+    return [
+        '339/BM-INV/III/2026' => ['komisi_manager_terbayar' => 940500, 'komisi_manager_utang' => 0, 'tanggal_transfer_komisi_manager' => '2026-07-06'],
+        '354/BM-INV/IV/2026' => ['komisi_manager_utang' => 940500],
+        '373/BM-INV/IV/2026' => ['komisi_manager_terbayar' => 311850, 'komisi_manager_utang' => 0, 'tanggal_transfer_komisi_manager' => '2026-07-06'],
+        '382/BM-INV/IV/2026' => ['komisi_manager_terbayar' => 386100, 'komisi_manager_utang' => 0, 'tanggal_transfer_komisi_manager' => '2026-07-06'],
+        '409/BM-INV/V/2026' => ['komisi_manager_utang' => 1465200],
+        '418/BM-INV/V/2026' => ['komisi_manager_utang' => 1108800],
+        '422/BM-INV/V/2026' => ['komisi_sales_terbayar' => 346500, 'komisi_sales_belum_terbayar' => 0, 'status_pembayaran_komisi_sales' => 'Transfer', 'tanggal_transfer_komisi_sales' => '2026-07-02'],
+        '430/BM-INV/VI/2026' => ['status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-04', 'komisi_sales_2_persen' => 10, 'komisi_sales_terbayar' => 165000, 'komisi_sales_belum_terbayar' => 0, 'status_pembayaran_komisi_sales' => 'Transfer', 'tanggal_transfer_komisi_sales' => '2026-07-06', 'total_pembelian_barang' => 700000, 'total_utang_pembelian_barang' => 0, 'status_pembelian_barang' => 'Lunas', 'tanggal_transfer_pembelian_barang' => '2026-07-05', 'total_harga_jual' => 1650000],
+        '433/BM-INV/VI/2026' => ['komisi_manager_utang' => 1108800],
+        '449/BM-INV/VI/2026' => ['komisi_manager_utang' => 950400],
+        '460/BM-INV/VI/2026' => ['status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-04', 'total_harga_jual' => 940500],
+        '462/BM-INV/VI/2026' => ['komisi_manager_utang' => 1069200],
+        '330/BM-INV/III/2026' => ['tanggal_invoice' => '2026-03-08'],
+        '357/BM-INV/IV/2026' => ['tanggal_invoice' => '2026-04-08'],
+        '467/BM-INV/VI/2026' => ['tanggal_invoice' => '2026-06-30'],
+        '472/BM-INV/VII/2026' => ['nomor_surat_jalan' => '472/CA-MURYATECH/SJ/VII/2026', 'tanggal_surat_jalan' => '2026-07-02'],
+        '473/BM-INV/VII/2026' => ['nomor_surat_jalan' => '473/CA-MURYATECH/SJ/VII/2026', 'tanggal_surat_jalan' => '2026-07-03'],
+        '474/BM-INV/VII/2026' => ['nomor_surat_jalan' => '474/CA-MURYATECH/SJ/VII/2026', 'tanggal_surat_jalan' => '2026-07-03'],
+        '475/BM-INV/VII/2026' => ['nomor_surat_jalan' => '475/CA-MURYATECH/SJ/VII/2026', 'tanggal_surat_jalan' => '2026-07-03'],
+        '476/BM-INV/VII/2026' => ['nomor_surat_jalan' => '476/CA-MURYATECH/SJ/VII/2026', 'tanggal_surat_jalan' => '2026-07-03'],
+    ];
+}
+
+function seed_penjualan_2026_11_operational_rows(): array
+{
+    return [
+        ['tanggal' => '2026-06-26', 'bulan_pnl' => 6, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'beli jerigen 5L', 'jumlah' => 120000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-06-26'],
+        ['tanggal' => '2026-06-30', 'bulan_pnl' => 6, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'Gaji Krisna', 'jumlah' => 3500000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-01'],
+        ['tanggal' => '2026-06-30', 'bulan_pnl' => 6, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'Gaji Wira', 'jumlah' => 3000000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-01'],
+        ['tanggal' => '2026-07-02', 'bulan_pnl' => 7, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'Beli Jirigen 20 Liter', 'jumlah' => 652000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-02'],
+        ['tanggal' => '2026-07-06', 'bulan_pnl' => 7, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'Beli Jirigen 5 Liter', 'jumlah' => 120000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-06'],
+        ['tanggal' => '2026-07-06', 'bulan_pnl' => 7, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'Beli Anti Karat 2 Liter', 'jumlah' => 36000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-06'],
+    ];
+}
+
+function seed_penjualan_2026_11_upsert_operational(PDO $pdo, array $expense): string
+{
+    $stmt = $pdo->prepare('
+        SELECT id FROM operational_expenses
+        WHERE tanggal = ?
+          AND nama_pengeluaran = ?
+          AND ABS(jumlah - ?) < 0.01
+        LIMIT 1
+    ');
+    $stmt->execute([$expense['tanggal'], $expense['nama_pengeluaran'], $expense['jumlah']]);
+    $id = (int) ($stmt->fetchColumn() ?: 0);
+
+    if ($id > 0) {
+        $update = $pdo->prepare('
+            UPDATE operational_expenses
+            SET bulan_pnl = ?, tahun_pnl = ?, kategori = ?, status_pembayaran = ?, tanggal_pembayaran = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ');
+        $update->execute([
+            $expense['bulan_pnl'],
+            $expense['tahun_pnl'],
+            'operational',
+            $expense['status_pembayaran'],
+            $expense['tanggal_pembayaran'],
+            $id,
+        ]);
+    } else {
+        $insert = $pdo->prepare('
+            INSERT INTO operational_expenses
+                (tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ');
+        $insert->execute([
+            $expense['tanggal'],
+            $expense['bulan_pnl'],
+            $expense['tahun_pnl'],
+            'operational',
+            $expense['nama_pengeluaran'],
+            $expense['jumlah'],
+            $expense['status_pembayaran'],
+            $expense['tanggal_pembayaran'],
+        ]);
+        $id = (int) $pdo->lastInsertId();
+    }
+
+    $lines = generate_operational_expense_journal($pdo, $id);
+
+    return $expense['nama_pengeluaran'] . ' ' . $expense['tanggal'] . ' disimpan, jurnal ' . $lines . ' baris';
 }
 
 function run_pnl_sales_commission_update(): array

@@ -8913,10 +8913,11 @@ function fetch_laporan_aktivitas_customer(string $sales = '', string $status = '
             i.no_telepon,
             i.total_harga_jual,
             i.status_pembayaran,
-            COALESCE(p.paid_total, 0) AS paid_total
+            COALESCE(p.paid_total, 0) AS paid_total,
+            COALESCE(p.payment_count, 0) AS payment_count
         FROM invoices i
         LEFT JOIN (
-            SELECT kode_invoice, SUM(jumlah_pembayaran) AS paid_total
+            SELECT kode_invoice, SUM(jumlah_pembayaran) AS paid_total, COUNT(*) AS payment_count
             FROM invoice_payments
             GROUP BY kode_invoice
         ) p ON p.kode_invoice = i.kode_invoice
@@ -8961,6 +8962,9 @@ function fetch_laporan_aktivitas_customer(string $sales = '', string $status = '
 
         $totalInvoice = (float) ($row['total_harga_jual'] ?? 0);
         $paidTotal = (float) ($row['paid_total'] ?? 0);
+        if ((int) ($row['payment_count'] ?? 0) === 0 && strcasecmp((string) ($row['status_pembayaran'] ?? ''), 'Lunas') === 0) {
+            $paidTotal = $totalInvoice;
+        }
         $invoiceDate = date_input_value((string) ($row['tanggal_invoice'] ?? ''));
         $invoiceTs = $invoiceDate !== '' ? (strtotime($invoiceDate) ?: 0) : 0;
         $invoiceSeq = invoice_sequence_number((string) ($row['nomor_invoice'] ?? ''));

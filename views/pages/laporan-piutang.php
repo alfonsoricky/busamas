@@ -3,6 +3,23 @@ $tab = $_GET['tab'] ?? 'aging';
 $aging = $reportData['aging'] ?? [];
 $overdue = $reportData['overdue'] ?? [];
 $total_piutang = $reportData['total_piutang'] ?? 0.0;
+$customerOptions = $reportData['customer_options'] ?? [];
+$salesOptions = $reportData['sales_options'] ?? [];
+$selectedCustomer = $reportData['selected_customer'] ?? ($_GET['customer'] ?? '');
+$selectedSales = $reportData['selected_sales'] ?? ($_GET['sales'] ?? '');
+$selectedYear = $_GET['year'] ?? date('Y');
+$selectedMonth = $_GET['month'] ?? '';
+$months = [
+    1 => 'Januari', 2 => 'Februari', 3 => 'Maret', 4 => 'April',
+    5 => 'Mei', 6 => 'Juni', 7 => 'Juli', 8 => 'Agustus',
+    9 => 'September', 10 => 'Oktober', 11 => 'November', 12 => 'Desember'
+];
+$filterQuery = array_filter([
+    'month' => $selectedMonth,
+    'year' => $selectedYear,
+    'customer' => $selectedCustomer,
+    'sales' => $selectedSales,
+], static fn ($value): bool => (string) $value !== '');
 ?>
 
 <section class="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
@@ -26,15 +43,57 @@ $total_piutang = $reportData['total_piutang'] ?? 0.0;
         </div>
     </div>
 
-    <?php require dirname(__DIR__) . '/partials/filter.php'; ?>
+    <form method="GET" action="<?= e(url('/laporan/piutang')) ?>" class="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
+        <input type="hidden" name="tab" value="<?= e($tab) ?>">
+        <div class="w-full sm:w-auto">
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Bulan</label>
+            <select name="month" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white sm:w-48">
+                <option value="">Semua Bulan</option>
+                <?php foreach ($months as $num => $name): ?>
+                    <option value="<?= $num ?>" <?= (string) $selectedMonth === (string) $num ? 'selected' : '' ?>><?= e($name) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="w-full sm:w-auto">
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Tahun</label>
+            <select name="year" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white sm:w-40">
+                <option value="">Semua Tahun</option>
+                <option value="2026" <?= (string) $selectedYear === '2026' ? 'selected' : '' ?>>2026</option>
+                <option value="2025" <?= (string) $selectedYear === '2025' ? 'selected' : '' ?>>2025</option>
+            </select>
+        </div>
+        <div class="w-full sm:w-auto">
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Nama Laundry</label>
+            <select name="customer" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white sm:w-64">
+                <option value="">Semua Laundry</option>
+                <?php foreach ($customerOptions as $customerName): ?>
+                    <option value="<?= e($customerName) ?>" <?= (string) $selectedCustomer === (string) $customerName ? 'selected' : '' ?>><?= e($customerName) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="w-full sm:w-auto">
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Sales</label>
+            <select name="sales" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white sm:w-56">
+                <option value="">Semua Sales</option>
+                <?php foreach ($salesOptions as $salesName): ?>
+                    <option value="<?= e($salesName) ?>" <?= (string) $selectedSales === (string) $salesName ? 'selected' : '' ?>><?= e($salesName) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="w-full sm:w-auto">
+            <button type="submit" class="w-full rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800 sm:w-auto">
+                Terapkan Filter
+            </button>
+        </div>
+    </form>
 
     <!-- Tabs Navigation -->
     <div class="mb-6 border-b border-stone-200">
         <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-            <a href="<?= e(url('/laporan/piutang?tab=aging')) ?>" class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-semibold <?= $tab === 'aging' ? 'border-brand text-brand' : 'border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-700' ?>">
+            <a href="<?= e(url('/laporan/piutang?' . http_build_query(array_merge($filterQuery, ['tab' => 'aging'])))) ?>" class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-semibold <?= $tab === 'aging' ? 'border-brand text-brand' : 'border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-700' ?>">
                 Analisis Aging Piutang
             </a>
-            <a href="<?= e(url('/laporan/piutang?tab=overdue')) ?>" class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-semibold <?= $tab === 'overdue' ? 'border-brand text-brand' : 'border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-700' ?>">
+            <a href="<?= e(url('/laporan/piutang?' . http_build_query(array_merge($filterQuery, ['tab' => 'overdue'])))) ?>" class="whitespace-nowrap border-b-2 py-4 px-1 text-sm font-semibold <?= $tab === 'overdue' ? 'border-brand text-brand' : 'border-transparent text-stone-500 hover:border-stone-300 hover:text-stone-700' ?>">
                 Invoice Overdue (> 30 Hari)
                 <?php if (count($overdue) > 0): ?>
                     <span class="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-600"><?= count($overdue) ?></span>
@@ -122,6 +181,7 @@ $total_piutang = $reportData['total_piutang'] ?? 0.0;
                                     <th class="px-4 py-2 font-semibold">No. Invoice</th>
                                     <th class="px-4 py-2 font-semibold">Tanggal Invoice</th>
                                     <th class="px-4 py-2 font-semibold">Customer / Laundry</th>
+                                    <th class="px-4 py-2 font-semibold">Sales</th>
                                     <th class="text-right px-4 py-2 font-semibold">Umur Invoice (Hari)</th>
                                     <th class="text-right px-4 py-2 font-semibold">Jumlah Piutang</th>
                                 </tr>
@@ -129,7 +189,7 @@ $total_piutang = $reportData['total_piutang'] ?? 0.0;
                             <tbody class="divide-y divide-stone-100">
                                 <?php if (empty($group['items'])): ?>
                                     <tr>
-                                        <td colspan="5" class="px-4 py-4 text-center text-xs text-stone-400">Tidak ada piutang di kategori ini.</td>
+                                        <td colspan="6" class="px-4 py-4 text-center text-xs text-stone-400">Tidak ada piutang di kategori ini.</td>
                                     </tr>
                                 <?php else: ?>
                                     <?php foreach ($group['items'] as $invoice): ?>
@@ -141,8 +201,9 @@ $total_piutang = $reportData['total_piutang'] ?? 0.0;
                                             </td>
                                             <td class="whitespace-nowrap px-4 py-2.5 text-stone-700"><?= e($invoice['tanggal_invoice'] ?? '') ?></td>
                                             <td class="whitespace-nowrap px-4 py-2.5 font-medium text-ink"><?= e($invoice['nama_customer'] ?? '') ?></td>
+                                            <td class="whitespace-nowrap px-4 py-2.5 text-stone-700"><?= e($invoice['nama_sales_display'] ?? '') ?></td>
                                             <td class="text-right whitespace-nowrap px-4 py-2.5 text-stone-700"><?= $invoice['days_overdue'] ?> Hari</td>
-                                            <td class="text-right whitespace-nowrap px-4 py-2.5 font-semibold text-ink"><?= rupiah($invoice['total_harga_jual'] ?? 0) ?></td>
+                                            <td class="text-right whitespace-nowrap px-4 py-2.5 font-semibold text-ink"><?= rupiah($invoice['sisa_piutang'] ?? 0) ?></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
@@ -163,6 +224,7 @@ $total_piutang = $reportData['total_piutang'] ?? 0.0;
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">No. Invoice</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Tanggal Invoice</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Customer / Laundry</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">Sales</th>
                             <th class="text-right whitespace-nowrap px-4 py-3 font-semibold">Hari Keterlambatan</th>
                             <th class="text-right whitespace-nowrap px-4 py-3 font-semibold">Nilai Piutang</th>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Tindakan</th>
@@ -171,7 +233,7 @@ $total_piutang = $reportData['total_piutang'] ?? 0.0;
                     <tbody class="divide-y divide-stone-100">
                         <?php if (empty($overdue)): ?>
                             <tr>
-                                <td colspan="6" class="px-4 py-8 text-center text-stone-500">Hebat! Tidak ada invoice overdue (>30 Hari). Semua pembayaran lancar!</td>
+                                <td colspan="7" class="px-4 py-8 text-center text-stone-500">Hebat! Tidak ada invoice overdue (>30 Hari). Semua pembayaran lancar!</td>
                             </tr>
                         <?php else: ?>
                             <?php foreach ($overdue as $invoice): ?>
@@ -183,8 +245,9 @@ $total_piutang = $reportData['total_piutang'] ?? 0.0;
                                     </td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($invoice['tanggal_invoice'] ?? '') ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 font-medium text-ink"><?= e($invoice['nama_customer'] ?? '') ?></td>
+                                    <td class="whitespace-nowrap px-4 py-3 text-stone-700"><?= e($invoice['nama_sales_display'] ?? '') ?></td>
                                     <td class="text-right whitespace-nowrap px-4 py-3 text-red-600 font-bold"><?= $invoice['days_overdue'] ?> Hari Overdue</td>
-                                    <td class="text-right whitespace-nowrap px-4 py-3 font-bold text-ink"><?= rupiah($invoice['total_harga_jual'] ?? 0) ?></td>
+                                    <td class="text-right whitespace-nowrap px-4 py-3 font-bold text-ink"><?= rupiah($invoice['sisa_piutang'] ?? 0) ?></td>
                                     <td class="whitespace-nowrap px-4 py-3 text-stone-700">
                                         <a href="https://wa.me/<?= e(preg_replace('/[^0-9]/', '', $invoice['no_telepon'] ?? '')) ?>" target="_blank" class="inline-flex items-center gap-1 rounded bg-teal-600 px-2 py-1 text-xs font-semibold text-white hover:bg-teal-800">
                                             WhatsApp Follow-up

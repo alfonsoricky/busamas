@@ -8758,7 +8758,7 @@ function fetch_laporan_hutang(string $month = '', string $year = '', string $typ
     ];
 }
 
-function fetch_laporan_piutang(string $month = '', string $year = ''): array
+function fetch_laporan_piutang(string $month = '', string $year = '', string $customer = '', string $sales = ''): array
 {
     $pdo = db();
     if ($pdo === null) {
@@ -8766,12 +8766,17 @@ function fetch_laporan_piutang(string $month = '', string $year = ''): array
     }
 
     ensure_invoice_payments_table($pdo);
+    $customer = normalize_spaces($customer);
+    $sales = normalize_spaces($sales);
     $invoices = db_all('
         SELECT
             i.nomor_invoice,
             i.tanggal_invoice,
             i.tanggal_pembayaran,
-            COALESCE(i.nama_customer_master, i.nama_laundry_invoice) AS nama_customer,
+            COALESCE(NULLIF(i.nama_laundry_invoice, \'\'), NULLIF(i.nama_customer_invoice, \'\'), NULLIF(i.nama_customer_master, \'\')) AS nama_customer,
+            i.nama_laundry_invoice,
+            i.nama_sales_1,
+            i.nama_sales_2,
             i.no_telepon,
             i.total_harga_jual,
             i.status_pembayaran,
@@ -8785,14 +8790,34 @@ function fetch_laporan_piutang(string $month = '', string $year = ''): array
         WHERE i.status_pembayaran <> \'Lunas\'
     ');
     $filtered = [];
+    $customerOptions = [];
+    $salesOptions = [];
 
     foreach ($invoices ?? [] as $inv) {
         $invNo = $inv['nomor_invoice'] ?? '';
         if ($month !== '' && invoice_month_number($invNo) !== (int)$month) continue;
         if ($year !== '' && invoice_year($invNo) !== $year) continue;
 
+        $laundryName = normalize_spaces((string) ($inv['nama_laundry_invoice'] ?? $inv['nama_customer'] ?? ''));
+        if ($laundryName !== '') {
+            $customerOptions[$laundryName] = $laundryName;
+        }
+        if ($customer !== '' && strcasecmp($laundryName, $customer) !== 0) continue;
+
+        $invoiceSales = array_values(array_filter([
+            normalize_spaces((string) ($inv['nama_sales_1'] ?? '')),
+            normalize_spaces((string) ($inv['nama_sales_2'] ?? '')),
+        ], static fn (string $name): bool => $name !== ''));
+        foreach ($invoiceSales as $salesName) {
+            $salesOptions[$salesName] = $salesName;
+        }
+        if ($sales !== '' && ! in_array(strtolower($sales), array_map('strtolower', $invoiceSales), true)) continue;
+        $inv['nama_sales_display'] = implode(' / ', $invoiceSales);
+
         $filtered[] = $inv;
     }
+    natcasesort($customerOptions);
+    natcasesort($salesOptions);
 
     $aging = [
         '0_30' => ['label' => '0 - 30 Hari', 'items' => [], 'total' => 0],
@@ -8815,6 +8840,7 @@ function fetch_laporan_piutang(string $month = '', string $year = ''): array
 
         $amount = max((float)($invoice['total_harga_jual'] ?? 0) - (float) ($invoice['paid_total'] ?? 0), 0);
         $invoice['days_overdue'] = $days;
+        $invoice['sisa_piutang'] = $amount;
         $total_piutang += $amount;
 
         if ($days <= 30) {
@@ -8840,6 +8866,10 @@ function fetch_laporan_piutang(string $month = '', string $year = ''): array
         'aging' => $aging,
         'overdue' => $overdue,
         'total_piutang' => $total_piutang,
+        'customer_options' => array_values($customerOptions),
+        'sales_options' => array_values($salesOptions),
+        'selected_customer' => $customer,
+        'selected_sales' => $sales,
     ];
 }
 

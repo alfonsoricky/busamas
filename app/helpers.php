@@ -204,6 +204,10 @@ function ensure_activity_logs_table(?PDO $pdo = null): bool
         return false;
     }
 
+    if ($pdo->inTransaction()) {
+        return database_table_exists($pdo, 'activity_logs');
+    }
+
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS `activity_logs` (
             `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -3079,6 +3083,13 @@ function post_invoice_accounting_journal(PDO $pdo, string $kodeInvoice): int
 
 function ensure_invoice_payments_table(PDO $pdo): void
 {
+    if ($pdo->inTransaction()) {
+        if (! database_table_exists($pdo, 'invoice_payments')) {
+            throw new RuntimeException('Tabel invoice_payments belum tersedia.');
+        }
+        return;
+    }
+
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS invoice_payments (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -7411,8 +7422,8 @@ function save_invoice_form(array $postData): array
             $kodeInvoice,
         ]);
 
-        $pdo->commit();
         $journalLines = post_invoice_accounting_journal($pdo, $kodeInvoice);
+        $pdo->commit();
         activity_log($isUpdate ? 'update' : 'insert', 'invoice', $kodeInvoice, ($isUpdate ? 'Update' : 'Tambah') . ' invoice ' . $nomorInvoice, $isUpdate ? $existingInvoice : null, [
             'kode_invoice' => $kodeInvoice,
             'nomor_invoice' => $nomorInvoice,

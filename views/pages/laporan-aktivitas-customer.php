@@ -143,7 +143,7 @@ $statusClass = static function (string $status): string {
                             <th class="text-right whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Jumlah Invoice</th>
                             <th class="text-right whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Total Omzet</th>
                             <th class="text-right whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Sisa Piutang</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold print:hidden" data-sort-type="none">Tindakan</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold">No. WA</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
@@ -179,9 +179,9 @@ $statusClass = static function (string $status): string {
                                 <td class="text-right whitespace-nowrap px-4 py-3 text-stone-700"><?= number_format((int) ($item['jumlah_invoice'] ?? 0), 0, ',', '.') ?></td>
                                 <td class="text-right whitespace-nowrap px-4 py-3 font-semibold text-ink"><?= rupiah($item['total_penjualan'] ?? 0) ?></td>
                                 <td class="text-right whitespace-nowrap px-4 py-3 font-semibold text-coral"><?= rupiah($item['total_piutang'] ?? 0) ?></td>
-                                <td class="whitespace-nowrap px-4 py-3 print:hidden">
+                                <td class="whitespace-nowrap px-4 py-3 text-stone-700">
                                     <?php if ($phone !== ''): ?>
-                                        <a href="https://wa.me/<?= e($phone) ?>" target="_blank" class="inline-flex items-center rounded-md bg-teal-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-teal-800">WhatsApp</a>
+                                        <a href="https://wa.me/<?= e($phone) ?>" target="_blank" class="font-semibold text-brand hover:underline print:text-stone-900 print:no-underline"><?= e($phone) ?></a>
                                     <?php else: ?>
                                         <span class="text-xs text-stone-400">No HP kosong</span>
                                     <?php endif; ?>

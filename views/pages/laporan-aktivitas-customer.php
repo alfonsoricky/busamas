@@ -131,7 +131,7 @@ $statusClass = static function (string $status): string {
 
         <div class="overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm print:rounded-none print:border-stone-400 print:shadow-none">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-stone-200 text-left text-sm print:text-[10px]" <?= $autoExportPdf ? '' : 'data-simple-datatable data-dt-unit="customer" data-dt-empty="Tidak ada customer yang cocok."' ?>>
+                <table class="customer-activity-print-table min-w-full divide-y divide-stone-200 text-left text-sm print:text-[8px]" <?= $autoExportPdf ? '' : 'data-simple-datatable data-dt-unit="customer" data-dt-empty="Tidak ada customer yang cocok."' ?>>
                     <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
                         <tr>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Customer / Laundry</th>
@@ -230,7 +230,74 @@ $statusClass = static function (string $status): string {
         }
 
         table {
+            width: 100% !important;
+            table-layout: fixed;
+            border-collapse: collapse;
             page-break-inside: auto;
+        }
+
+        .customer-activity-print-table th,
+        .customer-activity-print-table td {
+            white-space: normal !important;
+            overflow-wrap: anywhere;
+            word-break: normal;
+            padding: 3px 4px !important;
+            line-height: 1.2;
+            vertical-align: top;
+        }
+
+        .customer-activity-print-table th:nth-child(1),
+        .customer-activity-print-table td:nth-child(1) {
+            width: 17%;
+        }
+
+        .customer-activity-print-table th:nth-child(2),
+        .customer-activity-print-table td:nth-child(2) {
+            width: 10%;
+        }
+
+        .customer-activity-print-table th:nth-child(3),
+        .customer-activity-print-table td:nth-child(3) {
+            width: 14%;
+        }
+
+        .customer-activity-print-table th:nth-child(4),
+        .customer-activity-print-table td:nth-child(4) {
+            width: 8%;
+        }
+
+        .customer-activity-print-table th:nth-child(5),
+        .customer-activity-print-table td:nth-child(5) {
+            width: 7%;
+        }
+
+        .customer-activity-print-table th:nth-child(6),
+        .customer-activity-print-table td:nth-child(6) {
+            width: 12%;
+        }
+
+        .customer-activity-print-table th:nth-child(7),
+        .customer-activity-print-table td:nth-child(7) {
+            width: 6%;
+        }
+
+        .customer-activity-print-table th:nth-child(8),
+        .customer-activity-print-table td:nth-child(8),
+        .customer-activity-print-table th:nth-child(9),
+        .customer-activity-print-table td:nth-child(9) {
+            width: 10%;
+        }
+
+        .customer-activity-print-table th:nth-child(10),
+        .customer-activity-print-table td:nth-child(10) {
+            width: 8%;
+        }
+
+        .customer-activity-print-table span {
+            padding: 0 !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            border: 0 !important;
         }
 
         tr {

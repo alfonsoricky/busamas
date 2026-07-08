@@ -102,6 +102,19 @@
                     Penjualan 2026 (11)
                 </button>
             </form>
+            <form method="post">
+                <input type="hidden" name="action" value="seed-miss-laundry-invoice-469">
+                <button
+                    type="submit"
+                    class="inline-flex items-center justify-center rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:bg-stone-50"
+                    data-confirm-title="Update MISS LAUNDRY?"
+                    data-confirm-message="Seeder ini akan menambahkan master customer MISS LAUNDRY dan menghubungkan invoice 469/BM-INV/VII/2026 ke master tersebut."
+                    data-confirm-ok="Jalankan"
+                    data-confirm-cancel="Batal"
+                >
+                    MISS LAUNDRY 469
+                </button>
+            </form>
             </div>
         </div>
 

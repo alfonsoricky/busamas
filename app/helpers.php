@@ -732,6 +732,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-penjualan-2026-11') {
         $result = run_seed_penjualan_2026_11_update();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-miss-laundry-invoice-469') {
+        $result = run_seed_miss_laundry_invoice_469();
+        $counts = database_table_counts();
     }
 
     return [
@@ -11562,6 +11565,144 @@ function run_seed_penjualan_2026_11_update(): array
         return [
             'ok' => false,
             'message' => 'Seeder PENJUALAN-2026 (11) gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
+function run_seed_miss_laundry_invoice_469(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    $kodeCustomer = 'CST-0097';
+    $nomorInvoice = '469/BM-INV/VII/2026';
+    $logs = [];
+    $statements = 0;
+
+    try {
+        ensure_master_tables($pdo);
+        ensure_invoice_payments_table($pdo);
+        ensure_invoice_cash_date_columns($pdo);
+        ensure_accounting_tables($pdo);
+
+        $pdo->beginTransaction();
+
+        $stmt = $pdo->prepare('SELECT kode_invoice FROM invoices WHERE nomor_invoice = ? LIMIT 1');
+        $stmt->execute([$nomorInvoice]);
+        $kodeInvoice = (string) ($stmt->fetchColumn() ?: '');
+        if ($kodeInvoice === '') {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+
+            return [
+                'ok' => false,
+                'message' => 'Seeder MISS LAUNDRY gagal: invoice ' . $nomorInvoice . ' tidak ditemukan.',
+                'statements' => 0,
+                'counts' => database_table_counts(),
+            ];
+        }
+
+        $stmt = $pdo->prepare('
+            INSERT INTO master_customers
+                (kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, default_discount_persen, jumlah_alias, jumlah_invoice, alias, alamat_lain, is_active)
+            VALUES
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            ON DUPLICATE KEY UPDATE
+                nama_customer = VALUES(nama_customer),
+                nama_laundry = VALUES(nama_laundry),
+                no_telepon = VALUES(no_telepon),
+                alamat_default = VALUES(alamat_default),
+                default_discount_persen = VALUES(default_discount_persen),
+                jumlah_alias = VALUES(jumlah_alias),
+                alias = VALUES(alias),
+                alamat_lain = VALUES(alamat_lain),
+                is_active = 1,
+                updated_at = CURRENT_TIMESTAMP
+        ');
+        $stmt->execute([
+            $kodeCustomer,
+            'MISS LAUNDRY',
+            'MISS LAUNDRY',
+            '0813 3713 6407',
+            'Jl. Raya Sibang Kaja No 59 Abian Semal',
+            10,
+            1,
+            1,
+            'MISS LAUNDRY',
+            'Jl. Raya Sibang Kaja No 59 Abian Semal',
+        ]);
+        $statements += $stmt->rowCount();
+        $logs[] = 'Master customer MISS LAUNDRY disiapkan sebagai ' . $kodeCustomer . '.';
+
+        $stmt = $pdo->prepare('
+            UPDATE invoices
+            SET kode_customer = ?,
+                nama_customer_master = ?,
+                nama_customer_invoice = ?,
+                nama_laundry_invoice = ?,
+                no_telepon = ?,
+                alamat = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE kode_invoice = ? OR nomor_invoice = ?
+        ');
+        $stmt->execute([
+            $kodeCustomer,
+            'MISS LAUNDRY',
+            'MISS LAUNDRY',
+            'MISS LAUNDRY',
+            '0813 3713 6407',
+            'Jl. Raya Sibang Kaja No 59 Abian Semal',
+            $kodeInvoice,
+            $nomorInvoice,
+        ]);
+        $statements += $stmt->rowCount();
+        $logs[] = 'Invoice ' . $nomorInvoice . ' dihubungkan ke ' . $kodeCustomer . '.';
+
+        $stmt = $pdo->prepare('UPDATE invoice_items SET kode_customer = ? WHERE kode_invoice = ? OR nomor_invoice = ?');
+        $stmt->execute([$kodeCustomer, $kodeInvoice, $nomorInvoice]);
+        $statements += $stmt->rowCount();
+        $logs[] = 'Detail barang invoice ' . $nomorInvoice . ' diperbarui: ' . $stmt->rowCount() . ' baris.';
+
+        $stmt = $pdo->prepare('UPDATE master_customers SET jumlah_invoice = (SELECT COUNT(*) FROM invoices WHERE kode_customer = ?), updated_at = CURRENT_TIMESTAMP WHERE kode_customer = ?');
+        $stmt->execute([$kodeCustomer, $kodeCustomer]);
+        $statements += $stmt->rowCount();
+
+        $journalLines = post_invoice_accounting_journal($pdo, $kodeInvoice);
+        $pdo->commit();
+        $logs[] = 'Jurnal invoice diposting ulang: ' . $journalLines . ' baris.';
+
+        activity_log('seed', 'master_customers', 'miss-laundry-469', 'Tambah master MISS LAUNDRY dan hubungkan invoice ' . $nomorInvoice, null, [
+            'kode_customer' => $kodeCustomer,
+            'nomor_invoice' => $nomorInvoice,
+            'kode_invoice' => $kodeInvoice,
+            'journal_lines' => $journalLines,
+        ]);
+
+        return [
+            'ok' => true,
+            'message' => 'Seeder MISS LAUNDRY invoice 469 berhasil dijalankan.',
+            'statements' => $statements + $journalLines,
+            'counts' => database_table_counts(),
+            'output' => implode("\n", $logs),
+        ];
+    } catch (Throwable $exception) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+
+        return [
+            'ok' => false,
+            'message' => 'Seeder MISS LAUNDRY gagal: ' . $exception->getMessage(),
             'statements' => 0,
             'counts' => database_table_counts(),
         ];

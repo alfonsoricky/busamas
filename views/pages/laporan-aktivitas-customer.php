@@ -6,6 +6,13 @@ $statusOptions = $reportData['status_options'] ?? [];
 $selectedSales = $reportData['selected_sales'] ?? ($_GET['sales'] ?? '');
 $selectedStatus = $reportData['selected_status'] ?? ($_GET['status'] ?? '');
 $asOfDate = $reportData['as_of_date'] ?? ($_GET['as_of'] ?? date('Y-m-d'));
+$autoExportPdf = ($_GET['export'] ?? '') === 'pdf';
+$exportUrl = url('/laporan/aktivitas-customer') . '?' . http_build_query(array_filter([
+    'sales' => $selectedSales,
+    'status' => $selectedStatus,
+    'as_of' => $asOfDate,
+    'export' => 'pdf',
+], static fn ($value): bool => (string) $value !== ''));
 
 $formatDate = static function (?string $date): string {
     if (! $date) {
@@ -26,8 +33,8 @@ $statusClass = static function (string $status): string {
 };
 ?>
 
-<section class="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-    <div class="mb-4">
+<section class="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 print:max-w-none print:px-0 print:py-0">
+    <div class="mb-4 print:hidden">
         <a href="<?= e(url('/laporan')) ?>" class="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline">
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -36,15 +43,23 @@ $statusClass = static function (string $status): string {
         </a>
     </div>
 
-    <div class="mb-8">
-        <p class="mb-3 text-sm font-semibold uppercase tracking-wide text-brand">Laporan Sales</p>
-        <h1 class="text-3xl font-bold text-ink sm:text-4xl">Aktivitas Customer</h1>
-        <p class="mt-2 max-w-3xl leading-7 text-stone-600">
-            Melihat customer terakhir transaksi kapan, siapa sales yang memegang, nilai transaksi, dan customer yang perlu difollow up.
-        </p>
+    <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between print:mb-4">
+        <div>
+            <p class="mb-3 text-sm font-semibold uppercase tracking-wide text-brand print:text-xs print:text-stone-600">Laporan Sales</p>
+            <h1 class="text-3xl font-bold text-ink sm:text-4xl print:text-2xl">Aktivitas Customer</h1>
+            <p class="mt-2 max-w-3xl leading-7 text-stone-600 print:text-sm">
+                Melihat customer terakhir transaksi kapan, siapa sales yang memegang, nilai transaksi, dan customer yang perlu difollow up.
+            </p>
+            <p class="mt-2 hidden text-xs text-stone-500 print:block">
+                Filter: Sales <?= e($selectedSales !== '' ? $selectedSales : 'Semua') ?> | Status <?= e($selectedStatus !== '' ? ($statusOptions[$selectedStatus] ?? $selectedStatus) : 'Semua') ?> | Per tanggal <?= e($formatDate($asOfDate)) ?>
+            </p>
+        </div>
+        <a href="<?= e($exportUrl) ?>" target="_blank" rel="noopener" class="inline-flex items-center justify-center rounded-lg bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800 print:hidden">
+            Download PDF
+        </a>
     </div>
 
-    <form method="GET" action="<?= e(url('/laporan/aktivitas-customer')) ?>" class="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
+    <form method="GET" action="<?= e(url('/laporan/aktivitas-customer')) ?>" class="mb-6 flex flex-wrap items-end gap-3 rounded-xl border border-stone-200 bg-white p-4 shadow-sm print:hidden">
         <div class="w-full sm:w-auto">
             <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500">Sales</label>
             <select name="sales" class="w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white sm:w-56">
@@ -114,9 +129,9 @@ $statusClass = static function (string $status): string {
             </div>
         </div>
 
-        <div class="overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm">
+        <div class="overflow-hidden rounded-lg border border-stone-200 bg-white shadow-sm print:rounded-none print:border-stone-400 print:shadow-none">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-stone-200 text-left text-sm" data-simple-datatable data-dt-unit="customer" data-dt-empty="Tidak ada customer yang cocok.">
+                <table class="min-w-full divide-y divide-stone-200 text-left text-sm print:text-[10px]" <?= $autoExportPdf ? '' : 'data-simple-datatable data-dt-unit="customer" data-dt-empty="Tidak ada customer yang cocok."' ?>>
                     <thead class="bg-stone-100 text-xs uppercase tracking-wide text-stone-600">
                         <tr>
                             <th class="whitespace-nowrap px-4 py-3 font-semibold">Customer / Laundry</th>
@@ -128,7 +143,7 @@ $statusClass = static function (string $status): string {
                             <th class="text-right whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Jumlah Invoice</th>
                             <th class="text-right whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Total Omzet</th>
                             <th class="text-right whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="number">Sisa Piutang</th>
-                            <th class="whitespace-nowrap px-4 py-3 font-semibold" data-sort-type="none">Tindakan</th>
+                            <th class="whitespace-nowrap px-4 py-3 font-semibold print:hidden" data-sort-type="none">Tindakan</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-stone-100">
@@ -164,7 +179,7 @@ $statusClass = static function (string $status): string {
                                 <td class="text-right whitespace-nowrap px-4 py-3 text-stone-700"><?= number_format((int) ($item['jumlah_invoice'] ?? 0), 0, ',', '.') ?></td>
                                 <td class="text-right whitespace-nowrap px-4 py-3 font-semibold text-ink"><?= rupiah($item['total_penjualan'] ?? 0) ?></td>
                                 <td class="text-right whitespace-nowrap px-4 py-3 font-semibold text-coral"><?= rupiah($item['total_piutang'] ?? 0) ?></td>
-                                <td class="whitespace-nowrap px-4 py-3">
+                                <td class="whitespace-nowrap px-4 py-3 print:hidden">
                                     <?php if ($phone !== ''): ?>
                                         <a href="https://wa.me/<?= e($phone) ?>" target="_blank" class="inline-flex items-center rounded-md bg-teal-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-teal-800">WhatsApp</a>
                                     <?php else: ?>
@@ -178,6 +193,49 @@ $statusClass = static function (string $status): string {
             </div>
         </div>
 
-        <?php require dirname(__DIR__) . '/partials/simple-datatable.php'; ?>
+        <?php if (! $autoExportPdf): ?>
+            <?php require dirname(__DIR__) . '/partials/simple-datatable.php'; ?>
+        <?php endif; ?>
+    <?php endif; ?>
+
+    <?php if ($autoExportPdf): ?>
+        <script>
+            window.addEventListener('load', () => {
+                document.title = <?= json_encode('Follow Up Customer ' . ($selectedSales !== '' ? $selectedSales . ' ' : '') . $formatDate($asOfDate), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+                setTimeout(() => window.print(), 250);
+            });
+        </script>
     <?php endif; ?>
 </section>
+
+<style>
+    @media print {
+        @page {
+            size: A4 landscape;
+            margin: 10mm;
+        }
+
+        body {
+            background: #fff !important;
+        }
+
+        header,
+        footer {
+            display: none !important;
+        }
+
+        main,
+        section {
+            margin: 0 !important;
+        }
+
+        table {
+            page-break-inside: auto;
+        }
+
+        tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+        }
+    }
+</style>

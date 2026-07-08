@@ -85,6 +85,25 @@
             </div>
         </a>
 
+        <!-- Laporan Aktivitas Customer -->
+        <a href="<?= e(url('/laporan/aktivitas-customer')) ?>" class="group block rounded-xl border border-stone-200 bg-white p-6 shadow-sm transition hover:border-brand hover:shadow-md">
+            <div class="flex h-12 w-12 items-center justify-center rounded-lg bg-teal-50 text-brand transition group-hover:bg-brand group-hover:text-white">
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h7.5m-10.5 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m13.5 4.5a1.5 1.5 0 0 1 3 0m-3 0a1.5 1.5 0 0 0 3 0m-3 0h1.875c.621 0 1.125-.504 1.125-1.125V14.25m-16.5 0h16.5m-16.5 0V6.375c0-.621.504-1.125 1.125-1.125h10.5c.621 0 1.125.504 1.125 1.125v7.875m4.875 0V9.75a2.25 2.25 0 0 0-2.25-2.25h-3.75" />
+                </svg>
+            </div>
+            <h2 class="mt-4 text-lg font-bold text-ink group-hover:text-brand">Aktivitas Customer</h2>
+            <p class="mt-2 text-sm leading-6 text-stone-500">
+                Melihat tanggal transaksi terakhir customer, sales yang memegang, status follow up, omzet, dan sisa piutang.
+            </p>
+            <div class="mt-4 flex items-center gap-1 text-sm font-semibold text-brand">
+                Buka Laporan
+                <svg class="h-4 w-4 transition group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                </svg>
+            </div>
+        </a>
+
         <!-- Laporan Profit -->
         <a href="<?= e(url('/laporan/profit')) ?>" class="group block rounded-xl border border-stone-200 bg-white p-6 shadow-sm transition hover:border-brand hover:shadow-md">
             <div class="flex h-12 w-12 items-center justify-center rounded-lg bg-teal-50 text-brand transition group-hover:bg-brand group-hover:text-white">

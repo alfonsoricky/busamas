@@ -669,6 +669,13 @@ $routes = [
             'reportData' => fetch_laporan_piutang($_GET['month'] ?? '', $_GET['year'] ?? date('Y'), $_GET['customer'] ?? '', $_GET['sales'] ?? ''),
         ],
     ],
+    '/laporan/aktivitas-customer' => [
+        'view' => 'pages/laporan-aktivitas-customer',
+        'title' => 'Laporan Aktivitas Customer',
+        'data' => fn (): array => [
+            'reportData' => fetch_laporan_aktivitas_customer($_GET['sales'] ?? '', $_GET['status'] ?? '', $_GET['as_of'] ?? date('Y-m-d')),
+        ],
+    ],
     '/laporan/profit' => [
         'view' => 'pages/laporan-profit',
         'title' => 'Laporan Analisis Profit',

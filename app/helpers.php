@@ -8873,6 +8873,197 @@ function fetch_laporan_piutang(string $month = '', string $year = '', string $cu
     ];
 }
 
+function fetch_laporan_aktivitas_customer(string $sales = '', string $status = '', string $asOfDate = ''): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return ['ok' => false, 'error' => 'Koneksi database gagal.'];
+    }
+
+    ensure_invoice_payments_table($pdo);
+
+    $sales = normalize_spaces($sales);
+    $status = normalize_spaces($status);
+    $asOfDate = date_input_value($asOfDate) ?: date('Y-m-d');
+    $asOfTs = strtotime($asOfDate) ?: time();
+
+    $rows = db_all('
+        SELECT
+            i.kode_invoice,
+            i.nomor_invoice,
+            i.tanggal_invoice,
+            i.kode_customer,
+            COALESCE(NULLIF(i.nama_laundry_invoice, \'\'), NULLIF(i.nama_customer_invoice, \'\'), NULLIF(i.nama_customer_master, \'\')) AS nama_customer,
+            i.nama_sales_1,
+            i.nama_sales_2,
+            i.no_telepon,
+            i.total_harga_jual,
+            i.status_pembayaran,
+            COALESCE(p.paid_total, 0) AS paid_total
+        FROM invoices i
+        LEFT JOIN (
+            SELECT kode_invoice, SUM(jumlah_pembayaran) AS paid_total
+            FROM invoice_payments
+            GROUP BY kode_invoice
+        ) p ON p.kode_invoice = i.kode_invoice
+    ');
+
+    $customers = [];
+    $salesOptions = [];
+
+    foreach ($rows ?? [] as $row) {
+        $invoiceSales = array_values(array_filter([
+            normalize_spaces((string) ($row['nama_sales_1'] ?? '')),
+            normalize_spaces((string) ($row['nama_sales_2'] ?? '')),
+        ], static fn (string $name): bool => $name !== ''));
+
+        foreach ($invoiceSales as $salesName) {
+            $salesOptions[$salesName] = $salesName;
+        }
+
+        if ($sales !== '' && ! in_array(strtolower($sales), array_map('strtolower', $invoiceSales), true)) {
+            continue;
+        }
+
+        $customerName = normalize_spaces((string) ($row['nama_customer'] ?? 'Unknown Customer'));
+        $customerKey = normalize_spaces((string) ($row['kode_customer'] ?? ''));
+        if ($customerKey === '') {
+            $customerKey = strtolower($customerName);
+        }
+
+        if (! isset($customers[$customerKey])) {
+            $customers[$customerKey] = [
+                'kode_customer' => $row['kode_customer'] ?? '',
+                'nama_customer' => $customerName,
+                'jumlah_invoice' => 0,
+                'total_penjualan' => 0.0,
+                'total_piutang' => 0.0,
+                'sales_names' => [],
+                'last_timestamp' => 0,
+                'last_sequence' => 0,
+                'last_invoice' => null,
+            ];
+        }
+
+        $totalInvoice = (float) ($row['total_harga_jual'] ?? 0);
+        $paidTotal = (float) ($row['paid_total'] ?? 0);
+        $invoiceDate = date_input_value((string) ($row['tanggal_invoice'] ?? ''));
+        $invoiceTs = $invoiceDate !== '' ? (strtotime($invoiceDate) ?: 0) : 0;
+        $invoiceSeq = invoice_sequence_number((string) ($row['nomor_invoice'] ?? ''));
+
+        $customers[$customerKey]['jumlah_invoice']++;
+        $customers[$customerKey]['total_penjualan'] += $totalInvoice;
+        $customers[$customerKey]['total_piutang'] += max($totalInvoice - $paidTotal, 0);
+
+        foreach ($invoiceSales as $salesName) {
+            $customers[$customerKey]['sales_names'][$salesName] = $salesName;
+        }
+
+        if ($invoiceTs > $customers[$customerKey]['last_timestamp'] || ($invoiceTs === $customers[$customerKey]['last_timestamp'] && $invoiceSeq >= $customers[$customerKey]['last_sequence'])) {
+            $customers[$customerKey]['last_timestamp'] = $invoiceTs;
+            $customers[$customerKey]['last_sequence'] = $invoiceSeq;
+            $customers[$customerKey]['last_invoice'] = [
+                'kode_invoice' => $row['kode_invoice'] ?? '',
+                'nomor_invoice' => $row['nomor_invoice'] ?? '',
+                'tanggal_invoice_raw' => $row['tanggal_invoice'] ?? '',
+                'tanggal_invoice' => $invoiceDate,
+                'status_pembayaran' => $row['status_pembayaran'] ?? '',
+                'total_harga_jual' => $totalInvoice,
+                'paid_total' => $paidTotal,
+                'sisa_piutang' => max($totalInvoice - $paidTotal, 0),
+                'no_telepon' => $row['no_telepon'] ?? '',
+                'sales_display' => implode(' / ', $invoiceSales),
+            ];
+        }
+    }
+
+    natcasesort($salesOptions);
+
+    $summary = [
+        'total_customer' => 0,
+        'aktif' => 0,
+        'follow_up' => 0,
+        'dingin' => 0,
+        'dormant' => 0,
+        'total_penjualan' => 0.0,
+        'total_piutang' => 0.0,
+    ];
+
+    $items = [];
+    foreach ($customers as $customer) {
+        $lastInvoice = $customer['last_invoice'] ?? null;
+        $daysSince = null;
+        if (($customer['last_timestamp'] ?? 0) > 0) {
+            $daysSince = max(0, (int) floor(($asOfTs - (int) $customer['last_timestamp']) / 86400));
+        }
+
+        if ($daysSince === null || $daysSince > 90) {
+            $statusKey = 'dormant';
+            $statusLabel = 'Dormant > 90 Hari';
+        } elseif ($daysSince > 60) {
+            $statusKey = 'dingin';
+            $statusLabel = 'Dingin 61-90 Hari';
+        } elseif ($daysSince > 30) {
+            $statusKey = 'follow_up';
+            $statusLabel = 'Follow Up 31-60 Hari';
+        } else {
+            $statusKey = 'aktif';
+            $statusLabel = 'Aktif 0-30 Hari';
+        }
+
+        if ($status !== '' && $status !== $statusKey) {
+            continue;
+        }
+
+        $salesNames = array_values($customer['sales_names']);
+        natcasesort($salesNames);
+
+        $summary['total_customer']++;
+        $summary[$statusKey]++;
+        $summary['total_penjualan'] += (float) ($customer['total_penjualan'] ?? 0);
+        $summary['total_piutang'] += (float) ($customer['total_piutang'] ?? 0);
+
+        $items[] = [
+            'kode_customer' => $customer['kode_customer'] ?? '',
+            'nama_customer' => $customer['nama_customer'] ?? '',
+            'sales_display' => implode(' / ', $salesNames),
+            'last_sales_display' => $lastInvoice['sales_display'] ?? '',
+            'last_invoice' => $lastInvoice,
+            'days_since_last_transaction' => $daysSince,
+            'activity_status' => $statusKey,
+            'activity_label' => $statusLabel,
+            'jumlah_invoice' => (int) ($customer['jumlah_invoice'] ?? 0),
+            'total_penjualan' => (float) ($customer['total_penjualan'] ?? 0),
+            'total_piutang' => (float) ($customer['total_piutang'] ?? 0),
+        ];
+    }
+
+    usort($items, static function (array $a, array $b): int {
+        $left = $a['days_since_last_transaction'];
+        $right = $b['days_since_last_transaction'];
+        $leftValue = $left === null ? PHP_INT_MAX : (int) $left;
+        $rightValue = $right === null ? PHP_INT_MAX : (int) $right;
+
+        return $rightValue <=> $leftValue;
+    });
+
+    return [
+        'ok' => true,
+        'items' => $items,
+        'summary' => $summary,
+        'sales_options' => array_values($salesOptions),
+        'selected_sales' => $sales,
+        'selected_status' => $status,
+        'as_of_date' => $asOfDate,
+        'status_options' => [
+            'aktif' => 'Aktif 0-30 Hari',
+            'follow_up' => 'Follow Up 31-60 Hari',
+            'dingin' => 'Dingin 61-90 Hari',
+            'dormant' => 'Dormant > 90 Hari',
+        ],
+    ];
+}
+
 function fetch_laporan_komisi(string $month = '', string $year = '', string $status = ''): array
 {
     $pdo = db();

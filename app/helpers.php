@@ -6927,12 +6927,48 @@ function fetch_invoice_form_options(string $code = ''): array
         }
     }
 
-    $customers = db_all('SELECT kode_customer, nama_customer, nama_laundry, no_telepon, alamat_default, default_discount_persen FROM master_customers ORDER BY nama_laundry') ?? [];
+    $customers = db_all("
+        SELECT
+            mc.kode_customer,
+            mc.nama_customer,
+            mc.nama_laundry,
+            mc.no_telepon,
+            mc.alamat_default,
+            mc.default_discount_persen,
+            (
+                SELECT i.kode_sales_1
+                FROM invoices i
+                WHERE i.kode_customer = mc.kode_customer
+                  AND i.kode_sales_1 IS NOT NULL
+                  AND i.kode_sales_1 <> ''
+                ORDER BY i.id DESC
+                LIMIT 1
+            ) AS default_kode_sales_1,
+            (
+                SELECT i.kode_sales_2
+                FROM invoices i
+                WHERE i.kode_customer = mc.kode_customer
+                  AND i.kode_sales_2 IS NOT NULL
+                  AND i.kode_sales_2 <> ''
+                ORDER BY i.id DESC
+                LIMIT 1
+            ) AS default_kode_sales_2
+        FROM master_customers mc
+        ORDER BY mc.nama_laundry
+    ") ?? [];
     $sales = db_all('SELECT kode_sales, nama_sales FROM master_sales ORDER BY nama_sales') ?? [];
     $barang = db_all('SELECT kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default FROM master_barang ORDER BY nama_barang, ukuran') ?? [];
+    $today = date('Y-m-d');
+    $defaultNumbers = default_invoice_number_fields($pdo instanceof PDO ? $pdo : null, $today);
     $edit = [
         'mode' => 'create',
-        'invoice' => null,
+        'invoice' => [
+            'nomor_invoice' => $defaultNumbers['nomor_invoice'],
+            'nomor_surat_jalan' => $defaultNumbers['nomor_surat_jalan'],
+            'tanggal_invoice_input' => $today,
+            'tanggal_surat_jalan_input' => $today,
+        ],
+        'auto_number' => $defaultNumbers,
         'items' => [],
     ];
 
@@ -7803,6 +7839,56 @@ function roman_month_to_number(string $roman): int
         'XI' => 11,
         'XII' => 12,
     ][$roman] ?? 0;
+}
+
+function month_number_to_roman(int $month): string
+{
+    return [
+        1 => 'I',
+        2 => 'II',
+        3 => 'III',
+        4 => 'IV',
+        5 => 'V',
+        6 => 'VI',
+        7 => 'VII',
+        8 => 'VIII',
+        9 => 'IX',
+        10 => 'X',
+        11 => 'XI',
+        12 => 'XII',
+    ][$month] ?? '';
+}
+
+function next_invoice_sequence(PDO $pdo): int
+{
+    $numbers = $pdo->query("SELECT nomor_invoice FROM invoices WHERE nomor_invoice LIKE '%/BM-INV/%'")->fetchAll(PDO::FETCH_COLUMN) ?: [];
+    $max = 0;
+
+    foreach ($numbers as $number) {
+        if (preg_match('/^0*(\d+)\/BM-INV\//i', (string) $number, $match) === 1) {
+            $max = max($max, (int) $match[1]);
+        }
+    }
+
+    return $max + 1;
+}
+
+function default_invoice_number_fields(?PDO $pdo, string $date): array
+{
+    $timestamp = strtotime($date) ?: time();
+    try {
+        $sequence = $pdo instanceof PDO ? next_invoice_sequence($pdo) : 1;
+    } catch (Throwable) {
+        $sequence = 1;
+    }
+    $monthRoman = month_number_to_roman((int) date('n', $timestamp));
+    $year = date('Y', $timestamp);
+
+    return [
+        'sequence' => $sequence,
+        'nomor_invoice' => $sequence . '/BM-INV/' . $monthRoman . '/' . $year,
+        'nomor_surat_jalan' => $sequence . '/CA-MURYATECH/SJ/' . $monthRoman . '/' . $year,
+    ];
 }
 
 function read_csv_rows(string $path): array

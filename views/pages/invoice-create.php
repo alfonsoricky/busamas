@@ -83,15 +83,15 @@
                             <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                                 <label class="block">
                                     <span class="mb-2 block text-sm font-semibold text-stone-700">Nomor Invoice <span class="text-rose-500">*</span></span>
-                                    <input name="nomor_invoice" value="<?= e((string) ($editInvoice['nomor_invoice'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                    <input name="nomor_invoice" id="nomor-invoice" value="<?= e((string) ($editInvoice['nomor_invoice'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                 </label>
                                 <label class="block">
                                     <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Invoice <span class="text-rose-500">*</span></span>
-                                    <input type="date" name="tanggal_invoice" value="<?= e((string) ($editInvoice['tanggal_invoice_input'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                    <input type="date" name="tanggal_invoice" id="tanggal-invoice" value="<?= e((string) ($editInvoice['tanggal_invoice_input'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                 </label>
                                 <label class="block">
                                     <span class="mb-2 block text-sm font-semibold text-stone-700">Nomor Surat Jalan</span>
-                                    <input name="nomor_surat_jalan" value="<?= e((string) ($editInvoice['nomor_surat_jalan'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                    <input name="nomor_surat_jalan" id="nomor-surat-jalan" value="<?= e((string) ($editInvoice['nomor_surat_jalan'] ?? '')) ?>" class="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                 </label>
                                 <label class="block">
                                     <span class="mb-2 block text-sm font-semibold text-stone-700">Tanggal Surat Jalan</span>
@@ -120,6 +120,8 @@
                                                 data-phone="<?= e($customer['no_telepon'] ?? '') ?>"
                                                 data-address="<?= e($customer['alamat_default'] ?? '') ?>"
                                                 data-discount="<?= e(clean_decimal($customer['default_discount_persen'] ?? 0, 4)) ?>"
+                                                data-sales-1="<?= e($customer['default_kode_sales_1'] ?? '') ?>"
+                                                data-sales-2="<?= e($customer['default_kode_sales_2'] ?? '') ?>"
                                                 <?= $selectedCustomer ? 'selected' : '' ?>
                                             >
                                                 <?= e(($customer['nama_laundry'] ?? '') . ' - ' . ($customer['kode_customer'] ?? '')) ?>
@@ -141,7 +143,7 @@
                                 </label>
                                 <label class="block">
                                     <span class="mb-2 block text-sm font-semibold text-stone-700">Nama Sales 1</span>
-                                    <select name="kode_sales_1" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                    <select name="kode_sales_1" id="sales-1-select" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                         <option value="">Pilih sales</option>
                                         <?php foreach ($invoiceForm['sales'] as $sales): ?>
                                             <option value="<?= e($sales['kode_sales'] ?? '') ?>" <?= (string) ($sales['kode_sales'] ?? '') === (string) ($editInvoice['kode_sales_1'] ?? '') ? 'selected' : '' ?>><?= e($sales['nama_sales'] ?? '') ?></option>
@@ -150,7 +152,7 @@
                                 </label>
                                 <label class="block">
                                     <span class="mb-2 block text-sm font-semibold text-stone-700">Nama Sales 2</span>
-                                    <select name="kode_sales_2" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
+                                    <select name="kode_sales_2" id="sales-2-select" class="w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20">
                                         <option value="">Pilih sales</option>
                                         <?php foreach ($invoiceForm['sales'] as $sales): ?>
                                             <option value="<?= e($sales['kode_sales'] ?? '') ?>" <?= (string) ($sales['kode_sales'] ?? '') === (string) ($editInvoice['kode_sales_2'] ?? '') ? 'selected' : '' ?>><?= e($sales['nama_sales'] ?? '') ?></option>
@@ -550,12 +552,19 @@
         <script>
             const barangOptions = <?= json_encode($invoiceForm['barang'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
             const initialInvoiceItems = <?= json_encode($editItems, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+            const isUpdateMode = <?= json_encode($isUpdate) ?>;
+            const autoInvoiceNumber = <?= json_encode($edit['auto_number'] ?? null, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
             const itemRows = document.querySelector('#item-rows');
             const addItemButton = document.querySelector('#add-item');
+            const nomorInvoiceInput = document.querySelector('#nomor-invoice');
+            const tanggalInvoiceInput = document.querySelector('#tanggal-invoice');
+            const nomorSuratJalanInput = document.querySelector('#nomor-surat-jalan');
             const customerSelect = document.querySelector('#customer-select');
             const customerName = document.querySelector('#customer-name');
             const customerPhone = document.querySelector('#customer-phone');
             const customerAddress = document.querySelector('#customer-address');
+            const sales1Select = document.querySelector('#sales-1-select');
+            const sales2Select = document.querySelector('#sales-2-select');
             const hargaNormal = document.querySelector('#harga-normal');
             const discountPercent = document.querySelector('#discount-percent');
             const discountAmount = document.querySelector('#discount-amount');
@@ -682,6 +691,41 @@
                     .replaceAll('>', '&gt;')
                     .replaceAll('"', '&quot;')
                     .replaceAll("'", '&#039;');
+            }
+
+            function monthNumberToRoman(month) {
+                return {
+                    1: 'I',
+                    2: 'II',
+                    3: 'III',
+                    4: 'IV',
+                    5: 'V',
+                    6: 'VI',
+                    7: 'VII',
+                    8: 'VIII',
+                    9: 'IX',
+                    10: 'X',
+                    11: 'XI',
+                    12: 'XII',
+                }[month] || '';
+            }
+
+            function refreshAutoInvoiceNumbers() {
+                if (isUpdateMode || !autoInvoiceNumber || !tanggalInvoiceInput?.value) {
+                    return;
+                }
+
+                const date = new Date(`${tanggalInvoiceInput.value}T00:00:00`);
+                if (Number.isNaN(date.getTime())) {
+                    return;
+                }
+
+                const sequence = autoInvoiceNumber.sequence || 1;
+                const monthRoman = monthNumberToRoman(date.getMonth() + 1);
+                const year = date.getFullYear();
+
+                nomorInvoiceInput.value = `${sequence}/BM-INV/${monthRoman}/${year}`;
+                nomorSuratJalanInput.value = `${sequence}/CA-MURYATECH/SJ/${monthRoman}/${year}`;
             }
 
             function updateSummarySidebar() {
@@ -1037,9 +1081,12 @@
                 customerPhone.value = selected.dataset.phone || '';
                 customerAddress.value = selected.dataset.address || '';
                 discountPercent.value = selected.dataset.discount || '';
+                sales1Select.value = selected.dataset.sales1 || '';
+                sales2Select.value = selected.dataset.sales2 || '';
                 recalculateSummary();
             });
 
+            tanggalInvoiceInput?.addEventListener('change', refreshAutoInvoiceNumbers);
             addItemButton.addEventListener('click', addItemRow);
             discountPercent.addEventListener('input', recalculateSummary);
             statusPembayaran.addEventListener('change', togglePaymentFields);

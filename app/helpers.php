@@ -6927,6 +6927,33 @@ function fetch_invoice_form_options(string $code = ''): array
         }
     }
 
+    $detail = null;
+    $currentCustomerCode = '';
+    $currentSalesCodes = [];
+    $currentBarangCodes = [];
+
+    if (trim($code) !== '') {
+        $detail = fetch_invoice_detail($code);
+        if (($detail['ok'] ?? false) && is_array($detail['invoice'] ?? null)) {
+            $invoice = $detail['invoice'];
+            $currentCustomerCode = (string) ($invoice['kode_customer'] ?? '');
+            $currentSalesCodes = array_values(array_unique(array_filter([
+                (string) ($invoice['kode_sales_1'] ?? ''),
+                (string) ($invoice['kode_sales_2'] ?? ''),
+            ])));
+            $currentBarangCodes = array_values(array_unique(array_filter(array_map(
+                static fn (array $item): string => (string) ($item['kode_barang'] ?? ''),
+                $detail['items'] ?? []
+            ))));
+        }
+    }
+
+    $customerWhere = 'mc.is_active = 1';
+    $customerParams = [];
+    if ($currentCustomerCode !== '') {
+        $customerWhere .= ' OR mc.kode_customer = :current_customer_code';
+        $customerParams['current_customer_code'] = $currentCustomerCode;
+    }
     $customers = db_all("
         SELECT
             mc.kode_customer,
@@ -6954,10 +6981,27 @@ function fetch_invoice_form_options(string $code = ''): array
                 LIMIT 1
             ) AS default_kode_sales_2
         FROM master_customers mc
+        WHERE {$customerWhere}
         ORDER BY mc.nama_laundry
-    ") ?? [];
-    $sales = db_all('SELECT kode_sales, nama_sales FROM master_sales ORDER BY nama_sales') ?? [];
-    $barang = db_all('SELECT kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default FROM master_barang ORDER BY nama_barang, ukuran') ?? [];
+    ", $customerParams) ?? [];
+
+    $salesWhere = 'is_active = 1';
+    $salesParams = [];
+    foreach ($currentSalesCodes as $idx => $salesCode) {
+        $param = 'current_sales_' . $idx;
+        $salesWhere .= " OR kode_sales = :{$param}";
+        $salesParams[$param] = $salesCode;
+    }
+    $sales = db_all("SELECT kode_sales, nama_sales FROM master_sales WHERE {$salesWhere} ORDER BY nama_sales", $salesParams) ?? [];
+
+    $barangWhere = 'is_active = 1';
+    $barangParams = [];
+    foreach ($currentBarangCodes as $idx => $barangCode) {
+        $param = 'current_barang_' . $idx;
+        $barangWhere .= " OR kode_barang = :{$param}";
+        $barangParams[$param] = $barangCode;
+    }
+    $barang = db_all("SELECT kode_barang, nama_barang, ukuran, isi_default, satuan_default, harga_default FROM master_barang WHERE {$barangWhere} ORDER BY nama_barang, ukuran", $barangParams) ?? [];
     $today = date('Y-m-d');
     $defaultNumbers = default_invoice_number_fields($pdo instanceof PDO ? $pdo : null, $today);
     $edit = [
@@ -6972,9 +7016,7 @@ function fetch_invoice_form_options(string $code = ''): array
         'items' => [],
     ];
 
-    if (trim($code) !== '') {
-        $detail = fetch_invoice_detail($code);
-
+    if ($detail !== null) {
         if (($detail['ok'] ?? false) && is_array($detail['invoice'] ?? null)) {
             $invoice = $detail['invoice'];
             $paymentTotals = $pdo instanceof PDO

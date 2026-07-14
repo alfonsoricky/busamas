@@ -6891,7 +6891,8 @@ function fetch_invoice_detail(string $code): array
     }
 
     $subtotal = array_sum(array_map(static fn (array $item): float => (float) ($item['total'] ?? 0), $items));
-    $discount = 0;
+    $discount = (float) ($invoice['discount_amount'] ?? 0);
+    $discountPercent = (float) ($invoice['discount_persen'] ?? 0);
     $total = $subtotal - $discount;
     $sourceTotals = invoice_totals_from_local_file((string) ($invoice['file_invoice'] ?? ''));
 
@@ -6908,6 +6909,7 @@ function fetch_invoice_detail(string $code): array
         'summary' => [
             'subtotal' => $subtotal,
             'discount' => $discount,
+            'discount_percent' => $discountPercent,
             'total' => $total,
             'terbilang' => ucwords(normalize_spaces(number_to_indonesian_words((int) $total))) . ' Rupiah',
         ],

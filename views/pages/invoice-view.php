@@ -10,6 +10,11 @@
             $items = $invoiceDetail['items'];
             $summary = $invoiceDetail['summary'];
             $printDate = $invoice['tanggal_invoice'] ?: '';
+            $discountPercent = (float) ($summary['discount_percent'] ?? $invoice['discount_persen'] ?? 0);
+            $discountLabel = 'Disc.';
+            if ($discountPercent > 0) {
+                $discountLabel .= ' (' . rtrim(rtrim(number_format($discountPercent, 2, ',', '.'), '0'), ',') . '%)';
+            }
             $exportUrl = url('/invoice-view') . '?' . http_build_query([
                 'code' => $invoice['kode_invoice'] ?? '',
                 'export' => 'pdf',
@@ -98,7 +103,7 @@
                     <div class="grid grid-cols-[1fr_1fr] gap-y-2">
                         <div>Sub total</div>
                         <div class="text-right font-bold"><?= e(number_format((float) ($summary['subtotal'] ?? 0), 0, ',', '.')) ?></div>
-                        <div>Disc.</div>
+                        <div><?= e($discountLabel) ?></div>
                         <div class="text-right font-bold"><?= e(number_format((float) ($summary['discount'] ?? 0), 0, ',', '.')) ?></div>
                         <div class="pt-3 font-bold">TOTAL</div>
                         <div class="pt-3 text-right font-bold"><?= e(number_format((float) ($summary['total'] ?? 0), 0, ',', '.')) ?></div>

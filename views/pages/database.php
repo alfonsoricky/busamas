@@ -103,6 +103,19 @@
                 </button>
             </form>
             <form method="post">
+                <input type="hidden" name="action" value="seed-penjualan-2026-13-operational">
+                <button
+                    type="submit"
+                    class="inline-flex items-center justify-center rounded-md border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:bg-stone-50"
+                    data-confirm-title="Update Operational 2026 (13)?"
+                    data-confirm-message="Seeder ini akan menyamakan operational dari PENJUALAN-2026 (13), termasuk status ongkos campur Juni, gaji Juni, koreksi nama barang, dan penambahan operational Juli."
+                    data-confirm-ok="Jalankan"
+                    data-confirm-cancel="Batal"
+                >
+                    Operational 2026 (13)
+                </button>
+            </form>
+            <form method="post">
                 <input type="hidden" name="action" value="seed-miss-laundry-invoice-469">
                 <button
                     type="submit"

@@ -732,6 +732,9 @@ function fetch_database_maintenance(?string $action = null): array
     } elseif ($action === 'seed-penjualan-2026-11') {
         $result = run_seed_penjualan_2026_11_update();
         $counts = database_table_counts();
+    } elseif ($action === 'seed-penjualan-2026-13-operational') {
+        $result = run_seed_penjualan_2026_13_operational_update();
+        $counts = database_table_counts();
     } elseif ($action === 'seed-miss-laundry-invoice-469') {
         $result = run_seed_miss_laundry_invoice_469();
         $counts = database_table_counts();
@@ -9510,12 +9513,12 @@ function fetch_operational_expenses(string $month = '', string $year = '', strin
     $params = [];
 
     if ($month !== '') {
-        $sql .= ' AND MONTH(tanggal) = :month';
+        $sql .= ' AND bulan_pnl = :month';
         $params['month'] = (int) $month;
     }
 
     if ($year !== '') {
-        $sql .= ' AND YEAR(tanggal) = :year';
+        $sql .= ' AND tahun_pnl = :year';
         $params['year'] = (int) $year;
     }
 
@@ -9529,7 +9532,7 @@ function fetch_operational_expenses(string $month = '', string $year = '', strin
         $params['search'] = '%' . $search . '%';
     }
 
-    $sql .= ' ORDER BY tanggal DESC, id DESC';
+    $sql .= ' ORDER BY tahun_pnl DESC, bulan_pnl DESC, tanggal DESC, id DESC';
 
     try {
         $stmt = $pdo->prepare($sql);
@@ -11886,6 +11889,253 @@ function seed_penjualan_2026_11_customer(PDO $pdo, string $laundryName, string $
         'alamat_default' => $address,
         'default_discount_persen' => $discount,
     ];
+}
+
+function run_seed_penjualan_2026_13_operational_update(): array
+{
+    $pdo = db();
+    if ($pdo === null) {
+        return [
+            'ok' => false,
+            'message' => 'Database belum bisa dikoneksi.',
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+
+    try {
+        ensure_accounting_tables($pdo);
+
+        $logs = [];
+        $statements = 0;
+        $journalLines = 0;
+
+        foreach (seed_penjualan_2026_13_operational_renames() as $change) {
+            $id = seed_find_operational_id(
+                $pdo,
+                $change['old_tanggal'],
+                $change['old_nama_pengeluaran'],
+                (float) $change['jumlah']
+            );
+
+            if ($id <= 0) {
+                $logs[] = 'Lewat, operational tidak ditemukan: ' . $change['old_nama_pengeluaran'] . ' ' . $change['old_tanggal'];
+                continue;
+            }
+
+            seed_update_operational_row($pdo, $id, $change);
+            $journalLines += generate_operational_expense_journal($pdo, $id);
+            $logs[] = 'Operational #' . $id . ' diubah: ' . $change['nama_pengeluaran'] . ' ' . $change['tanggal'];
+            $statements++;
+        }
+
+        foreach (seed_penjualan_2026_13_operational_rows() as $expense) {
+            $id = seed_upsert_operational_row($pdo, $expense);
+            $journalLines += generate_operational_expense_journal($pdo, $id);
+            $logs[] = 'Operational #' . $id . ' disimpan: ' . $expense['nama_pengeluaran'] . ' ' . $expense['tanggal'];
+            $statements++;
+        }
+
+        $deletedDuplicates = seed_delete_duplicate_operational_rows(
+            $pdo,
+            '2026-06-26',
+            'beli jerigen 5L',
+            120000
+        );
+        if ($deletedDuplicates > 0) {
+            $logs[] = 'Duplikat beli jerigen 5L 26 Juni 2026 dihapus: ' . $deletedDuplicates . ' data';
+            $statements += $deletedDuplicates;
+        }
+
+        return [
+            'ok' => true,
+            'message' => 'Seeder operational PENJUALAN-2026 (13) berhasil dijalankan.',
+            'statements' => $statements,
+            'counts' => database_table_counts(),
+            'output' => implode("\n", array_merge($logs, ['Jurnal operational diposting ulang: ' . $journalLines . ' baris'])),
+        ];
+    } catch (Throwable $exception) {
+        return [
+            'ok' => false,
+            'message' => 'Seeder operational PENJUALAN-2026 (13) gagal: ' . $exception->getMessage(),
+            'statements' => 0,
+            'counts' => database_table_counts(),
+        ];
+    }
+}
+
+function seed_penjualan_2026_13_operational_renames(): array
+{
+    return [
+        [
+            'old_tanggal' => '2026-06-26',
+            'old_nama_pengeluaran' => 'believe jerigen 5L',
+            'tanggal' => '2026-06-26',
+            'bulan_pnl' => 6,
+            'tahun_pnl' => 2026,
+            'nama_pengeluaran' => 'beli jerigen 5L',
+            'jumlah' => 120000,
+            'status_pembayaran' => 'Lunas',
+            'tanggal_pembayaran' => '2026-06-26',
+        ],
+        [
+            'old_tanggal' => '2026-06-30',
+            'old_nama_pengeluaran' => 'Gaji Krisna',
+            'tanggal' => '2026-07-01',
+            'bulan_pnl' => 6,
+            'tahun_pnl' => 2026,
+            'nama_pengeluaran' => 'Gaji Krisna Juni',
+            'jumlah' => 3500000,
+            'status_pembayaran' => 'Lunas',
+            'tanggal_pembayaran' => '2026-07-01',
+        ],
+        [
+            'old_tanggal' => '2026-06-30',
+            'old_nama_pengeluaran' => 'Gaji Wira',
+            'tanggal' => '2026-07-01',
+            'bulan_pnl' => 6,
+            'tahun_pnl' => 2026,
+            'nama_pengeluaran' => 'Gaji Wira Juni',
+            'jumlah' => 3000000,
+            'status_pembayaran' => 'Lunas',
+            'tanggal_pembayaran' => '2026-07-01',
+        ],
+        [
+            'old_tanggal' => '2026-07-02',
+            'old_nama_pengeluaran' => 'Beli Jirigen 20 Liter',
+            'tanggal' => '2026-07-02',
+            'bulan_pnl' => 7,
+            'tahun_pnl' => 2026,
+            'nama_pengeluaran' => 'Beli Jirigen 20 Liter(10 Pcs)',
+            'jumlah' => 652000,
+            'status_pembayaran' => 'Lunas',
+            'tanggal_pembayaran' => '2026-07-02',
+        ],
+        [
+            'old_tanggal' => '2026-06-30',
+            'old_nama_pengeluaran' => 'ongkos campur bulan Juni',
+            'tanggal' => '2026-06-30',
+            'bulan_pnl' => 6,
+            'tahun_pnl' => 2026,
+            'nama_pengeluaran' => 'ongkos campur bulan Juni',
+            'jumlah' => 1510000,
+            'status_pembayaran' => 'Lunas',
+            'tanggal_pembayaran' => '2026-07-11',
+        ],
+    ];
+}
+
+function seed_penjualan_2026_13_operational_rows(): array
+{
+    return [
+        ['tanggal' => '2026-07-04', 'bulan_pnl' => 7, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'Minum Kopi di Villa apple', 'jumlah' => 86000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-04'],
+        ['tanggal' => '2026-07-11', 'bulan_pnl' => 7, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'beli anti karat 5 L', 'jumlah' => 85000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-11'],
+        ['tanggal' => '2026-07-11', 'bulan_pnl' => 7, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'beli jerigen 5L (20pcs)', 'jumlah' => 220000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-11'],
+        ['tanggal' => '2026-07-13', 'bulan_pnl' => 7, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'bayar PDAM henny', 'jumlah' => 200000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-13'],
+        ['tanggal' => '2026-07-14', 'bulan_pnl' => 7, 'tahun_pnl' => 2026, 'nama_pengeluaran' => 'Langganan AI untuk update data', 'jumlah' => 350000, 'status_pembayaran' => 'Lunas', 'tanggal_pembayaran' => '2026-07-14'],
+    ];
+}
+
+function seed_find_operational_id(PDO $pdo, string $tanggal, string $namaPengeluaran, float $jumlah): int
+{
+    $stmt = $pdo->prepare("
+        SELECT id FROM operational_expenses
+        WHERE kategori = 'operational'
+          AND tanggal = ?
+          AND nama_pengeluaran = ?
+          AND ABS(jumlah - ?) < 0.01
+        ORDER BY id
+        LIMIT 1
+    ");
+    $stmt->execute([$tanggal, $namaPengeluaran, $jumlah]);
+
+    return (int) ($stmt->fetchColumn() ?: 0);
+}
+
+function seed_update_operational_row(PDO $pdo, int $id, array $expense): void
+{
+    $stmt = $pdo->prepare("
+        UPDATE operational_expenses
+        SET tanggal = ?,
+            bulan_pnl = ?,
+            tahun_pnl = ?,
+            kategori = 'operational',
+            nama_pengeluaran = ?,
+            jumlah = ?,
+            status_pembayaran = ?,
+            tanggal_pembayaran = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    ");
+    $stmt->execute([
+        $expense['tanggal'],
+        $expense['bulan_pnl'],
+        $expense['tahun_pnl'],
+        $expense['nama_pengeluaran'],
+        $expense['jumlah'],
+        $expense['status_pembayaran'],
+        $expense['tanggal_pembayaran'],
+        $id,
+    ]);
+}
+
+function seed_upsert_operational_row(PDO $pdo, array $expense): int
+{
+    $id = seed_find_operational_id(
+        $pdo,
+        (string) $expense['tanggal'],
+        (string) $expense['nama_pengeluaran'],
+        (float) $expense['jumlah']
+    );
+
+    if ($id > 0) {
+        seed_update_operational_row($pdo, $id, $expense);
+        return $id;
+    }
+
+    $stmt = $pdo->prepare("
+        INSERT INTO operational_expenses
+            (tanggal, bulan_pnl, tahun_pnl, kategori, nama_pengeluaran, jumlah, status_pembayaran, tanggal_pembayaran)
+        VALUES (?, ?, ?, 'operational', ?, ?, ?, ?)
+    ");
+    $stmt->execute([
+        $expense['tanggal'],
+        $expense['bulan_pnl'],
+        $expense['tahun_pnl'],
+        $expense['nama_pengeluaran'],
+        $expense['jumlah'],
+        $expense['status_pembayaran'],
+        $expense['tanggal_pembayaran'],
+    ]);
+
+    return (int) $pdo->lastInsertId();
+}
+
+function seed_delete_duplicate_operational_rows(PDO $pdo, string $tanggal, string $namaPengeluaran, float $jumlah): int
+{
+    $stmt = $pdo->prepare("
+        SELECT id FROM operational_expenses
+        WHERE kategori = 'operational'
+          AND tanggal = ?
+          AND nama_pengeluaran = ?
+          AND ABS(jumlah - ?) < 0.01
+        ORDER BY id
+    ");
+    $stmt->execute([$tanggal, $namaPengeluaran, $jumlah]);
+    $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN) ?: []);
+    if (count($ids) <= 1) {
+        return 0;
+    }
+
+    array_shift($ids);
+
+    foreach ($ids as $id) {
+        delete_accounting_journal_source($pdo, 'operational_expense', (string) $id);
+        delete_accounting_journal_source($pdo, 'operational_payment', (string) $id);
+        $pdo->prepare('DELETE FROM operational_expenses WHERE id = ?')->execute([$id]);
+    }
+
+    return count($ids);
 }
 
 function seed_penjualan_2026_11_sales_code(PDO $pdo, string $name): ?string

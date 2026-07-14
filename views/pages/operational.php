@@ -139,7 +139,7 @@ $months = [
         </div>
 
         <div class="w-full sm:w-auto">
-            <label class="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">Bulan</label>
+            <label class="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">Bulan PNL</label>
             <select name="month" class="w-full sm:w-40 rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
                 <option value="">Semua Bulan</option>
                 <?php foreach ($months as $num => $name): ?>
@@ -149,7 +149,7 @@ $months = [
         </div>
 
         <div class="w-full sm:w-auto">
-            <label class="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">Tahun</label>
+            <label class="block text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">Tahun PNL</label>
             <select name="year" class="w-full sm:w-36 rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-ink outline-none transition focus:border-brand focus:bg-white">
                 <option value="">Semua Tahun</option>
                 <option value="2026" <?= (string)$selectedYear === '2026' ? 'selected' : '' ?>>2026 (Tahun Ini)</option>
